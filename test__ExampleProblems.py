@@ -17,7 +17,7 @@ def run_solver(**kargs):
                         zones=kargs['zones'],
                         day=kargs['day'],
                         account_starting_balances=kargs['account_starting_balances'],
-                        log_file='output/log.log', 
+                        log_file=None, 
                         write_output_files=write_output_files)
 
 
