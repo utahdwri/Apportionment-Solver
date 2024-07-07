@@ -3,6 +3,4 @@ Calculate after-the-fact water right apportionments based on flow measurements a
 
 ![example workflow](https://github.com/utahdwri/Apportionment-Solver/actions/workflows/python-app.yml/badge.svg)
 
-- Describe the problem that this is meant to solve
-- Describe input
-- Describe output
+[Apportionment Solver Documentation](https://github.com/utahdwri/Apportionment-Solver/blob/main/General%20Apportionment%20Solver%20Documentation.pdf)
