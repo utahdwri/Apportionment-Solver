@@ -4,7 +4,7 @@ import unittest
 
 
 def run_solver(**kargs):
-    import solver
+    import solver.solver as solver
 
     # For speedy tests, don't log or write output files.
     write_output_files = False

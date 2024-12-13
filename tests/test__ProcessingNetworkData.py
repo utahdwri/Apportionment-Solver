@@ -1,6 +1,6 @@
 import unittest
-from solver import *
-
+from solver.solver import *
+from solver.wr_network import MeasurementManager, Path
 
 class TestMeasurementManager(unittest.TestCase):
 
