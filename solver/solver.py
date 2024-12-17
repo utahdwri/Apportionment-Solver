@@ -78,7 +78,7 @@ THINGS TODO
     
 """
 
-from .apportionment_solver import ApportionmentSolver
+from .apportionment_solver import ApportionmentSolver, ApportionmentSolver_v2
 from .globals import Globals
 from .variable import Variable
 from .wr_network import WRNetwork, Account, MeasurementSeries, Zone
@@ -97,48 +97,77 @@ DEFAULT_ZONE_ID = '-1'
 
 # -----------------------------------------------------------------------------
 
+def prep_solver(graph:'ApportionmentProblem', day) -> ApportionmentSolver:
+    solver = ApportionmentSolver(date=day, logging=False)
+    solver.set_input(graph, graph.wrnet.measurement_manager)
+    return solver
 
-def solve (flowlines=None, nodes=None, paths=None, measurements=None
+def prep_solver_new(graph:'ApportionmentProblem', day) -> ApportionmentSolver:
+    solver = ApportionmentSolver_v2()
+
+    def find_connecting_reach_id(zone_id):
+        pass
+
+    zones = graph.zones
+    for id in zones:
+        if zones[id].has_natural_flowline:
+            solver.add_reach(id)
+            
+        elif zones[id].is_storage:
+            solver.add_reach_reservoir(find_connecting_reach_id(id), id, 0)
+
+        else:
+            solver.add_reach_diversion(find_connecting_reach_id(id), id, 0)
+
+    solver.set_input(graph, graph.wrnet.measurement_manager)
+    return solver
+
+
+def solve(flowlines=None, nodes=None, paths=None, measurements=None
           , zones=None
-          , day=None, account_starting_balances=None
-          , log_file=None, write_output_files=False):
-    """Solve a distribution accounting problem."""
-
-    # Configure logging.
+          , day=None
+          , account_starting_balances=None
+          , log_file=None
+          , write_output_files=False):
+    """Solve a distribution accounting problem. (Revisions to make more understandable)"""
+    
+    '''# Configure logging.
     logging = None
     if log_file is not None:
         import logging
-        logging.basicConfig(filename=log_file, level=logging.DEBUG, filemode="w", format='%(message)s')
+        logging.basicConfig(filename=log_file, level=logging.DEBUG, filemode="w", format='%(message)s')'''
 
-    #
-    input:ApportionmentProblem = ApportionmentProblem()
-    input.load_objects(flowlines, nodes, paths, measurements)
-    input.init_zones(zones)
+    wrnet = WRNetwork()
+    wrnet.load_objects(flowlines, nodes, paths, measurements)
 
-    solver = ApportionmentSolver(date=day, logging=logging)
-    solver.set_input(input)
+    graph = ApportionmentProblem(wrnet, zones)
 
-    # Write output, if requested.
+    solver = prep_solver(graph, day)
+
+    '''# Write output, if requested.
     if write_output_files:
         input.export_results('output/solver-data.js')
-        input.export_input('output/network-data.json', include_implicit=True)
+        input.export_input('output/network-data.json', include_implicit=True)'''
 
-    transaction_results = solver.do_computations()
-    input.transaction_results = transaction_results
 
-    # Write output, if requested.
+    solver.do_computations()
+
+
+    '''# Write output, if requested.
     if write_output_files:
 
         solver.log(str(transaction_results))
         solver.log_tx()
 
         input.export_results('output/solver-data.js')
-        input.export_input('output/network-data.json', include_implicit=True)
+        input.export_input('output/network-data.json', include_implicit=True)'''
+
 
     # Return results.
     transactions = solver.compile_tx_results()
 
-    return ApportionmentResults(input, transactions)
+    return ApportionmentResults(graph, transactions)
+
 
 
 def solve_period (flowlines=None, nodes=None, paths=None, measurements=None
@@ -206,13 +235,11 @@ class ApportionmentResults:
 
 
 # -----------------------------------------------------------------------------
-
-
-class ApportionmentProblem(WRNetwork):
-
-    def __init__(self):
-
-        WRNetwork.__init__(self)
+class ApportionmentProblem():
+    
+    def __init__(self, wrnet, zones):
+        
+        self.wrnet = wrnet
 
         # Derived intermediate data structures:
         self.zones = {}
@@ -222,12 +249,45 @@ class ApportionmentProblem(WRNetwork):
         # New data structures
         self.accounts = AccountList()   #???? TODO! Use real accounts & zones instead of 'subset' accounts!
 
-
+        #
+        self._init_zones(zones)
 
     # -------------------------------------------------------------------
     # the following deals more with the derived/intermediate data
 
-    def validate_zone_input(self, zones):
+
+    def _init_zones(self, zones):
+        """Given the zones input json, build self.accounts, self.zones, and
+        self.link data structures.
+        """
+
+        zones = self._validate_zone_input(zones)
+
+        semiprocessed_zones = {}
+        for idx, zone_input in enumerate(zones):
+
+            zone = Zone()
+            zone.name = zone_input['name']
+            zone.in_measurements = zone_input['in_measurements']
+            zone.out_measurements = zone_input['out_measurements']
+            if "id" in zone_input:
+                zone.id = zone_input['id']
+            else:
+                zone.id = str(idx)
+
+            # Create a zone within the given measurement bounds.
+            self._define_zone_between_measurements(zone)
+            semiprocessed_zones[zone.id] = zone
+        
+
+        
+        self.zones = self._init_zones_2(semiprocessed_zones)
+
+        self.subarcs = self.determine_arcs(self.zones)
+        self.variables = self.add_variables(self.zones, self.subarcs)
+    
+
+    def _validate_zone_input(self, zones):
 
 
         # Ensure each measurement is used as an input to no more than one zone and
@@ -274,37 +334,70 @@ class ApportionmentProblem(WRNetwork):
         return zones
 
 
-    def init_zones(self, zones):
-        """Given the zones input json, build self.accounts, self.zones, and
-        self.link data structures.
-        """
-
-        zones = self.validate_zone_input(zones)
-
-        semiprocessed_zones = {}
-        for idx, zone_input in enumerate(zones):
-
-            zone = Zone()
-            zone.name = zone_input['name']
-            zone.in_measurements = zone_input['in_measurements']
-            zone.out_measurements = zone_input['out_measurements']
-            if "id" in zone_input:
-                zone.id = zone_input['id']
-            else:
-                zone.id = str(idx)
-
-            # Create a zone within the given measurement bounds.
-            self._define_zone_between_measurements(zone)
-            semiprocessed_zones[zone.id] = zone
+    def _define_zone_between_measurements(self, zone, exclude_streams=False, exclude_diversions=False):
         
+        in_measurements = zone.in_measurements
+        out_measurements = zone.out_measurements
 
-        
-        self.zones = self._init_zones_2(semiprocessed_zones)
+        interior_nodes = []
+        boundary_flowlines = []
 
-        self.subarcs = self.determine_arcs(self.zones)
-        self.variables = self.add_variables(self.zones, self.subarcs)
+        for measurementId in in_measurements:
+            # Get the flowline of the measurement.
+            meas: MeasurementSeries = self.wrnet.measurement_manager.byId(measurementId)
+            if meas.flowlineId is not None:
+                if meas.flowlineId in self.wrnet.flowlines:
+                    flowlineId = meas.flowlineId
+                    interior_node = self.wrnet.flowlines[flowlineId].to_node
+
+                    boundary_flowlines.append(flowlineId)
+                    interior_nodes.append(interior_node)
+
+            elif meas.nodeId is not None:
+                if meas.nodeId in self.wrnet.nodes:
+                    # An in-flow that is measured at a node means this is a 
+                    # storage zone. So we need to:
+                    # - find the implicit storage node and mark it as interior
+                    # - find the implicit flowline and mark it as an inflow
+                    if meas.type == 'measured_storage_change':
+                        ms:MeasurementSeries = self.wrnet.measurement_manager.byId('storage-diversion-from-node:'+str(meas.nodeId))
+                        if ms is not None:
+                            flowlineId = ms.flowlineId
+                            interior_node = self.wrnet.flowlines[flowlineId].to_node
+
+                            boundary_flowlines.append(flowlineId)
+                            interior_nodes.append(interior_node)
+
+
+
+        for measurementId in out_measurements:
+            # Get the flowline of the measurement.
+            meas: MeasurementSeries = self.wrnet.measurement_manager.byId(measurementId)
+            if meas.flowlineId is not None:
+                if meas.flowlineId in self.wrnet.flowlines:
+                    flowlineId = meas.flowlineId
+                    interior_node = self.wrnet.flowlines[flowlineId].from_node
+                    
+                    boundary_flowlines.append(flowlineId)
+                    interior_nodes.append(interior_node)
+
+            elif meas.nodeId is not None:
+                if meas.nodeId in self.wrnet.nodes:
+                    # An out-flow that is measured at a node means this is either 
+                    # a diversion to storage or storage loss. 
+                    if meas.type == 'measured_storage_change':
+                        # - find the implicit storage node and mark it as interior
+                        # - find the implicit flowline and mark it as an inflow
+                        ms:MeasurementSeries = self.wrnet.measurement_manager.byId('storage-diversion-from-node:'+str(meas.nodeId))
+                        if ms is not None:
+                            flowlineId = ms.flowlineId
+                            interior_node = self.wrnet.flowlines[flowlineId].from_node
+
+                            boundary_flowlines.append(flowlineId)
+                            interior_nodes.append(interior_node)
+
+        return self._create_subset(zone, interior_nodes, boundary_flowlines, exclude_streams, exclude_diversions)
     
-
 
     def _init_zones_2(self, zones):
         
@@ -318,28 +411,28 @@ class ApportionmentProblem(WRNetwork):
             change_handoffs = []
 
             for flowlineId in zone.in_flowlines:
-                from_node_id = self.flowlines[flowlineId].from_node
-                from_zone_id = self.nodes[from_node_id]._zone
+                from_node_id = self.wrnet.flowlines[flowlineId].from_node
+                from_zone_id = self.wrnet.nodes[from_node_id]._zone
                 from_zones.append( from_zone_id )
 
-                if self.flowlines[flowlineId].is_natural:
+                if self.wrnet.flowlines[flowlineId].is_natural:
                     has_natural_flowline = True
 
             for flowlineId in zone.out_flowlines:
-                to_node_id = self.flowlines[flowlineId].to_node
-                to_zone_id = self.nodes[to_node_id]._zone
+                to_node_id = self.wrnet.flowlines[flowlineId].to_node
+                to_zone_id = self.wrnet.nodes[to_node_id]._zone
                 to_zones.append( to_zone_id )
-                if self.flowlines[flowlineId].is_natural:
+                if self.wrnet.flowlines[flowlineId].is_natural:
                     has_natural_flowline = True
 
             
             for flowlineId in zone.interior_flowlines:
-                if self.flowlines[flowlineId].is_natural:
+                if self.wrnet.flowlines[flowlineId].is_natural:
                     has_natural_flowline = True
 
             if len(zone.interior_nodes) == 1:
                 nodeId = list(zone.interior_nodes)[0]
-                node = self.nodes[nodeId]
+                node = self.wrnet.nodes[nodeId]
                 if node.storage and node.is_implicit:
                     is_storage = True
 
@@ -350,7 +443,7 @@ class ApportionmentProblem(WRNetwork):
             def add_change_handoff(chnum, nodes):
                 zone_ids = set()
                 for node_id in nodes:
-                    nodes_zone = self.nodes[node_id]._zone
+                    nodes_zone = self.wrnet.nodes[node_id]._zone
                     zone_ids.add(nodes_zone)
                 if len(zone_ids) == 1:
                     change_handoffs.append(chnum)
@@ -363,7 +456,7 @@ class ApportionmentProblem(WRNetwork):
                                     'path {} because its to_nodes belong '
                                     'to more than one zone!')
                 
-            for path_id, path in self.paths.items():
+            for path_id, path in self.wrnet.paths.items():
                 if path.to_change is not None:
                     add_change_handoff(path.to_change, path.to_nodes)
                 if path.from_change is not None:
@@ -378,72 +471,6 @@ class ApportionmentProblem(WRNetwork):
         return zones
 
 
-    def _define_zone_between_measurements(self, zone, exclude_streams=False, exclude_diversions=False):
-        
-        in_measurements = zone.in_measurements
-        out_measurements = zone.out_measurements
-
-        interior_nodes = []
-        boundary_flowlines = []
-
-        for measurementId in in_measurements:
-            # Get the flowline of the measurement.
-            meas: MeasurementSeries = self.measurement_manager.byId(measurementId)
-            if meas.flowlineId is not None:
-                if meas.flowlineId in self.flowlines:
-                    flowlineId = meas.flowlineId
-                    interior_node = self.flowlines[flowlineId].to_node
-
-                    boundary_flowlines.append(flowlineId)
-                    interior_nodes.append(interior_node)
-
-            elif meas.nodeId is not None:
-                if meas.nodeId in self.nodes:
-                    # An in-flow that is measured at a node means this is a 
-                    # storage zone. So we need to:
-                    # - find the implicit storage node and mark it as interior
-                    # - find the implicit flowline and mark it as an inflow
-                    if meas.type == 'measured_storage_change':
-                        ms:MeasurementSeries = self.measurement_manager.byId('storage-diversion-from-node:'+str(meas.nodeId))
-                        if ms is not None:
-                            flowlineId = ms.flowlineId
-                            interior_node = self.flowlines[flowlineId].to_node
-
-                            boundary_flowlines.append(flowlineId)
-                            interior_nodes.append(interior_node)
-
-
-
-        for measurementId in out_measurements:
-            # Get the flowline of the measurement.
-            meas: MeasurementSeries = self.measurement_manager.byId(measurementId)
-            if meas.flowlineId is not None:
-                if meas.flowlineId in self.flowlines:
-                    flowlineId = meas.flowlineId
-                    interior_node = self.flowlines[flowlineId].from_node
-                    
-                    boundary_flowlines.append(flowlineId)
-                    interior_nodes.append(interior_node)
-
-            elif meas.nodeId is not None:
-                if meas.nodeId in self.nodes:
-                    # An out-flow that is measured at a node means this is either 
-                    # a diversion to storage or storage loss. 
-                    if meas.type == 'measured_storage_change':
-                        # - find the implicit storage node and mark it as interior
-                        # - find the implicit flowline and mark it as an inflow
-                        ms:MeasurementSeries = self.measurement_manager.byId('storage-diversion-from-node:'+str(meas.nodeId))
-                        if ms is not None:
-                            flowlineId = ms.flowlineId
-                            interior_node = self.flowlines[flowlineId].from_node
-
-                            boundary_flowlines.append(flowlineId)
-                            interior_nodes.append(interior_node)
-
-        return self._create_subset(zone, interior_nodes, boundary_flowlines, exclude_streams, exclude_diversions)
-    
-
-
     def _create_subset(self, zone, interior_nodes, boundary_flowlines, exclude_streams=False, exclude_diversions=False):
 
         def getNextNodes(starting_nodeIds):
@@ -453,16 +480,16 @@ class ApportionmentProblem(WRNetwork):
             next_backward_nodes = {}
 
             for starting_nodeId in starting_nodeIds:
-                node = self.nodes[starting_nodeId]
+                node = self.wrnet.nodes[starting_nodeId]
                 for flowlineId in node.outflows:
                     # we want to ignore diversions (non-natural) flowlines that are not used by any paths.
-                    if self.flowlines[flowlineId]._is_traversed_by_path or self.flowlines[flowlineId].is_natural:
-                        next_nodeId = self.flowlines[flowlineId].to_node
+                    if self.wrnet.flowlines[flowlineId]._is_traversed_by_path or self.wrnet.flowlines[flowlineId].is_natural:
+                        next_nodeId = self.wrnet.flowlines[flowlineId].to_node
                         next_forward_nodes[flowlineId] = next_nodeId
                 for flowlineId in node.inflows:
                     # we want to ignore diversions (non-natural) flowlines that are not used by any paths.
-                    if self.flowlines[flowlineId]._is_traversed_by_path or self.flowlines[flowlineId].is_natural:
-                        next_nodeId = self.flowlines[flowlineId].from_node
+                    if self.wrnet.flowlines[flowlineId]._is_traversed_by_path or self.wrnet.flowlines[flowlineId].is_natural:
+                        next_nodeId = self.wrnet.flowlines[flowlineId].from_node
                         next_backward_nodes[flowlineId] = next_nodeId
 
             return next_forward_nodes, next_backward_nodes
@@ -475,20 +502,20 @@ class ApportionmentProblem(WRNetwork):
             elif direction == 'BACKWARD':
                 subset_boundary_flowlines = subset.in_flowlines
 
-            if not flowlineId in subset.interior_flowlines:
+            if flowlineId not in subset.interior_flowlines:
 
                 # Is the next node approached using a flowline that is marked as a subset boundary?
                 if flowlineId in boundary_flowlines:
                     subset_boundary_flowlines.append(flowlineId)
-                elif exclude_streams and self.flowlines[flowlineId].is_natural:
+                elif exclude_streams and self.wrnet.flowlines[flowlineId].is_natural:
                     subset_boundary_flowlines.append(flowlineId)
-                elif exclude_diversions and not self.flowlines[flowlineId].is_natural:
+                elif exclude_diversions and not self.wrnet.flowlines[flowlineId].is_natural:
                     subset_boundary_flowlines.append(flowlineId)
                 
                 # Otherwise, Is the next node already part of a subset?
-                elif self.nodes[nodeId]._zone is not None:
+                elif self.wrnet.nodes[nodeId]._zone is not None:
                     # Is it part of this subset?
-                    if self.nodes[nodeId]._zone == subset.id:
+                    if self.wrnet.nodes[nodeId]._zone == subset.id:
                         subset.interior_flowlines.add(flowlineId)
 
                     # Or part of a different subset?
@@ -521,7 +548,7 @@ class ApportionmentProblem(WRNetwork):
 
         # Check if the interior-nodes collection contains any special nodes that are implicit inflows/outflows. 
         for nodeId in zone.interior_nodes:
-            node_type = self.nodes[nodeId].type
+            node_type = self.wrnet.nodes[nodeId].type
             if node_type == 4 or node_type == 5:
                 zone.inflow_nodes.append(nodeId)
             if node_type == 1:
@@ -531,7 +558,7 @@ class ApportionmentProblem(WRNetwork):
 
         #
         for nodeId in zone.interior_nodes:
-            self.nodes[nodeId]._zone = zone.id
+            self.wrnet.nodes[nodeId]._zone = zone.id
         
 
         return zone
@@ -555,11 +582,11 @@ class ApportionmentProblem(WRNetwork):
 
             for flowlineId in zone.out_flowlines:
 
-                from_node = self.flowlines[flowlineId].from_node
-                to_node = self.flowlines[flowlineId].to_node
+                from_node = self.wrnet.flowlines[flowlineId].from_node
+                to_node = self.wrnet.flowlines[flowlineId].to_node
 
-                from_zone = self.nodes[from_node]._zone
-                to_zone = self.nodes[to_node]._zone
+                from_zone = self.wrnet.nodes[from_node]._zone
+                to_zone = self.wrnet.nodes[to_node]._zone
 
                 if from_zone is None or to_zone is None:
                     continue # This arc must not be needed. Skip it!
@@ -592,8 +619,8 @@ class ApportionmentProblem(WRNetwork):
 
     def add_variables(self, zones, subarcs):
 
-        paths = self.paths
-        nodes = self.nodes
+        paths = self.wrnet.paths
+        nodes = self.wrnet.nodes
 
         variables = {}
 
@@ -609,7 +636,7 @@ class ApportionmentProblem(WRNetwork):
             # If a valid 'cfs_limit' number is specified, use it for the upper-bound,
             try: 
                 ub = float(paths[pathId].cfs_limit)
-            except: 
+            except Exception: 
                 ub = Globals.DEFAULT_PATH_UB 
 
             # For each 'junction':
@@ -636,8 +663,8 @@ class ApportionmentProblem(WRNetwork):
             forward_flowlines = paths[pathId].forward_flowlines
             backward_flowlines = paths[pathId].backward_flowlines
 
-            from_account =  paths[pathId].from_account
-            to_account = paths[pathId].to_account
+            #from_account =  paths[pathId].from_account
+            #to_account = paths[pathId].to_account
 
 
             v = Variable(id='PATH_'+pathId, type='PATH', 
@@ -746,8 +773,6 @@ class ApportionmentProblem(WRNetwork):
         return variables
 
 
-
-
     def export_results(self, file):
         """ Exports the problem input to a file using JSON format.
 
@@ -767,6 +792,7 @@ class ApportionmentProblem(WRNetwork):
         with open(file, 'w') as f:
             #f.write(json.dumps(output, indent=2))
             f.write('json = ' + jsonpickle.encode(output, unpicklable=False, indent=2 ))
+
 
 
 

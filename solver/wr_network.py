@@ -341,10 +341,10 @@ class WRNetwork:
             fromNode = flowlines[flowlineId].from_node
             toNode = flowlines[flowlineId].to_node
 
-            if not fromNode in nodes:
+            if fromNode not in nodes:
                 continue # 10/24/2023 - dont raise an exception since we may be working with only a subset of the network
                 #raise Exception("Could not find fromNode '{}' in list!".format(fromNode)) 
-            if not toNode in nodes:
+            if toNode not in nodes:
                 continue # 10/24/2023 - dont raise an exception since we may be working with only a subset of the network
                 #raise Exception("Could not find toNode '{}' in list!".format(toNode)) 
 
@@ -493,7 +493,7 @@ class MeasurementManager:
                 try:
                     matching_series.sort(key=lambda x:x.dist_from_top )
                     the_one = matching_series[0]
-                except:
+                except Exception:
                     raise ValueError('Failed to identify upsream measurement! \n' + '\n'.join([str(x) for x in matching_series]) )
             else:
                 raise ValueError('There are multiple measurements at the requested feature, but no valid value for the if_multiple argument was provided.')
@@ -601,12 +601,19 @@ class Node:
 
 
 class Path:
-    def __init__(self, id, wrnum, priority, cfs_limit, 
+    def __init__(self, 
+                 id, 
+                 wrnum, 
+                 priority, 
+                 cfs_limit, 
                  from_nodes=[], to_nodes=[], 
                  forward_flowlines=[], backward_flowlines=[],
                  from_change=None, to_change=None,
                  from_account=None, to_account=None,
                  series=None, child_series=None):
+
+        if priority is None:
+            priority = 1e100
 
         self.id = id
         self.wrnum = wrnum
@@ -631,7 +638,7 @@ class Path:
         # 1st, check if it's just a plain number.
         try:
             number = float(cfs_input)
-        except:
+        except Exception:
             pass
         else: # No error, so it is a number!
             def constant_value_getter(yyyy_mm_dd):
@@ -642,7 +649,7 @@ class Path:
         import json
         try:
             obj = json.loads(cfs_input)
-        except:
+        except Exception:
             pass
         else: # No errors, so it is valid json!
 

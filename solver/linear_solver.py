@@ -3,25 +3,18 @@ from ortools.linear_solver import pywraplp
 from math import inf, isnan, isclose
 
 
-class SolverError(Exception):
-    """A custom exception that gets raised when the solver cannot solve a 
-    requested problem, perhaps because the problem is infeasible, unbounded, or
-    not properly defined. Each instance should have a message that describes
-    the error.
+class LinearSolver:
+    """Wrapper around the linear solver engine (currently using GLOP).
+    This class could be used to solve linear optimization problems in general.
     """
-    pass
-
-
-class MatrixLinearSystemSolver:
-    """Wrapper around the linear solver engine (currently using GLOP). This
-    class also has functions to do series of optimization operations that are 
-    somewhat specilaized to the apportionment problem."""
 
     SOLVER_OPTIMAL = 0
     PRINT_SOLVER_MESSAGES = False
     
     def __init__(self):
         self.solver = pywraplp.Solver.CreateSolver('GLOP')
+
+        # Keep a dictionary of variables and constraints for convenience.
         self.vars = {}
         self.cons = {}
 
@@ -29,11 +22,13 @@ class MatrixLinearSystemSolver:
     def add_variable(self, name:str, lb:float=0, ub:float=None) -> None:
         """Add a variable to the system of equations."""
 
+        # Allow None to be used to indicate there is no lb or ub.
         if lb is None:
             lb = -inf
         if ub is None:
             ub = inf
 
+        # The bounds must be a number!
         if isnan(lb):
             raise Exception(f'Lower bound value for variable {name} is NaN!')
         if isnan(ub):
@@ -53,11 +48,13 @@ class MatrixLinearSystemSolver:
     def add_constriant(self, name:str, lb:float=None, ub:float=None) -> None:
         "Add a constraint to the system of equations."
 
+        # Allow None to be used to indicate there is no lb or ub.
         if lb is None:
             lb = -inf
         if ub is None:
             ub = inf
 
+        # The bounds must be a number!
         if isnan(lb):
             raise Exception(f'Lower bound value for constraint {name} is NaN!')
         if isnan(ub):
@@ -76,6 +73,7 @@ class MatrixLinearSystemSolver:
 
 
     def set_coeficient(self, constraint_name, variable_name, coef) -> None:
+
         if coef is None:
             raise Exception(f'New coef for constraint {constraint_name} is None!')
         if isnan(coef):
@@ -112,12 +110,12 @@ class MatrixLinearSystemSolver:
             objective.SetCoefficient(variable, 1)
 
         # Solve the system.
-        if MatrixLinearSystemSolver.PRINT_SOLVER_MESSAGES:
+        if LinearSolver.PRINT_SOLVER_MESSAGES:
             self.solver.EnableOutput()
         status = self.solver.Solve()
 
         # Retrieve the solution results.
-        if status == MatrixLinearSystemSolver.SOLVER_OPTIMAL:
+        if status == LinearSolver.SOLVER_OPTIMAL:
 
             objective_value = objective.Value()
 
@@ -135,7 +133,7 @@ class MatrixLinearSystemSolver:
                 3 : "UNBOUNDED",
                 4 : "ABNORMAL",
             }
-            raise SolverError('Could not find optimal solution! Status = ' + 
+            raise LinearSolverError('Could not find optimal solution! Status = ' + 
                        str(status) + ':' + status_text[status] 
                        + '/n/n' + self.lp_string())
 
@@ -144,19 +142,21 @@ class MatrixLinearSystemSolver:
 
 
     def maximize_and_update_variable(self, variable_name):
-        """Update the variable to its feasible maximum."""
+        """Maximize the given variable and then update its lower bound so we 
+        maintain the maximized value through subsequent operations."""
 
         # Find its maximum feasible value.
-        objective_value, blah = self.solve_objective([variable_name], maximization=True)
+        objective_value, blah = self.solve_objective([variable_name], 
+                                                     maximization=True)
 
         # Update its value.
-        self.update_variable(variable_name, lb=objective_value)
+        self.update_variable_bounds(variable_name, lb=objective_value)
 
         # Return.
         return objective_value
 
 
-    def update_variable(self, name:str, lb:float=None, ub:float=None):
+    def update_variable_bounds(self, name:str, lb:float=None, ub:float=None):
 
         variable = self.vars[name]
 
@@ -174,7 +174,7 @@ class MatrixLinearSystemSolver:
                 raise ValueError(f"Cannot update lb or ub for variable {name} "
                                  "becuase lb > ub : {_lb} > {_ub}.")
 
-
+        # Bounds must be numeric.
         if lb is not None:
             if isnan(lb):
                 raise Exception(f'New lower bound value for variable {name} is NaN!')
@@ -184,7 +184,8 @@ class MatrixLinearSystemSolver:
                 raise Exception(f'new upper bound value for variable {name} is NaN!')
             variable.SetUb(ub)
 
-    def update_constraint(self, name:str, lb:float=None, ub:float=None):
+
+    def update_constraint_bounds(self, name:str, lb:float=None, ub:float=None):
         
         constraint = self.cons[name]
         if lb is not None:
@@ -196,29 +197,31 @@ class MatrixLinearSystemSolver:
                 raise Exception(f'Upper bound value for constraint {name} is NaN!')
             constraint.SetUb(ub)
 
+
     def get_constraint_names(self) -> list:
+        """Return a list of the constraints."""
         return self.cons.keys()
+
 
     def lp_string(self) -> str:
         """Return a LP format string representing the linear program. """
-        #return self.solver.ExportModelAsMpsFormat(False,False)
         value = self.solver.ExportModelAsLpFormat(False)
-        #value = value + '\n\n*vars:'
-        #for var in self.vars:
-        #    value += f'\n{var} lb:{self.vars[var].lb()}  ub:{self.vars[var].ub()} value:{self.vars[var].solution_value()}'
         return value
     
     
     def maximize_group_by_proportions(self, variable_names, proportion_factors):
 
         # List of constraints used only for merging purposes.
-        merge_var, merge_constraints = self._merge(variable_names, proportion_factors)
+        merge_var, merge_constraints = self._merge(variable_names, 
+                                                   proportion_factors)
 
         # Solve.
-        objective_value, blah = self.solve_objective([merge_var.name()], maximization=True)
+        objective_value, blah = self.solve_objective([merge_var.name()], 
+                                                     maximization=True)
 
         # Now unmerge.
-        var_values = self._unmerge(variable_names, proportion_factors, merge_var, merge_constraints, objective_value )
+        var_values = self._unmerge(variable_names, proportion_factors, 
+                                   merge_var, merge_constraints, objective_value)
 
         return var_values
     
@@ -257,7 +260,9 @@ class MatrixLinearSystemSolver:
         
         return merge_var, merge_constraints
 
-    def _unmerge(self, variable_names, proportion_factors, merge_var, merge_constraints, solved_value):
+
+    def _unmerge(self, variable_names, proportion_factors, merge_var, 
+                 merge_constraints, solved_value):
         var_values = {}
 
         # Clear the merged constraints. 
@@ -281,3 +286,11 @@ class MatrixLinearSystemSolver:
             var_values[variable_name] = variable_value
 
         return var_values
+
+
+
+class LinearSolverError(Exception):
+    """An exception indicating the solver cannot solve a requested problem, 
+    perhaps because the problem is infeasible, unbounded, or not properly 
+    defined."""
+    pass

@@ -1,6 +1,6 @@
 import unittest
-from solver.solver import *
-from solver.wr_network import MeasurementManager, Path
+from solver.solver import ApportionmentProblem
+from solver.wr_network import WRNetwork, MeasurementManager, Path
 
 class TestMeasurementManager(unittest.TestCase):
 
@@ -160,9 +160,6 @@ class TestSubsets(unittest.TestCase):
             },
         }
 
-        self.example_problem = ApportionmentProblem()
-        self.example_problem.load_objects(self.example_data['flowlines'], self.example_data['nodes'], self.example_data['paths'], self.example_data['measurements'])
-
 
     def get_subset_containing_nodeId(self, zones, nodeId):
         """Helper function that retrieves the zone from the given dict of 
@@ -245,9 +242,9 @@ class TestSubsets(unittest.TestCase):
             "zones": zones
         }
         # Set things up...
-        problem = ApportionmentProblem()
-        problem.load_objects(input['flowlines'], input['nodes'], input['paths'], input['measurements'])
-        problem.init_zones(input['zones'])
+        wrnet = WRNetwork()
+        wrnet.load_objects(input['flowlines'], input['nodes'], input['paths'], input['measurements'])
+        problem = ApportionmentProblem(wrnet, input['zones'])
 
         return problem
 
@@ -329,9 +326,9 @@ class TestSubsets(unittest.TestCase):
         }
 
         # Set things up...
-        problem = ApportionmentProblem()
-        problem.load_objects(input['flowlines'], input['nodes'], input['paths'], input['measurements'])
-        problem.init_zones(input['zones'])
+        wrnet = WRNetwork()
+        wrnet.load_objects(input['flowlines'], input['nodes'], input['paths'], input['measurements'])
+        problem = ApportionmentProblem(wrnet, input['zones'])
 
         return problem
 
