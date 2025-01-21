@@ -15,24 +15,31 @@ class ApportionmentSolver_v2:
 
 
     def __str__(self):
+
+        def warn_if_value_is_incorrect(t):
+            if t.expected_value is not None:
+                if abs(t.expected_value - t.value) > 1e-4:
+                    return f'*** NOT EQUAL TO EXPECTED VALUE OF {t.expected_value}'
+            return ''
+
         out = ''
         for name in self.nodes:
             n:ApportionmentSolverNode = self.nodes[name]
             if n.type == 'REACH':
-                out += '\n' + n.name
+                out += '\n' + n.name + f'(\u0394S={n.storage_chg}, gains-losses={n.net_reach_gains})'
                 for f in n.outflows:
                     out += f'\n {f.flow} >> {f.to_node.name}'
                     for t in f.forward_vars:
-                        out += f'\n      {t.name} ({t.lb}, {t.ub}) = {t.value}'
+                        out += f'\n      {t.name} ({t.lb}, {t.ub}) = {t.value}' + warn_if_value_is_incorrect(t)
                     for t in f.backward_vars:
-                        out += f'\n      {t.name} ({t.lb}, {t.ub}) = {t.value} *backwards'
+                        out += f'\n      {t.name} ({t.lb}, {t.ub}) = {t.value} *backwards' + warn_if_value_is_incorrect(t)
 
                 for f in n.inflows:
                     out += f'\n {f.flow} << {f.from_node.name}'
                     for t in f.forward_vars:
-                        out += f'\n      {t.name} ({t.lb}, {t.ub}) = {t.value}'
+                        out += f'\n      {t.name} ({t.lb}, {t.ub}) = {t.value}' + warn_if_value_is_incorrect(t)
                     for t in f.backward_vars:
-                        out += f'\n      {t.name} ({t.lb}, {t.ub}) = {t.value} *backwards'
+                        out += f'\n      {t.name} ({t.lb}, {t.ub}) = {t.value} *backwards' + warn_if_value_is_incorrect(t)
 
         return out
 
@@ -45,7 +52,8 @@ class ApportionmentSolver_v2:
 
     def add_reach(self, name:str, 
                   storage_chg:float=0, 
-                  expected_gain:float=None) -> None:
+                  expected_gain:float=None,
+                  expected_loss:float=None ) -> None:
         """Create a stream reach."""
 
         self._validate_new_name(self.nodes, name)
@@ -57,7 +65,7 @@ class ApportionmentSolver_v2:
             storage_chg=storage_chg
         )
 
-        # Create a gain-node. Every reach node has an acompaning gains/loss node.
+        # Create a gain-node. Every reach node has an acompaning gains node.
         gain_name = name + '_GAINS'
         self.nodes[gain_name] = ApportionmentSolverNode(
             name=gain_name, 
@@ -73,17 +81,48 @@ class ApportionmentSolver_v2:
             flow=None
         )
 
-        # Create a variable representing the net gain (or loss) to this reach.
+        # Create a loss-node. Every reach node has an acompaning loss node.
+        loss_name = name + '_LOSS'
+        self.nodes[loss_name] = ApportionmentSolverNode(
+            name=loss_name, 
+            type='LOSS'
+        )
+
+        # Connect the loss-node to the stream node.
+        arc_name = name + '>>' + loss_name
+        self.arcs[arc_name] = ApportionmentSolverArc(
+            name=arc_name, 
+            from_node=self.nodes[name],
+            to_node=self.nodes[loss_name],
+            flow=None
+        )
+
+        # Create a variable representing the unapportioned inflow from the
+        # gain node into this reach.
         gain_var_name = 'GAIN_' + name
         self.vars[gain_var_name] = ApportionmentSolverVar(
             name=gain_var_name,
             path_id=None,
             priority=None,
             node_path=[self.nodes[gain_name], self.nodes[name]],
-            lb=None,
+            lb=0,
             ub=None,
             value=None,
             expected_value=expected_gain
+        )
+
+        # Create a variable representing the unapportioned inflow from the
+        # gain node into this reach.
+        loss_var_name = 'LOSS_' + name
+        self.vars[loss_var_name] = ApportionmentSolverVar(
+            name=loss_var_name,
+            path_id=None,
+            priority=None,
+            node_path=[self.nodes[name], self.nodes[loss_name]],
+            lb=0,
+            ub=None,
+            value=None,
+            expected_value=expected_loss
         )
 
     def add_reach_reservoir(self, reach_name:str, resv_name:str, storage_chg:float, storage_loss:float=0):
@@ -96,7 +135,9 @@ class ApportionmentSolver_v2:
         # Create the node.
         self.nodes[resv_name] = ApportionmentSolverNode(
             name=resv_name, 
-            type='STORAGE'
+            type='STORAGE',
+            storage_chg=storage_chg + storage_loss,
+            storage_on_reach=reach_name
         )
 
         # Connect the reservoir node to the stream node.
@@ -105,7 +146,7 @@ class ApportionmentSolver_v2:
             name=arc_name, 
             from_node=self.nodes[reach_name],
             to_node=self.nodes[resv_name],
-            flow=storage_chg + storage_loss
+            flow=None
         )
 
         # Create a variable representing unauthorized diversions to the reservoir.
@@ -220,29 +261,33 @@ class ApportionmentSolver_v2:
             value=None
         )
 
-    def add_reach_connection(self, from_reach_name:str, to_reach_name:str, flow:float):
+    def add_connection(self, from_name:str, to_name:str, flow:float):
         """Define how two stream reaches are connected."""
+        # 1/20/2025 - This function was updated and renamed so it could be used 
+        #             to connect any two nodes, not just two reach nodes. 
 
-        self._validate_existing_name(self.nodes, from_reach_name)
-        self._validate_existing_name(self.nodes, to_reach_name)
+        self._validate_existing_name(self.nodes, from_name)
+        self._validate_existing_name(self.nodes, to_name)
 
-        # Connect the two stream reaches.
-        arc_name = from_reach_name + '>>' + to_reach_name
+        # Connect the two nodes.
+        arc_name = from_name + '>>' + to_name
         self._validate_new_name(self.arcs, arc_name)
         self.arcs[arc_name] = ApportionmentSolverArc(
             name=arc_name, 
-            from_node=self.nodes[from_reach_name],
-            to_node=self.nodes[to_reach_name],
+            from_node=self.nodes[from_name],
+            to_node=self.nodes[to_name],
             flow=flow
         )
 
+
+
         # Create a variable representing this flow.
-        flow_var_name = 'FLOW_' + from_reach_name + '_TO_' + to_reach_name
+        flow_var_name = 'FLOW_' + from_name + '_TO_' + to_name
         self.vars[flow_var_name] = ApportionmentSolverVar(
             name=flow_var_name,
             path_id=None,
             priority=None,
-            node_path=[self.nodes[from_reach_name], self.nodes[to_reach_name]],
+            node_path=[self.nodes[from_name], self.nodes[to_name]],
             lb=0,
             ub=None,
             value=None
@@ -279,12 +324,19 @@ class ApportionmentSolver_v2:
 
     def solve(self):
 
+        # This supports cases where the flow from the reach to on-stream 
+        # reservoirs requires a mass balance calculation. (This is similar 
+        # to the calculation of a reach's gain/loss, but this needs to be done
+        # first so the gain/loss flow is the the only unknow in the mass balance.)
+        self._calculate_reservoir_diversions()
+
+        # The reach gains/losses are not measured directly, but we can add 
+        # measurement constraints for these arc using simple mass balances.
+        self._calculate_reach_gains_losses()
+
         # Convert the nodes, arcs, and variables into a system of linear 
         # equations that can be solved.
         engine = self._build_linear_equations()
-
-        # Calculate reach gains/losses
-        self._calculate_reach_nf(engine)
 
         # We cannot allow any apportionment to force reservoir or import water to spill to natural flow.
         # So these spills should be calculated and fixed prior to the apportionments.
@@ -308,9 +360,11 @@ class ApportionmentSolver_v2:
     # --------------------------------------------------------------------------
     # Utility function for testing
     # --------------------------------------------------------------------------
-    def assert_variables_equal_expected(self):
+    def assert_variables_equal_expected(self, message=''):
         """Check if each of the variables match the expected 
         value to 4 decimal places. 
+
+        Skips variables that don't have a defined expected value.
         
         Raises an exception if no variables have an expected value. """
 
@@ -321,9 +375,9 @@ class ApportionmentSolver_v2:
             computed_value = self.vars[var_name].value
             if expected_value is not None:
                 cnt += 1
-                msg = (f'Computed value ({computed_value}) does not equal expected'
-                       f' value ({expected_value}) for variable "{var_name}".'
-                       '\n'+str(self)
+                msg = ( message +
+                       f'Variable "{var_name}": computed ({computed_value}) != expected'
+                       f' ({expected_value})\n'+str(self)
                        )
                 assert abs(expected_value - computed_value) < 1e-4, msg
 
@@ -350,6 +404,87 @@ class ApportionmentSolver_v2:
             raise ValueError(f'The name "{name}" is not found!')
 
 
+    def _calculate_reservoir_diversions(self):
+        """In some cases, the flow between the reservoir node and the stream 
+        node cannot be determined at the time the reservoir node is added; so 
+        it must be determined after the network graph has been completed.
+        """
+        # Loop through each reservoir reach
+        # Add mass balance constraints & coeficients.
+        for name in self.nodes:
+            n = self.nodes[name]
+            if n.is_storage_node():
+
+                reach_node = self.nodes[n.storage_on_reach]
+                resv_imports = 0 # Total inflow from the reservoir from nodes other than the reach node.
+                resv_exports = 0 # Total outflow from the reservoir (not counting evap) to nodes other than the reach node.
+                for a in n.inflows:
+                    if a.from_node != reach_node:
+                        resv_imports += a.flow
+
+                for a in n.outflows:
+                    if a.to_node != reach_node:
+                        resv_exports += a.flow
+
+                # Identify the arc that needs its flow calculated.
+                resv_to_reach_arc = None
+                for a in n.inflows:
+                    if a.flow is None:
+                        if resv_to_reach_arc is None:
+                            resv_to_reach_arc = a
+                        else:
+                            raise Exception('There are multiple arcs flowing from the reservoir to the reach without a measured value!')
+                
+                if resv_to_reach_arc is None:
+                    raise Exception('Something went wrong!')
+                
+                resv_to_reach_arc.flow = n.storage_chg + resv_exports - resv_imports
+                
+
+
+    def _calculate_reach_gains_losses(self):
+        """The reach gains/losses are not measured directly, but we can add 
+        measurement constraints for these arc using simple mass balances."""
+
+        # Loop through each stream reach
+        # Add mass balance constraints & coeficients.
+        for name in self.nodes:
+            n = self.nodes[name]
+            if n.type == 'REACH':
+
+                # calculate sum = meas_outflows + meas_increase_in_storage - meas_inflows
+                reach_gain = None
+                reach_loss = None
+                sum = n.storage_chg
+                for a, coef in ( [(a,-1) for a in n.inflows ] + 
+                                 [(a, 1) for a in n.outflows] 
+                                ):
+                    if a.flow is None and coef == -1:
+                        if reach_gain is not None:
+                            raise Exception('Something went wrong. There should only be one unmeasured inflow.')
+                        reach_gain = a
+                    elif a.flow is None and coef == 1:
+                        if reach_loss is not None:
+                            raise Exception('Something went wrong. There should only be one unmeasured outflow.')
+                        reach_loss = a
+                    else:
+                        sum += coef * a.flow
+
+                #
+                if reach_gain is not None and reach_loss is not None:
+                    if sum > 0:
+                        reach_gain.flow = sum
+                        reach_loss.flow = 0
+                    else:
+                        reach_gain.flow = 0
+                        reach_loss.flow = -sum
+                    n.net_reach_gains = sum
+
+                else:
+                    raise Exception('Something went wrong. Failed to identify the reach gains and losses.')
+
+
+
     def _build_linear_equations(self) -> LinearSolver:
         """Add the variables and constraints to the linear solver engine."""
         
@@ -365,10 +500,9 @@ class ApportionmentSolver_v2:
             n = self.nodes[name]
             con_name = None
 
-            if n.type == 'REACH':
-                con_name = 'REACH_MB_' + n.name
-                engine.add_constriant(name=con_name, lb=n.storage_chg, ub=n.storage_chg)
-            elif n.type == 'HANDOFF':
+            # 1/6 - I've removed the reach mass balance constraints.
+            # Do we need the handoff nodes? 
+            if n.type == 'HANDOFF':
                 con_name = 'HDOFF_MB_' + n.name
                 engine.add_constriant(name=con_name, lb=0, ub=0)
 
@@ -406,45 +540,19 @@ class ApportionmentSolver_v2:
                             ):
                 engine.set_coeficient(con_name, v.name, coef)
 
+        # Calculate the gain/loss flow.
+        # Add reach gain/loss constraint:
+        '''
+        If there is a net gain:
+        loss = 0
+        gain + trxn1 + trxn2 + ... = REACH INFLOW - REACH OUTFLOW
+
+        If there is a net loss:
+        loss = - REACH INFLOW + REACH OUTFLOW
+        gain + trxn1 + trxn2 + ... = 0
+        '''
+
         return engine
-
-
-
-    def _calculate_reach_nf(self, engine):
-        '''
-        There must be a measurement between every source reach.
-        Between reaches and reservoir zones, the connection must be measured via a change in storage measurement.
-        Between reaches and change handoff zones, the net flow is zero. (The constraint cannot be in its relaxed form.)
-        
-        Minimize the sum of reach gain/losses. Constrain each gain/loss variable to equal the calculated value.
-            - diversions, illegal uses, spills, 
-
-
-        If any diversions or reservoirs are not measured, minimizing the reach gain/loss has the effect of assuming 
-        no diversion.
-
-        I think this step can go before or after self.minimize_reservoir_spills
-        because everything comming to or from a reach is measured 
-
-        '''
-        # TODO - consider if this method is unnecesary if unmeasured diversions 
-        # can be dealt with elsewhere...
-
-
-        # Minimize the reach gains. 
-        # (This only has an effect if there are unmetered diversions.
-        # It will make it so there is no water remaining in the reach 
-        # to be apportioned to these unmetered diversions.)
-        gain_variables = [name for name in self.vars if name[0:5] == 'GAIN_']
-        blah, variable_values = engine.solve_objective(gain_variables, minimization=True)
-
-        # Set the reach-gain (or loss) values to constants.
-        for var_name, calc_value in variable_values.items():
-            engine.update_variable_bounds(var_name, lb=calc_value, ub=calc_value)
-            self.log('{} value = {}'.format(var_name, calc_value))
-
-            # And store the value in the zone object.
-            self.vars[var_name].value = calc_value
 
 
     def _minimize_reservoir_spills(self, engine):
@@ -927,10 +1035,18 @@ class ApportionmentSolverNode:
     type: str
     storage_chg: float = 0
     
+    # If this is set, it indicates the node is an on-stream storage node. The 
+    # value indicates the name of the stream reach.
+    storage_on_reach: str | None = None
+    
     def __post_init__(self):
         # Create variables.
         self.inflows:list['ApportionmentSolverArc'] = []
         self.outflows:list['ApportionmentSolverArc'] = []
+
+    def is_storage_node(self):
+        """Return whether or not this node is a storage node."""
+        return self.storage_on_reach is not None
 
 
 @dataclass
@@ -939,7 +1055,7 @@ class ApportionmentSolverArc:
     name: str
     from_node: ApportionmentSolverNode
     to_node: ApportionmentSolverNode
-    flow: float
+    flow: float | None # (Only arcs related to GAINS, LOSSES, or STORAGE nodes can have a None flow specified initially.)
 
     def __post_init__(self):
         # Create another variable

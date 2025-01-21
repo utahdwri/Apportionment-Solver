@@ -92,9 +92,9 @@ class B_Reservoirs(unittest.TestCase):
         system.add_reach('REACH-B')
         system.add_reach('REACH-C')
         system.add_reach('REACH-D')
-        system.add_reach_connection('REACH-A', 'REACH-B', Q_AB)
-        system.add_reach_connection('REACH-B', 'REACH-C', Q_BC)
-        system.add_reach_connection('REACH-C', 'REACH-D', Q_CD)
+        system.add_connection('REACH-A', 'REACH-B', Q_AB)
+        system.add_connection('REACH-B', 'REACH-C', Q_BC)
+        system.add_connection('REACH-C', 'REACH-D', Q_CD)
         system.add_reach_reservoir('REACH-B', 'STOR', stor_chg, stor_loss)
         system.add_reach_diversion('REACH-B', 'DIV-1', Q_DIV1)
         system.add_reach_diversion('REACH-C', 'DIV-2', Q_DIV2)
@@ -129,7 +129,7 @@ class B_Reservoirs(unittest.TestCase):
         system = ApportionmentSolver_v2()
         system.add_reach('UPSTREAM')
         system.add_reach('DOWNSTREAM')
-        system.add_reach_connection('UPSTREAM', 'DOWNSTREAM', 2)
+        system.add_connection('UPSTREAM', 'DOWNSTREAM', 2)
         system.add_reach_reservoir('UPSTREAM', 'STORAGE', 0)
         system.add_reach_diversion('DOWNSTREAM', 'A', 10)
         system.add_reach_diversion('DOWNSTREAM', 'B', 10)
@@ -367,6 +367,25 @@ class B_Imports(unittest.TestCase):
         system.assert_variables_equal_expected()
 
 
+    def test_unmeasured_import(self):
+        """Imports really should be measured. But if they are not, then we
+        would expect that the import transaction should be less than the 
+        observed gain in the reach. """
+
+        system = ApportionmentSolver_v2()
+        system.add_reach('UPPER-REACH')
+        system.add_reach('LOWER-REACH')
+        system.add_connection('UPPER-REACH', 'LOWER-REACH', 5)
+        system.add_reach_diversion('LOWER-REACH', 'A', 8)
+        system.add_transaction(id=1, priority=1, limit=10, path=['LOWER-REACH_GAINS','LOWER-REACH','A'],
+                               expected_value=3) # This should be limited to the gains in the lower reach
+        system.add_transaction(id=2, priority=2, limit=10, path=['LOWER-REACH','A'],
+                               expected_value=5) # This should be the remaining diversion
+
+        system.solve()
+        system.assert_variables_equal_expected()
+
+
 class C_Changes(unittest.TestCase):
 
     def reservoir_plus_problem_input(self,
@@ -395,11 +414,11 @@ class C_Changes(unittest.TestCase):
         system.add_reach('REACH-D')
         system.add_reach('REACH-E')
         system.add_reach('REACH-F')
-        system.add_reach_connection('REACH-A', 'REACH-C', Q_AC)
-        system.add_reach_connection('REACH-B', 'REACH-C', Q_BC)
-        system.add_reach_connection('REACH-C', 'REACH-D', Q_CD)
-        system.add_reach_connection('REACH-D', 'REACH-E', Q_DE)
-        system.add_reach_connection('REACH-E', 'REACH-F', Q_EF)
+        system.add_connection('REACH-A', 'REACH-C', Q_AC)
+        system.add_connection('REACH-B', 'REACH-C', Q_BC)
+        system.add_connection('REACH-C', 'REACH-D', Q_CD)
+        system.add_connection('REACH-D', 'REACH-E', Q_DE)
+        system.add_connection('REACH-E', 'REACH-F', Q_EF)
         system.add_reach_diversion('REACH-A', 'DIV-1', Q_DIV1)
         system.add_reach_diversion('REACH-B', 'DIV-2', Q_DIV2)
         system.add_reach_reservoir('REACH-C', 'STOR', stor_chg, stor_loss)
@@ -429,9 +448,9 @@ class C_Changes(unittest.TestCase):
         system.add_reach('REACH-B')
         system.add_reach('REACH-C')
         system.add_reach('REACH-D')
-        system.add_reach_connection('REACH-A', 'REACH-B', Q_AB)
-        system.add_reach_connection('REACH-B', 'REACH-C', Q_BC)
-        system.add_reach_connection('REACH-C', 'REACH-D', Q_CD)
+        system.add_connection('REACH-A', 'REACH-B', Q_AB)
+        system.add_connection('REACH-B', 'REACH-C', Q_BC)
+        system.add_connection('REACH-C', 'REACH-D', Q_CD)
         system.add_reach_diversion('REACH-A', 'DIV-1', Q_DIV1)
         system.add_reach_reservoir('REACH-B', 'STOR', stor_chg, stor_loss)
         system.add_reach_diversion('REACH-C', 'DIV-2', Q_DIV2)
@@ -517,7 +536,7 @@ class C_Changes(unittest.TestCase):
         system.add_reach('A')
         system.add_reach_reservoir('A', 'R', storage_chg=0, storage_loss=0)
         system.add_reach('B')
-        system.add_reach_connection('A', 'B', 0)
+        system.add_connection('A', 'B', 0)
         system.add_reach_diversion('B', 'DIV', flow=1)
         system.add_handoff('B', 'CHG')
 
@@ -551,8 +570,8 @@ class C_Changes(unittest.TestCase):
         system.add_reach('REACH-A')
         system.add_reach('REACH-B')
         system.add_reach('REACH-C')
-        system.add_reach_connection('REACH-A', 'REACH-B', 5)
-        system.add_reach_connection('REACH-B', 'REACH-C', 5)
+        system.add_connection('REACH-A', 'REACH-B', 5)
+        system.add_connection('REACH-B', 'REACH-C', 5)
         system.add_reach_reservoir('REACH-A', 'STOR', -5, 0)
         system.add_handoff('REACH-B', 'REACH-B-CHG')
         system.add_reach_diversion('REACH-B', 'DIV-2', 5)
@@ -569,6 +588,5 @@ class C_Changes(unittest.TestCase):
         
         system.solve()
         system.assert_variables_equal_expected()
-
 
 

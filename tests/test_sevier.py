@@ -38,9 +38,9 @@ class UpperSevier(unittest.TestCase):
         system.add_reach('B', expected_gain=self.get_value('AL', date)-self.get_value('N', date)) # note: Jared does not count 'imports' in his divertable flow calculation
         system.add_reach('A')
 
-        system.add_reach_connection('ThreeCreeks', 'B', self.get_value('N', date))
+        system.add_connection('ThreeCreeks', 'B', self.get_value('N', date))
 
-        system.add_reach_connection('C', 'B', self.get_value('M', date))
+        system.add_connection('C', 'B', self.get_value('M', date))
         system.add_reach_diversion('B', 'Mills', self.get_value('O', date))
         system.add_reach_diversion('B', 'SBend', self.get_value('P', date))
         system.add_reach_diversion('B', 'Loss-1', 0)
@@ -56,7 +56,7 @@ class UpperSevier(unittest.TestCase):
         system.add_reach_diversion('B', 'Annabella', self.get_value('X', date))
         system.add_reach_diversion('B', 'Vermillion', self.get_value('Y', date))
         system.add_reach_diversion('B', 'Loss-2', 0)
-        system.add_reach_connection('B', 'A', self.get_value('Z', date))
+        system.add_connection('B', 'A', self.get_value('Z', date))
 
         # Taylor Fish Pond Springs
         # This 4cfs was essentially moved from near Marysvale. Why is it first 
@@ -124,7 +124,7 @@ class UpperSevier(unittest.TestCase):
 
    
 
-    def build_and_test_combined(self, date:str):
+    def build_and_test_combined(self, date:str, test_message=''):
         """       
 
         """
@@ -135,25 +135,32 @@ class UpperSevier(unittest.TestCase):
         # NETWORK:
         # ------------------------------------------------------------------------------------------
 
-        system.add_reach('EastForkReach', storage_chg=self.get_value('DC', date)-self.get_value('DV', date))
-        system.add_reach('SouthForkReach')
-        system.add_reach('PiuteReach', storage_chg=self.get_value('DG', date)-self.get_value('DF', date))
-        system.add_reach('ThreeCreeks')
-        system.add_reach('LowerReach', 
-                         expected_gain=self.get_value('AL', date)-self.get_value('N', date)) # note: Jared does not count 'imports' in his divertable flow calculation
+        
+        system.add_reach('OtterCreekReach', storage_chg=0)
+        system.add_reach('EastForkReach', storage_chg=-(self.get_value('DC', date)-self.get_value('DV', date)))
+        system.add_reach('SouthForkReach', storage_chg=0)
+        system.add_reach('PiuteReach', storage_chg=-(self.get_value('DG', date)-self.get_value('DF', date)))
+        system.add_reach('ThreeCreeks', storage_chg=0)
+        system.add_reach('LowerReach', storage_chg=0, 
+                        # expected_gain=self.get_value('AL', date)-self.get_value('N', date)) # note: Jared does not count 'imports' in his divertable flow calculation
+        )
         system.add_reach('A')
 
-        # East Fork
-        system.add_reach_reservoir('EastForkReach', 'OtterCreekResv', 
+        # Otter Creek Reach
+        system.add_reach_reservoir('OtterCreekReach', 'OtterCreekResv', 
                                    storage_chg=self.get_value('AA', date),
                                    storage_loss=self.get_value('AB', date) )
+        system.add_connection('OtterCreekReach', 'EastForkReach', flow=self.get_value('E', date))
+
+        # East Fork
         system.add_reach_diversion('EastForkReach', 'KingstonDiv', 
                                    flow=self.get_value('F1', date) )
+        system.add_connection('EastForkReach', 'OtterCreekResv', flow=self.get_value('A', date))
 
         #
-        system.add_reach_connection('EastForkReach', 'PiuteReach', 
+        system.add_connection('EastForkReach', 'PiuteReach', 
                                     flow=self.get_value('G', date) )
-        system.add_reach_connection('SouthForkReach', 'PiuteReach', 
+        system.add_connection('SouthForkReach', 'PiuteReach', 
                                     flow=self.get_value('H', date) )
         # Piute
         system.add_reach_diversion('PiuteReach', 'KingstonPipe', self.get_value('F2', date))
@@ -168,8 +175,8 @@ class UpperSevier(unittest.TestCase):
         system.add_reach_diversion('PiuteReach', 'ConveyanceLosses', self.get_value('AC', date))
 
         #
-        system.add_reach_connection('PiuteReach', 'LowerReach', self.get_value('M', date))
-        system.add_reach_connection('ThreeCreeks', 'LowerReach', self.get_value('N', date))
+        system.add_connection('PiuteReach', 'LowerReach', self.get_value('M', date))
+        system.add_connection('ThreeCreeks', 'LowerReach', self.get_value('N', date))
 
         # Lower Reach (Piute to Vermillion)
         system.add_reach_diversion('LowerReach', 'Mills', self.get_value('O', date))
@@ -187,7 +194,7 @@ class UpperSevier(unittest.TestCase):
         system.add_reach_diversion('LowerReach', 'Annabella', self.get_value('X', date))
         system.add_reach_diversion('LowerReach', 'Vermillion', self.get_value('Y', date))
         system.add_reach_diversion('LowerReach', 'Loss-2', 0)
-        system.add_reach_connection('LowerReach', 'A', self.get_value('Z', date))
+        system.add_connection('LowerReach', 'A', self.get_value('Z', date))
 
 
         # ------------------------------------------------------------------------------------------
@@ -196,28 +203,16 @@ class UpperSevier(unittest.TestCase):
         limit40 = self.get_limit(date, ['04-01','04-16','05-01','10-01'],[30, 31.25, 1.25, 0])
         limit73 = self.get_limit(date, ['04-01','05-01','10-01'], [55.14, 5.14, 0])
         limit80 = self.get_limit(date, ['05-01','10-01'], [68, 0])
+        limit180 = self.get_limit(date, ['04-01','06-01','10-01'], [3, 1.66, 0])
+        perc190 =  self.get_limit(date, ['04-01','06-01','10-01'], [1/3, 2/3, 0])
+        limit230 = self.get_limit(date, ['04-01','10-01'], [1.5, 0])
 
 
-        ''' 1/3 - rather than shepherd the flows to piute, I need to constrain some transactions to only take 
-                  from the gains of a reach.
-
-        # 1/1 - Shepherd South Fork flows to Piute. WCAT model does not count this inflow to Piute Reach 
-        # as divertable flow so I need to make it unavailable to subsequent transactions. I cannot 
-        # send it downstream because on 2023-04-01 there is no outflow below Piute. So maybe this inflow
-        # belongs to Piute?
-        # ??? - Why is South Fork excluded from divertable flow calcs?
-        system.add_transaction(id=1, priority=1, limit=None, path=['SouthForkReach','PiuteReach','PiuteResv'], 
-                               expected_value=self.get_value('H', date))
-        
-        # 1/1 - Similarly, Inflow to Piute Reach from East Fork cannot be apportioned to rights in Piute Reach...
-        # ??? Why not? Would it be better to represent this as transactions comming from the reach gain?
-        system.add_transaction(id=2, priority=1, limit=None, path=['EastForkReach','PiuteReach','PiuteResv'], 
-                               expected_value=self.get_value('G', date))'''
 
         # Taylor Fish Pond Springs
         # This 4cfs was essentially moved from near Marysvale. Why is it first 
-        # in priority?
-        system.add_transaction(id=10, priority=101, limit= 4.0, path=['LowerReach', 'SValley'], 
+        # in priority? Is it from the stream or the gain?
+        system.add_transaction(id=10, priority=101, limit= 4.0, path=['LowerReach_GAINS', 'LowerReach', 'SValley'], 
                                expected_value=self.get_value('BM', date))
 
         # Three Creeks Release (from a tributary reservoir). 
@@ -225,12 +220,10 @@ class UpperSevier(unittest.TestCase):
         # How can we keep the unused portion from being sent back to natural flow?
         system.add_transaction(id=20, priority=102, limit=None, path=['ThreeCreeks', 'LowerReach', 'SValley'], 
                                expected_value=self.get_value('BL', date))
-        # The WCAT model does not allow unused Three Creeks Releases to be apportioned to other rights,
-        # so the following will ensure that any unused portion continues downstream.
-        system.add_transaction(id=21, priority=102.1, limit=None, path=['ThreeCreeks', 'LowerReach', 'A'] )
+        
 
         # Flowing Wells
-        system.add_transaction(id=30, priority=103, limit= 1.5, path=['LowerReach', 'Brooklyn'], 
+        system.add_transaction(id=30, priority=103, limit= 1.5, path=['LowerReach_GAINS', 'LowerReach', 'Brooklyn'], 
                                expected_value=self.get_value('BN', date))
 
         # 1st Priority
@@ -296,12 +289,17 @@ class UpperSevier(unittest.TestCase):
 
         # New Storage Zone A 
         system.add_transaction(id=100, priority=110, limit=None, path=['LowerReach', 'A'], 
-                               expected_value=self.get_value('CE', date))
+                               expected_value= self.get_value('CE', date)
+                                             + self.get_value('FD', date)
+                               )
         
         # Piute High Water Apportionment
-        system.add_transaction(id=110, priority=111, limit=None, path=['LowerReach', 'Piute&Losses'], 
-                               expected_value=self.get_value('CF', date))
-        
+        # 1/7 - moved to the last priority to get 2023-04-22 to work.
+        system.add_transaction(id=110, priority=9111, limit=None, path=['LowerReach', 'Piute&Losses'], 
+                               expected_value= self.get_value('CF', date)
+                                             + self.get_value('FE1', date)
+                               
+                               )
 
 
 
@@ -311,57 +309,117 @@ class UpperSevier(unittest.TestCase):
         # This is a (decreed) storage delivery, so does it need to have such a high priority?
         # This delivery is actually to the Piute Diversion (in the lower reach)
         system.add_transaction(id=120, priority=112, limit=0.92, 
-            path=['OtterCreekResv', 'EastForkReach', 'PiuteReach', 'LowerReach', 'Piute&Losses'], 
+            path=['OtterCreekResv', 'OtterCreekReach', 'EastForkReach', 'PiuteReach', 'LowerReach', 'Piute&Losses'], 
                                expected_value=self.get_value('EO', date))
         
+        # Trxns 13, 14 not included because they are used for reach storage,
+        #   and I'm having those values be user-specified.
+
+
         # Price Spring (Piute Subreach)	61-2069 to Piute Storage
         # Note: Since the right is for a spring, it's not entitled to any water 
         #       in the river, just the gain (from the spring, but I guess limiting
         #       it to the reach gain is good enough). The spring is shown on the hydro, 
         #       close to 61-105. I suppose this right is given this preferential
         #       position in the priority ordering because it is an import of sorts.
-        system.add_transaction(id=150, priority=115, limit=1.78, path=['PiuteReach', 'PiuteResv'], 
+        system.add_transaction(id=150, priority=115, limit=1.78, path=['PiuteReach_GAINS', 'PiuteReach', 'PiuteResv'], 
                                expected_value=self.get_value('DM', date))
 
         # 1st Priority (Piute Subreach)	63-3018 to South Bend Diversion
         #       Seems like this right should be senior to all of the proportional 
         #       ones, as it's "a primary right against all parties to Section A"
         #     ? I don't see why it should be limited to the gain in the Piute reach...
-        system.add_transaction(id=160, priority=116, limit=0, path=['PiuteReach', 'LowerReach', 'SBend'], 
+        system.add_transaction(id=160, priority=116, limit=0, path=['PiuteReach_GAINS', 'PiuteReach', 'LowerReach', 'SBend'], 
                                expected_value=self.get_value('DJ', date))
 
         # Primary Barnson Spring (Piute Subreach) 61-2070
         # This needs to be pro-rated along with a 22 cfs right -- both are rights
         # to the gains in a specified reach, and the decree says what that quantity
         # should be.
-        system.add_transaction(id=170, priority=117, limit=12, path=['PiuteReach', 'PiuteResv'], 
+        system.add_transaction(id=170, priority=117, limit=12, path=['PiuteReach_GAINS', 'PiuteReach', 'PiuteResv'], 
                                expected_value=self.get_value('DL', date))
         
+        # Piute Storage from East Fork - 61-2068
+        system.add_transaction(id=180, priority=118, limit=limit180, path=['EastForkReach', 'PiuteReach', 'PiuteResv'], 
+                               expected_value=self.get_value('DI', date))
+
+        # % Feeder Canal to Otter Creek Storage
+        # Why the 33%? Is this an approximation of what was actually delivered to 
+        # the reservoir or is it a limit on the water right?
+        # TODO - update the logic according to what the 33% means...
+        system.add_transaction(id=190, priority=119, limit=perc190*self.get_value('A', date), path=['EastForkReach', 'OtterCreekResv'], 
+                               expected_value=self.get_value('DK', date))
+
+        # Otter Creek "Gain"
+        # !! I wonder if this is a mistake in the WCAT model: 
+        #    The entire Otter Ck gain is being assigned to Otter Creek storage, 
+        #    even though some of this is released to E Fork. What is released below the resv cannot be held in storage...
+        system.add_transaction(id=200, priority=120, limit=None, path=['OtterCreekReach', 'OtterCreekResv'], 
+                               #expected_value=self.get_value('DU', date)
+                               )
+
+        # Trxns 21, 22 not included because they are used for reach storage,
+        #   and I'm having those values be user-specified.
+
+        # 61-858
+        system.add_transaction(id=230, priority=123, limit=limit230, path=['SouthForkReach', 'PiuteReach', 'LowerReach', 'Piute&Losses'], 
+                               expected_value=self.get_value('CX', date))
+        
+        # 61-2065 Mitchell Slough (SF Subreach)
+        system.add_transaction(id=241, priority=124, limit=7.5, path=['SouthForkReach', 'PiuteReach', 'LowerReach', 'SValley'], 
+                               expected_value=self.get_value('CW', date))
+        
+        # 61-2065 South Fork (SF Subreach)
+        system.add_transaction(id=242, priority=124, limit=0.84, path=['SouthForkReach', 'PiuteReach', 'PiuteResv'], 
+                               expected_value=self.get_value('CV', date))
+        
+        # Otter Creek Guarantee, 61-2103 et al
+        system.add_transaction(id=250, priority=125, limit=13, path=['OtterCreekResv', 'OtterCreekReach', 'EastForkReach', 'PiuteReach', 'LowerReach', 'SBend'], 
+                               expected_value=self.get_value('EL', date))
+
+        # Trxns 26 is combined here with a previous entry
+
+
+        # Need a way to send the remander of all the Primary rights (except 
+        # Vermillion) to storage.
+
+
+        # Dito for Second Class Stored
+
+
+        # Piute Storage, 63-3015
+        system.add_transaction(id=131, priority=9112, limit=None, path=['PiuteReach', 'PiuteResv'], 
+                        expected_value= self.get_value('FE2', date)
+                        )
         
 
-
         system.solve()
-        system.assert_variables_equal_expected()
+        system.assert_variables_equal_expected(message=test_message)
 
 
-
-    def test_lower_reach_20230401(self):
-        self.build_and_test_lower_reach(date='2023-04-01')
-    def test_lower_reach_20230411(self):
-        self.build_and_test_lower_reach(date='2023-04-11')
-    def test_lower_reach_20230421(self):
-        self.build_and_test_lower_reach(date='2023-04-21')
-
-    def test_lower_reach_20230501(self):
-        self.build_and_test_lower_reach(date='2023-05-01')
-    def test_lower_reach_20230601(self):
-        self.build_and_test_lower_reach(date='2023-06-01')
-    def test_lower_reach_20230701(self):
-        self.build_and_test_lower_reach(date='2023-07-01')
 
 
 
     def test_combined_20230401(self):
         self.build_and_test_combined(date='2023-04-01')
-    def test_combined_20230501(self):
-        self.build_and_test_combined(date='2023-05-01')
+
+    def test_combined_202304(self):
+        from datetime import date, timedelta
+        for d in (date(2023,4,1) + timedelta(n) for n in range(30)):
+            yyyy_mm_dd = d.isoformat()
+            self.build_and_test_combined(date=yyyy_mm_dd, test_message=yyyy_mm_dd + ': ')
+
+
+
+
+    def test_combined_202305(self):
+        from datetime import date, timedelta
+        for d in (date(2023,5,1) + timedelta(n) for n in range(31)):
+            yyyy_mm_dd = d.isoformat()
+            self.build_and_test_combined(date=yyyy_mm_dd, test_message=yyyy_mm_dd + ': ')
+
+    def test_combined_202306(self):
+        from datetime import date, timedelta
+        for d in (date(2023,6,1) + timedelta(n) for n in range(30)):
+            yyyy_mm_dd = d.isoformat()
+            self.build_and_test_combined(date=yyyy_mm_dd, test_message=yyyy_mm_dd + ': ')
