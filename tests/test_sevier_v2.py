@@ -234,88 +234,52 @@ class UpperSevier(unittest.TestCase):
                                )
 
         # Primary
-        system.add_transaction(id=70, priority=9107, limit= 1.23, path=None, child_series_name='Mills-Primary')
-        system.add_transaction(id=701, series_name='Mills-Primary', priority=1, limit=None, path=['LowerReach', 'Mills'], 
+        primary_priority = 9107
+        pstore_priority = 9107
+        system.add_transaction(id=70, priority=primary_priority, limit= 1.23, path=['LowerReach', 'Mills'], 
                                expected_value= self.get_value('BQ', date)
                                              + self.get_value('EP1', date) )
-        system.add_transaction(id=702, series_name='Mills-Primary', priority=2, limit=None, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
-                               expected_value= self.get_value('EP2', date)
-                               )
-        system.add_transaction(id=71, priority=9107, limit=10.9, path=None, child_series_name='SBend-Primary')
-        system.add_transaction(id=711, series_name='SBend-Primary', priority=1, limit=None, path=['LowerReach', 'SBend'], 
+        system.add_transaction(id=71, priority=primary_priority, limit=10.9, path=['LowerReach', 'SBend'], 
                                expected_value= self.get_value('BR', date)
                                              + self.get_value('EQ1', date) )
-        system.add_transaction(id=712, series_name='SBend-Primary', priority=2, limit=None, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
-                               expected_value= self.get_value('EQ2', date)
-                               )
-        system.add_transaction(id=72, priority=9107, limit=2.56+25.9, path=None, child_series_name='Joseph-Primary')
-        system.add_transaction(id=721, series_name='Joseph-Primary', priority=1, limit=None, path=['LowerReach', 'Joseph'], 
+        system.add_transaction(id=72, priority=primary_priority, limit=2.56+25.9, path=['LowerReach', 'Joseph'], 
                                expected_value= self.get_value('BT', date)
                                              + self.get_value('ER1', date) )
-        system.add_transaction(id=722, series_name='Joseph-Primary', priority=2, limit=None, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
-                               expected_value= self.get_value('ER2', date)
-                               )
-        system.add_transaction(id=73, priority=9107, limit=limit73, path=None, child_series_name='SValley-Primary')
-        system.add_transaction(id=731, series_name='SValley-Primary', priority=1, limit=None, path=['LowerReach', 'SValley'], 
+        system.add_transaction(id=73, priority=primary_priority, limit=limit73, path=['LowerReach', 'SValley'], 
                                expected_value= self.get_value('BU', date)
                                              + self.get_value('ES1', date) )
-        system.add_transaction(id=732, series_name='SValley-Primary', priority=2, limit=None, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
-                               expected_value= self.get_value('ES2', date)
-                               )
-        system.add_transaction(id=74, priority=9107, limit=47.9, path=None, child_series_name='Monroe-Primary')
-        system.add_transaction(id=741, series_name='Monroe-Primary', priority=1, limit=None, path=['LowerReach', 'Monroe'], 
+        system.add_transaction(id=74, priority=primary_priority, limit=47.9, path=['LowerReach', 'Monroe'], 
                                expected_value= self.get_value('BV', date)
                                              + self.get_value('ET1', date) )
-        system.add_transaction(id=742, series_name='Monroe-Primary', priority=2, limit=None, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
-                               expected_value= self.get_value('ET2', date)
-                               )
-        system.add_transaction(id=75, priority=9107, limit=29.77, path=None, child_series_name='Brooklyn-Primary')
-        system.add_transaction(id=751, series_name='Brooklyn-Primary', priority=1, limit=None, path=['LowerReach', 'Brooklyn'], 
+        system.add_transaction(id=75, priority=primary_priority, limit=29.77, path=['LowerReach', 'Brooklyn'], 
                                expected_value= self.get_value('BW', date)
                                              + self.get_value('EU1', date) )
-        system.add_transaction(id=752, series_name='Brooklyn-Primary', priority=2, limit=None, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
-                               expected_value= self.get_value('EU2', date)
-                               )
-        system.add_transaction(id=76, priority=9107, limit=19.92, path=None, child_series_name='Elsinore-Primary')
-        system.add_transaction(id=761, series_name='Elsinore-Primary', priority=1, limit=None, path=['LowerReach', 'Elsinore'], 
+        system.add_transaction(id=76, priority=primary_priority, limit=19.92, path=['LowerReach', 'Elsinore'], 
                                expected_value= self.get_value('BX', date)
                                              + self.get_value('EV1', date) )
-        system.add_transaction(id=762, series_name='Elsinore-Primary', priority=2, limit=None, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
-                               expected_value= self.get_value('EV2', date)
-                               )
-        system.add_transaction(id=77, priority=9107, limit=85.9, path=None, child_series_name='Richfield-Primary')
-        system.add_transaction(id=771, series_name='Richfield-Primary', priority=1, limit=None, path=['LowerReach', 'Richfield'], 
+        system.add_transaction(id=77, priority=primary_priority, limit=85.9, path=['LowerReach', 'Richfield'], 
                                expected_value= self.get_value('BY', date)
                                              + self.get_value('EW1', date) )
-        system.add_transaction(id=772, series_name='Richfield-Primary', priority=2, limit=None, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
-                               expected_value= self.get_value('EW2', date)
-                               )
-        system.add_transaction(id=78, priority=9107, limit=30.4, path=None, child_series_name='Annabella-Primary')
-        system.add_transaction(id=781, series_name='Annabella-Primary', priority=1, limit=None, path=['LowerReach', 'Annabella'], 
+        system.add_transaction(id=78, priority=primary_priority, limit=30.4, path=['LowerReach', 'Annabella'], 
                                expected_value= self.get_value('BZ', date)
                                              + self.get_value('EX1', date) )
-        system.add_transaction(id=782, series_name='Annabella-Primary', priority=2, limit=None, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
-                               expected_value= self.get_value('EX2', date)
-                               )
-        system.add_transaction(id=79, priority=9107, limit=37.8, path=['LowerReach', 'Vermillion'], 
+        system.add_transaction(id=79, priority=primary_priority, limit=37.8, path=['LowerReach', 'Vermillion'], 
                                expected_value= self.get_value('CA', date)
                                              + self.get_value('EY', date)
                                )
 
         # Second Class
-        system.add_transaction(id=80, priority=9108, limit=limit80, path=None, child_series_name='SValley-2nd')
-        system.add_transaction(id=801, series_name='SValley-2nd', priority=1, limit=None, path=['LowerReach', 'SValley'], 
+        system.add_transaction(id=80, priority=primary_priority+1, limit=limit80, path=['LowerReach', 'SValley'], 
                                expected_value= self.get_value('CC', date)
                                              + self.get_value('FB1', date))
-        system.add_transaction(id=802, series_name='SValley-2nd', priority=2, limit=None, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
-                               expected_value= self.get_value('FB2', date)
-                               )
 
         # Third Class
-        system.add_transaction(id=90, priority=9109, limit=11.5, path=['LowerReach', 'SValley'], 
+        system.add_transaction(id=90, priority=primary_priority+2, limit=11.5, path=['LowerReach', 'SValley'], 
                                expected_value= self.get_value('CD', date)
                                              + self.get_value('FC', date)
                                )
+
+
 
         # New Storage Zone A 
         system.add_transaction(id=100, priority=9110, limit=None, path=['LowerReach', 'A'], 
@@ -402,6 +366,45 @@ class UpperSevier(unittest.TestCase):
                                expected_value=self.get_value('EL', date))
 
         # Trxns 26 is combined here with a previous entry
+
+
+        # Primary storage:
+        '''system.add_transaction(id=702, priority=pstore_priority, limit=None, limited_by_id=70, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
+                               expected_value= self.get_value('EP2', date)
+                               )
+        system.add_transaction(id=712, priority=pstore_priority, limit=None, limited_by_id=71, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
+                               expected_value= self.get_value('EQ2', date)
+                               )
+        system.add_transaction(id=722, priority=pstore_priority, limit=None, limited_by_id=72, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
+                               expected_value= self.get_value('ER2', date)
+                               )
+        system.add_transaction(id=732, priority=pstore_priority, limit=None, limited_by_id=73, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
+                               expected_value= self.get_value('ES2', date)
+                               )
+        system.add_transaction(id=742, priority=pstore_priority, limit=None, limited_by_id=74, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
+                               expected_value= self.get_value('ET2', date)
+                               )
+        system.add_transaction(id=752, priority=pstore_priority, limit=None, limited_by_id=75, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
+                               expected_value= self.get_value('EU2', date)
+                               )
+        system.add_transaction(id=762, priority=pstore_priority, limit=None, limited_by_id=76, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
+                               expected_value= self.get_value('EV2', date)
+                               )
+        system.add_transaction(id=772, priority=pstore_priority, limit=None, limited_by_id=77, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
+                               expected_value= self.get_value('EW2', date)
+                               )
+        system.add_transaction(id=782, priority=pstore_priority, limit=None, limited_by_id=77, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
+                               expected_value= self.get_value('EX2', date)
+                               )
+        
+        # 2nd Class
+        system.add_transaction(id=802, priority=pstore_priority+1, limit=None, limited_by_id=80, path=['LowerReach', 'PiuteReach', 'PiuteResv'], 
+                               expected_value= self.get_value('FB2', date)
+                               )'''
+
+
+
+
 
 
         # Piute Storage, 63-3015

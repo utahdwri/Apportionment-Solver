@@ -17,7 +17,7 @@ class ApportionmentSolver_v2:
     def __str__(self):
 
         def warn_if_value_is_incorrect(t):
-            if t.expected_value is not None:
+            if t.expected_value is not None and t.value is not None:
                 if abs(t.expected_value - t.value) > 1e-4:
                     return f'*** NOT EQUAL TO EXPECTED VALUE OF {t.expected_value}'
             return ''
@@ -294,17 +294,23 @@ class ApportionmentSolver_v2:
         )
 
     def add_transaction(self, id:int, priority:float, limit:float, path:list[str],
-                        expected_value:float=None ):
+                        limited_by_id:int = None,
+                        series_name:str = None,
+                        child_series_name:str = None, 
+                        expected_value:float = None ):
         """Define an authorized transaction (a flow variable with a priority).
         
         The expected_value is only used for running tests.
         """
 
+        # Convert the path list of names to a list of node objects.
         node_path = []
-        for node_name in path:
-            self._validate_existing_name(self.nodes, node_name)
-            node_path.append(self.nodes[node_name])
+        if path is not None: # a path may be None if it hold sub-series.
+            for node_name in path:
+                self._validate_existing_name(self.nodes, node_name)
+                node_path.append(self.nodes[node_name])
 
+        # Add the variable.
         var_name = 'TRXN_' + str(id)
         self.vars[var_name] = ApportionmentSolverVar(
             name=var_name,
@@ -314,8 +320,25 @@ class ApportionmentSolver_v2:
             lb=0,
             ub=limit,
             value=None,
+            series=series_name,
+            child_series=child_series_name,
             expected_value=expected_value
         )
+
+        # If the variable is limited by another variable's limit, set up a group for that.
+        if limited_by_id is not None:
+            limiting_var_name = 'TRXN_' + str(limited_by_id)
+            self._validate_existing_name(self.vars, limiting_var_name)
+            limiting_parent_var = self.vars[limiting_var_name]
+
+            # Create a group, if one doesn't already exist.
+            if limiting_parent_var.other_limited_vars is None:
+                limiting_parent_var.other_limited_vars =  ApportionmentSolverVarGroup(
+                    members=[]
+                )
+
+            # Add the var to the group.
+            limiting_parent_var.other_limited_vars.members.append( self.vars[var_name] )
 
 
     # --------------------------------------------------------------------------
@@ -495,6 +518,7 @@ class ApportionmentSolver_v2:
             v = self.vars[name]
             engine.add_variable(name=v.name, lb=v.lb, ub=v.ub)
 
+
         # Add mass balance constraints & coeficients.
         for name in self.nodes:
             n = self.nodes[name]
@@ -524,6 +548,7 @@ class ApportionmentSolver_v2:
                 for var_name in coef_vals:
                     engine.set_coeficient(con_name, var_name, coef_vals[var_name])
 
+
         # Add measurement constraints & coeficients.
         for name in self.arcs:
             a = self.arcs[name]
@@ -539,6 +564,35 @@ class ApportionmentSolver_v2:
                              [(v,-1) for v in a.backward_vars]
                             ):
                 engine.set_coeficient(con_name, v.name, coef)
+
+
+        # Add constraint when one trxn variable should be limited together with another variable.
+        for name in self.vars:
+            v = self.vars[name]
+            if v.other_limited_vars is not None:
+                con_name = 'LIMITWITH_' + name
+                engine.add_constriant(name=con_name, lb=0, ub=v.ub)
+                engine.set_coeficient(con_name, name, 1)
+                for v2 in v.other_limited_vars.members:
+                    engine.set_coeficient(con_name, v2.name, 1)
+
+
+
+        # Add constraint relating each priority series variable to their children variables.
+        series_names = set()
+        for name in self.vars:
+            v = self.vars[name]
+            if v.child_series is not None:
+                series_names.add(v.child_series)
+                con_name = 'SERIES_' + v.child_series
+                engine.add_constriant(name=con_name, lb=0, ub=0)
+                engine.set_coeficient(con_name, name, 1)
+        for name in self.vars:
+            v = self.vars[name]
+            if v.series in series_names:
+                con_name = 'SERIES_' + v.series
+                engine.set_coeficient(con_name, name, -1)
+
 
         # Calculate the gain/loss flow.
         # Add reach gain/loss constraint:
@@ -721,6 +775,7 @@ class ApportionmentSolver_v2:
         maxed_vars = []
         var_names, factors = self._get_next_iter(series, maxed_vars)
         while var_names:
+            print('*** var_names, factors', var_names, factors)
 
             #?? Is there a cleaner way to do this? Just pass the list of factors?
             proportion_factors_by_var_names = {}
@@ -731,6 +786,7 @@ class ApportionmentSolver_v2:
             self._maximize_vars_inner(engine, var_names, proportion_factors_by_var_names)
 
             maxed_vars = maxed_vars + self._get_newly_maxed_vars(engine, var_names)
+            print('$$$$$$$$$$$$$$$$$$$$$$*****************', engine.lp_string())
 
             # This function will check to see if the series can further be
             # maximized, possibly by dropping a constrained variable (in a 
@@ -990,13 +1046,16 @@ class ApportionmentSolver_v2:
         # Populate "to_vars"
         for var_name in pri_vars:
             v = pri_vars[var_name]
-            first_node_name = v.node_path[0].name
-            last_node_name = v.node_path[-1].name
+            try:
+                first_node_name = v.node_path[0].name
+                last_node_name = v.node_path[-1].name
 
-            if last_node_name in handoffs_by_id:
-                handoffs_by_id[last_node_name]["to_vars"].append(var_name)
-            if first_node_name in handoffs_by_id:
-                handoffs_by_id[first_node_name]["from_vars"].append(var_name)
+                if last_node_name in handoffs_by_id:
+                    handoffs_by_id[last_node_name]["to_vars"].append(var_name)
+                if first_node_name in handoffs_by_id:
+                    handoffs_by_id[first_node_name]["from_vars"].append(var_name)
+            except:
+                pass
 
         # ... now update "earliest_deposit_priority" and "latest_withdrawal_priority"
         for id in handoffs_by_id:
@@ -1025,6 +1084,12 @@ class ApportionmentSolver_v2:
 
 
 
+'''@dataclass
+class PrioritySeries:
+    """ """
+    priority: int
+    proportional_subseries: list
+    sequential_subseries: list'''
 
 
 
@@ -1081,6 +1146,7 @@ class ApportionmentSolverVar:
     series: str = None
     child_series: str = None
     expected_value: float = None
+    other_limited_vars:'ApportionmentSolverVarGroup' = None
 
     def __post_init__(self):
         # Add references to this Var to each traversed Arc.
@@ -1101,3 +1167,8 @@ class ApportionmentSolverVar:
                     arc.backward_vars.append(self)
                     break
 
+@dataclass
+class ApportionmentSolverVarGroup:
+    """
+    """
+    members: list[ApportionmentSolverVar]

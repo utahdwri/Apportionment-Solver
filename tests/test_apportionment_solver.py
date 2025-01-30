@@ -590,3 +590,124 @@ class C_Changes(unittest.TestCase):
         system.assert_variables_equal_expected()
 
 
+
+
+class D_PrioritySeries(unittest.TestCase):
+
+    def test_1(self):
+        """
+        """
+
+        system = ApportionmentSolver_v2()
+        system.add_reach('RIVER')
+        system.add_reach_diversion('RIVER', 'USER', 12)
+        system.add_transaction(id=1, priority=1, limit= 7, path=None, expected_value=7, child_series_name='sub-series')
+        system.add_transaction(id=2, series_name='sub-series', priority=2, limit= 6, path=['RIVER','USER'], expected_value=6)
+        system.add_transaction(id=3, series_name='sub-series', priority=3, limit=12, path=['RIVER','USER'], expected_value=1)
+        system.add_transaction(id=4, series_name='sub-series', priority=4, limit= 4, path=['RIVER','USER'], expected_value=0)
+        
+        system.solve()
+        system.assert_variables_equal_expected()
+
+    def test_2(self):
+        """
+        This is a case that should be solved in two iterations:
+
+        1st: TRXN-2 gets 0.5 proportion, resulting in 3.75, 
+             TRXN-5 gets 0.3 proportion, resulting in 2.25
+             TRXN-6 gets 0.2 proportion, resulting in 1.5
+
+        2nd: TRXN-3 should be increased with 0.5 proportion from zero to 1.25
+             TRXN-6 should be increased with 0.5 proportion from 1.5 to 2.75
+
+        This test checks if during the 2nd iteration TRXN-6 is properly increased 
+        from its starting, non-zero value.
+
+        """
+
+        system = ApportionmentSolver_v2()
+        system.add_reach('RIVER')
+        system.add_reach_diversion('RIVER', 'A', 6)
+        system.add_reach_diversion('RIVER', 'B', 4)
+        system.add_transaction(id=1, priority=1, limit= 10, path=None, child_series_name='sub-series-1')
+        system.add_transaction(id=2,   series_name='sub-series-1', priority=1, limit= 4, path=['RIVER','A'], expected_value=3.75)
+        system.add_transaction(id=3,   series_name='sub-series-1', priority=2, limit= 6, path=['RIVER','B'], expected_value=1.25)
+        system.add_transaction(id=4, priority=1, limit= 10, path=None, child_series_name='sub-series-2')
+        system.add_transaction(id=5,   series_name='sub-series-2', priority=1, limit= 6, path=['RIVER','A'], expected_value=2.25)
+        system.add_transaction(id=6,   series_name='sub-series-2', priority=1, limit= 4, path=['RIVER','B'], expected_value=2.75)
+        
+        system.solve()
+        system.assert_variables_equal_expected()
+
+    def test_3(self):
+        """
+        """
+
+        system = ApportionmentSolver_v2()
+        system.add_reach('UPPER')
+        system.add_reach('LOWER')
+        system.add_connection('UPPER', 'LOWER', flow=2)
+        system.add_reach_reservoir('UPPER', 'RESV', 10)
+        system.add_reach_diversion('LOWER', 'A', 2)
+        system.add_reach_diversion('LOWER', 'B', 8)
+        system.add_reach_diversion('LOWER', 'C', 5)
+
+        system.add_transaction(id=2, priority=1, limit= 4, path=None, expected_value=4, child_series_name='series-A')
+        system.add_transaction(id=20, series_name='series-A', priority=10, limit=None, path=['LOWER','A'], expected_value=2)
+        system.add_transaction(id=21, series_name='series-A', priority=11, limit=None, path=['LOWER','UPPER', 'RESV'], expected_value=2)
+
+        system.add_transaction(id=3, priority=1, limit= 8, path=None, expected_value=8, child_series_name='series-B')
+        system.add_transaction(id=30, series_name='series-B', priority=10, limit=None, path=['LOWER','B'], expected_value=8)
+        system.add_transaction(id=31, series_name='series-B', priority=11, limit=None, path=['LOWER','UPPER', 'RESV'], expected_value=0)
+
+        system.add_transaction(id=4, priority=1, limit= 9, path=None, expected_value=9, child_series_name='series-C')
+        system.add_transaction(id=40, series_name='series-C', priority=10, limit=None, path=['LOWER','C'], expected_value=5)
+        system.add_transaction(id=41, series_name='series-C', priority=11, limit=None, path=['LOWER','UPPER', 'RESV'], expected_value=4)
+        
+        system.solve()
+        system.assert_variables_equal_expected()
+
+    def test_4(self):
+        """
+        Same as previous, but now with a much smaller limit on diversions into the reservoir.
+        """
+
+        system = ApportionmentSolver_v2()
+        system.add_reach('UPPER')
+        system.add_reach('LOWER')
+        system.add_connection('UPPER', 'LOWER', flow=2)
+        system.add_reach_reservoir('UPPER', 'RESV', 3)
+        system.add_reach_diversion('LOWER', 'A', 2)
+        system.add_reach_diversion('LOWER', 'B', 8)
+        system.add_reach_diversion('LOWER', 'C', 5)
+
+        system.add_transaction(id=2, priority=1, limit= 4, path=None, child_series_name='series-A')
+        system.add_transaction(id=20, series_name='series-A', priority=10, limit=None, path=['LOWER','A'], expected_value=2)
+        system.add_transaction(id=21, series_name='series-A', priority=11, limit=None, path=['LOWER','UPPER', 'RESV'], expected_value=0.22222 + 2.777777 * 2/6.5)
+
+        system.add_transaction(id=3, priority=1, limit= 8, path=None, child_series_name='series-B')
+        system.add_transaction(id=30, series_name='series-B', priority=10, limit=None, path=['LOWER','B'], expected_value=8)
+        system.add_transaction(id=31, series_name='series-B', priority=11, limit=None, path=['LOWER','UPPER', 'RESV'], expected_value=0)
+
+        system.add_transaction(id=4, priority=1, limit= 9, path=None, child_series_name='series-C')
+        system.add_transaction(id=40, series_name='series-C', priority=10, limit=None, path=['LOWER','C'], expected_value=5)
+        system.add_transaction(id=41, series_name='series-C', priority=11, limit=None, path=['LOWER','UPPER', 'RESV'], expected_value=0 + 2.777777 * 4.5/6.5)
+        
+        system.solve()
+        system.assert_variables_equal_expected()
+
+class E_SharedTrxnLimits(unittest.TestCase):
+
+    def test_1(self):
+        """ Can trxn-2 share the limit of trxn-1? I.e., be limited to it's remaining right?
+        """
+
+        system = ApportionmentSolver_v2()
+        system.add_reach('RIVER')
+        system.add_reach_diversion('RIVER', 'A', 10)
+        system.add_reach_diversion('RIVER', 'B', 10)
+        system.add_transaction(id=1, priority=1, limit= 15, path=['RIVER','A'], expected_value=10)
+        system.add_transaction(id=2, priority=2, limit=None, path=['RIVER','B'], limited_by_id=1, expected_value=5)
+        
+        system.solve()
+        system.assert_variables_equal_expected()

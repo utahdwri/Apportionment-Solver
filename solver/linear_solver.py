@@ -137,6 +137,8 @@ class LinearSolver:
                        str(status) + ':' + status_text[status] 
                        + '/n/n' + self.lp_string())
 
+        print(self.lp_string())
+
         # Done.
         return objective_value, variable_values
 
@@ -253,7 +255,7 @@ class LinearSolver:
             # f * merged and we don't want to make the problem 
             # infeasible. 
             merge_constraint = self.solver.Constraint('combined_'+variable_name)
-            merge_constraint.SetBounds(0, inf) 
+            merge_constraint.SetBounds(thisvar.lb(), inf) 
             merge_constraint.SetCoefficient(thisvar, 1)
             merge_constraint.SetCoefficient(merge_var, -proportion_factor)
             merge_constraints.append(merge_constraint)
@@ -271,6 +273,7 @@ class LinearSolver:
         #   have already gotten the results we need.
         for c in merge_constraints:
             c.Clear()
+            c.SetBounds(-inf, inf)
 
         # Remove the merge_var.
         merge_var.SetBounds(lb=-inf, ub=inf) # TODO - This doesn't really remove the variable. Is there another way?
@@ -281,9 +284,11 @@ class LinearSolver:
         # Set only the lb, since we might be able to increase this variable in a future iteration.
         for variable_name in variable_names:
             # If multiple variables are being used together, use the combined variable with the factors.
-            variable_value = proportion_factors[variable_name] * solved_value
+            variable_delta = proportion_factors[variable_name] * solved_value
 
-            var_values[variable_name] = variable_value
+            initial_val = self.vars[variable_name].lb()
+
+            var_values[variable_name] = initial_val + variable_delta
 
         return var_values
 
