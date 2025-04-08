@@ -36,7 +36,7 @@ beg_date = '2023-06-08'
 end_date = '2023-06-18'
 
 
-FROM_DB = False
+FROM_DB = True
 
 if FROM_DB:
     flowlines, nodes, paths, all_measurements = query(

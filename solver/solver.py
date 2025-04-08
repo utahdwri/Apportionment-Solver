@@ -1,84 +1,4 @@
-""" 
-
-
-Does a reservoir zone (and the node & flowline) get correctly proccessed to the 
-correct zones?
-
-
-    - A "Balance Reach" (or "Segment" or "Reach"?) is segment of the System on which the mass 
-      balance equation can be computed. A System may have one or more Balance Reaches.
-      (You cannot use the fundamental accounting equation w/o this, right? So I think this reach
-      will always exist.)
-    
-    - A "Zone" is portion of and entirely within a "Balance Reach". There are 3 types of zones: 
-        "Inflow", "Outflow", and "Storage".
-
-        Inflow -  Usually a single zone containing the natural streams. Gain/loss to the stream is 
-                  not measured directly, but computed as the "Balance Reach" residual. That's why
-                  we will usually have only one Inflow Zone. Perhaps there may be additional Inflow
-                  zones for water import into the system...
-
-        Outflow - Defined by the locations of diversion measurements, both diversions from a stream
-                  and from a reservoir.
-
-        Storage - Defined by the node or multiple nodes.
-
-    - A "Transaction" puts a name to a specified quantity of water. All Transactions describe water 
-      flowing between accounts, have a date, and have the quantity of water.
-    
-    
-
-
-
-THINGS TODO
-
-    - Need to be able to pass in account & zone definitions. 
-    - Need to either (1) require paths to be simple, or (2) support complex paths.
-    - Need to allow multiple paths to share a cfs limit object.
-    - May need or want to allow a heiarchial priority scheme (for delivery losses, shares & exchanges that are part of base rights)
-    - What if the network changes in some way during the calculation period (new or modified flowline, path, or measurement location)? Need to address this somehow...
-    - Figure out what to do with storage accounts that cary a balance...
-
-    - Put the calculation details inside of the transaction object.
-    - Fully test step-by-step output description, especially for shared-priority iterations
-
-    
-9/15/2023 Thoughts:
-    - "Measurement Account" - defined by the location of measuring devises. 
-    - "Apportionment Account" - subaccounts within a Measurement Account. 
-            For example, a reservoir would have a "Measurement Account" because of the stage/contents measurement. This would 
-            represent the total water diverted into the reservoir, released from the reservoir, and stored in the reservoir.
-            But there may be several sub-accounts representing storage apportionments for the various users. Since these inflows
-            and outflows and storage balances cannot be measured, they are called "Apportionment Accounts".
-
-            
-    VAR NAME                DATE           FROM ACNT      TO ACNT        VALUE      
-    --------------------    -----------    -----------    -----------    -----------
-    PATH_WR@2               2023-06-01     REACH 2        USE AT 2              2.00
-    PATH_WR@4               2023-06-01     REACH 3        USE AT 4              4.00
-    PATH_WR@5a              2023-06-01     REACH 3        USE AT 5              0.67
-    PATH_WR@5b              2023-06-01     REACH 3        USE AT 5              1.33
-    PATH_WR@5c              2023-06-01     REACH 3        USE AT 5              2.00
-    PATH_WR@3               2023-06-01     REACH 2        8                     0.00
-    PATH_SD@5               2023-06-01     8              USE AT 5              0.00
-    PATH_SD@4               2023-06-01     8              USE AT 4              0.00
-    GAIN_REACH_1            2023-06-01                    REACH 1               5.00
-    GAIN_REACH_2            2023-06-01                    REACH 2               4.00
-    GAIN_REACH_3            2023-06-01                    REACH 3               2.00
-    GAIN_REACH_4            2023-06-01                    REACH 4              -1.00
-    NF_DLVY_1_TO_2          2023-06-01     REACH 1        REACH 2               5.00
-    UNAUTH_2_TO_5           2023-06-01     REACH 2        USE AT 2              0.00
-    NF_DLVY_2_TO_3          2023-06-01     REACH 2        REACH 3               7.00
-    NF_SPILL_8_TO_2         2023-06-01     8              REACH 2               0.00
-    UNAUTH_2_TO_8           2023-06-01     REACH 2        8                     0.00
-    UNAUTH_3_TO_6           2023-06-01     REACH 3        USE AT 4              0.00
-    NF_DLVY_3_TO_4          2023-06-01     REACH 3        REACH 4               1.00
-    UNAUTH_3_TO_7           2023-06-01     REACH 3        USE AT 5              0.00
-
-    
-"""
-
-from .apportionment_solver import ApportionmentSolver, ApportionmentSolver_v2
+from .apportionment_solver import ApportionmentSolver
 from .globals import Globals
 from .variable import Variable
 from .wr_network import WRNetwork, Account, MeasurementSeries, Zone
@@ -97,13 +17,8 @@ DEFAULT_ZONE_ID = '-1'
 
 # -----------------------------------------------------------------------------
 
-def prep_solver(graph:'ApportionmentProblem', day) -> ApportionmentSolver:
-    solver = ApportionmentSolver(date=day, logging=False)
-    solver.set_input(graph, graph.wrnet.measurement_manager)
-    return solver
-
-def prep_solver_new(graph:'ApportionmentProblem', day) -> ApportionmentSolver:
-    solver = ApportionmentSolver_v2()
+def prep_solver(graph:'ApportionmentProblem') -> ApportionmentSolver:
+    solver = ApportionmentSolver()
 
     def find_connecting_reach_id(zone_id):
         pass
@@ -126,7 +41,6 @@ def prep_solver_new(graph:'ApportionmentProblem', day) -> ApportionmentSolver:
 def solve(flowlines=None, nodes=None, paths=None, measurements=None
           , zones=None
           , day=None
-          , account_starting_balances=None
           , log_file=None
           , write_output_files=False):
     """Solve a distribution accounting problem. (Revisions to make more understandable)"""
@@ -142,7 +56,7 @@ def solve(flowlines=None, nodes=None, paths=None, measurements=None
 
     graph = ApportionmentProblem(wrnet, zones)
 
-    solver = prep_solver(graph, day)
+    solver = prep_solver(graph)
 
     '''# Write output, if requested.
     if write_output_files:
@@ -171,7 +85,7 @@ def solve(flowlines=None, nodes=None, paths=None, measurements=None
 
 
 def solve_period (flowlines=None, nodes=None, paths=None, measurements=None
-          , zones=None, first_day=None, last_day=None, account_starting_balances=None
+          , zones=None, first_day=None, last_day=None
           , log_file=None, write_output_files=False):
     """Solve a distribution accounting problem for a period of days."""
 
@@ -183,8 +97,7 @@ def solve_period (flowlines=None, nodes=None, paths=None, measurements=None
 
         # Calculate the transaction values for each day.
         my_results = solve(flowlines, nodes, paths, measurements,
-                               zones, day, account_starting_balances,
-                               log_file, write_output_files)
+                               zones, day, log_file, write_output_files)
         
         # And merge the resulting transactions into one list.
         transactions = transactions + my_results.transactions

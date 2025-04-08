@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 from math import inf, isclose
-from .linear_solver import LinearSolver, LinearSolverError
+from .lp_solver_GLOP import LinearSolver, LinearSolverError
 from .globals import Globals
 
 
-class ApportionmentSolver_v2:
+class ApportionmentSolver:
     """Define and solve the apportionment problem."""
 
     def __init__(self):
@@ -19,32 +19,33 @@ class ApportionmentSolver_v2:
         def warn_if_value_is_incorrect(t):
             if t.expected_value is not None and t.value is not None:
                 if abs(t.expected_value - t.value) > 1e-4:
-                    return f'*** NOT EQUAL TO EXPECTED VALUE OF {t.expected_value}'
+                    return f'*** NOT EQUAL TO EXPECTED VALUE OF {t.expected_value:9.4f}'
             return ''
 
         out = ''
         for name in self.nodes:
             n:ApportionmentSolverNode = self.nodes[name]
             if n.type == 'REACH':
-                out += '\n' + n.name + f'(\u0394S={n.storage_chg}, gains-losses={n.net_reach_gains})'
+                out += '\n' + n.name + f'(\u0394S={n.storage_chg:9.4f}, gains-losses={n.net_reach_gains:9.4f})'
                 for f in n.outflows:
-                    out += f'\n {f.flow} >> {f.to_node.name}'
+                    out += f'\n {f.flow:9.4f} >> {f.to_node.name}'
                     for t in f.forward_vars:
-                        out += f'\n      {t.name} ({t.lb}, {t.ub}) = {t.value}' + warn_if_value_is_incorrect(t)
+                        out += f'\n      {t.name: <26} = {t.value:9.4f}' + warn_if_value_is_incorrect(t)
                     for t in f.backward_vars:
-                        out += f'\n      {t.name} ({t.lb}, {t.ub}) = {t.value} *backwards' + warn_if_value_is_incorrect(t)
+                        out += f'\n      {t.name: <26} = {t.value:9.4f} *backwards' + warn_if_value_is_incorrect(t)
 
                 for f in n.inflows:
-                    out += f'\n {f.flow} << {f.from_node.name}'
+                    out += f'\n {f.flow:9.4f} << {f.from_node.name}'
                     for t in f.forward_vars:
-                        out += f'\n      {t.name} ({t.lb}, {t.ub}) = {t.value}' + warn_if_value_is_incorrect(t)
+                        out += f'\n      {t.name: <26} = {t.value:9.4f}' + warn_if_value_is_incorrect(t)
                     for t in f.backward_vars:
-                        out += f'\n      {t.name} ({t.lb}, {t.ub}) = {t.value} *backwards' + warn_if_value_is_incorrect(t)
+                        out += f'\n      {t.name: <26} = {t.value:9.4f} *backwards' + warn_if_value_is_incorrect(t)
 
         return out
 
     def log(self, message):
-        print('LOG', message)
+        if False:
+            print('LOG', message)
 
     # --------------------------------------------------------------------------
     # Methods to build the apportionment graph (aka transaction flow graph)
@@ -172,6 +173,7 @@ class ApportionmentSolver_v2:
             ub=None,
             value=None
         )
+        #print('spill_var_name', spill_var_name)
 
     def add_handoff(self, reach_name:str, handoff_name:str):
         """Add a change handoff node."""
@@ -293,7 +295,8 @@ class ApportionmentSolver_v2:
             value=None
         )
 
-    def add_transaction(self, id:int, priority:float, limit:float, path:list[str],
+    def add_transaction(self, id:int, priority:float, upper_limit:float, path:list[str],
+                        lower_limit:float = 0,
                         limited_by_id:int = None,
                         series_name:str = None,
                         child_series_name:str = None, 
@@ -317,8 +320,8 @@ class ApportionmentSolver_v2:
             path_id=id,
             priority=priority,
             node_path=node_path,
-            lb=0,
-            ub=limit,
+            lb=lower_limit,
+            ub=upper_limit,
             value=None,
             series=series_name,
             child_series=child_series_name,
@@ -407,6 +410,40 @@ class ApportionmentSolver_v2:
         if cnt == 0:
             raise Exception('No variables were given an expected_value!')
 
+
+    # --------------------------------------------------------------------------
+    # Output problem definition into something that can be charted
+    # --------------------------------------------------------------------------
+    def to_sankey_data(self, use_expected_values=False):
+        graph = {
+            "zones":{
+                x:{
+                    "type": self.nodes[x].type
+                } for x in self.nodes},
+            "subarcs":{
+                x:{
+                    "from": self.arcs[x].from_node.name, 
+                    "to": self.arcs[x].to_node.name, 
+                    "capacity":0
+                } for x in self.arcs},
+            "variables":{
+                x:{
+                    "path": [a.name for a in self.vars[x]._arc_path], 
+                    "f": self.vars[x]._arc_fact,
+                    "priority": self.vars[x].priority
+                } for x in self.vars},
+        }
+
+        if not use_expected_values:
+            var_values = {
+                x:[self.vars[x].value] for x in self.vars
+            }
+        else:
+            var_values = {
+                x:[self.vars[x].expected_value] for x in self.vars
+            }
+
+        return graph, var_values
 
     # --------------------------------------------------------------------------
     # Helper functions
@@ -677,8 +714,8 @@ class ApportionmentSolver_v2:
             elif item["var_name"] is not None:
                 self._maximize_var(engine, item["var_name"])
 
-            print('!', self._compile_tx_results())
-            print('!!', engine.lp_string())
+            #print('!', self._compile_tx_results())
+            #print('!!', engine.lp_string())
 
             # If a handoff is now complete, 
             priority = item['priority']
@@ -699,7 +736,7 @@ class ApportionmentSolver_v2:
                     # From now on, require that IN=OUT at the change-handoff node.
                     engine.update_constraint_bounds(conId, ub=0)
 
-                    print('***',engine.lp_string())
+                    #print('***',engine.lp_string())
 
                     # Check if the problem is still feasible.
                     try:
@@ -775,7 +812,7 @@ class ApportionmentSolver_v2:
         maxed_vars = []
         var_names, factors = self._get_next_iter(series, maxed_vars)
         while var_names:
-            print('*** var_names, factors', var_names, factors)
+            self.log('*** var_names, factors: ' + str(var_names) +', ' + str(factors))
 
             #?? Is there a cleaner way to do this? Just pass the list of factors?
             proportion_factors_by_var_names = {}
@@ -786,7 +823,7 @@ class ApportionmentSolver_v2:
             self._maximize_vars_inner(engine, var_names, proportion_factors_by_var_names)
 
             maxed_vars = maxed_vars + self._get_newly_maxed_vars(engine, var_names)
-            print('$$$$$$$$$$$$$$$$$$$$$$*****************', engine.lp_string())
+            #print('$$$$$$$$$$$$$$$$$$$$$$*****************', engine.lp_string())
 
             # This function will check to see if the series can further be
             # maximized, possibly by dropping a constrained variable (in a 
@@ -859,8 +896,11 @@ class ApportionmentSolver_v2:
                     'proportional_subseries' in item ):
                     svar_names, sfactors = self._get_next_iter(item, maxed_vars)
                     var_names += svar_names
+                    sum_sfactors = sum(sfactors)
                     if sfactors:
-                        x = item['factor'] / sum(sfactors)
+                        x = 0
+                        if sum_sfactors > 0:
+                            x = item['factor'] / sum_sfactors
                         factors += [f * x for f in sfactors]
 
                 elif item['var_name'] not in maxed_vars:
@@ -872,6 +912,19 @@ class ApportionmentSolver_v2:
     
 
     def _maximize_vars_inner(self, engine, var_names, proportion_factors):
+
+        # 1st, deal with the edge case where every proportion_factor is zero.
+        proportion_factors_sum = sum([v for k, v in proportion_factors.items()])
+        if proportion_factors_sum == 0:
+            for var_name, v in proportion_factors.items():
+                engine.update_variable_bounds(var_name, lb=0)
+                self.vars[var_name].value = 0
+            return
+
+        # What if a proportion_factor is too close to 1 and will cause numerical issues?
+        for var_name, v in proportion_factors.items():
+            if v > 0 and v < 0.000001:
+                raise ValueError(f"Proportion factor for Variable {var_name} is too small and may cause numerical issues" + str(proportion_factors))
 
         # Solve 
         var_values = engine.maximize_group_by_proportions(var_names, proportion_factors)
@@ -1084,14 +1137,6 @@ class ApportionmentSolver_v2:
 
 
 
-'''@dataclass
-class PrioritySeries:
-    """ """
-    priority: int
-    proportional_subseries: list
-    sequential_subseries: list'''
-
-
 
 @dataclass
 class ApportionmentSolverNode:
@@ -1149,7 +1194,11 @@ class ApportionmentSolverVar:
     other_limited_vars:'ApportionmentSolverVarGroup' = None
 
     def __post_init__(self):
-        # Add references to this Var to each traversed Arc.
+
+        self._arc_path = []
+        self._arc_fact = []
+
+        # Convert the given node_path to _arc_path and _arc_fact.
         for i in range(1, len(self.node_path)):
             a = self.node_path[i-1]
             b = self.node_path[i]
@@ -1158,14 +1207,24 @@ class ApportionmentSolverVar:
             for arc in a.outflows:
                 if arc.to_node == b:
                     found = True
-                    arc.forward_vars.append(self)
+                    self._arc_path.append(arc)
+                    self._arc_fact.append(1)
                     break
             if found:
                 continue
             for arc in a.inflows:
                 if arc.from_node == b:
-                    arc.backward_vars.append(self)
+                    self._arc_path.append(arc)
+                    self._arc_fact.append(-1)
                     break
+
+        # Add references to this Var to each traversed Arc.
+        for arc, fact in zip(self._arc_path, self._arc_fact):
+            if fact > 0:
+                arc.forward_vars.append(self)
+            if fact < 0:
+                arc.backward_vars.append(self)
+
 
 @dataclass
 class ApportionmentSolverVarGroup:

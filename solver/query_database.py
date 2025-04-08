@@ -221,17 +221,17 @@ def query__flowlines_nodes(cnxn, system_id=None, paths=None):
             , nnb.NodeType, nnb.lon, nnb.lat
     from (
         select recordId as FlowlineId, FromNode, ToNode, FlowlineName, FlowlineType
-        from dvrtDB..NetFlowlines nf
+        from wrNetDB..Flowlines nf
         where BegDate <= @effectiveDate and EndDate > @effectiveDate
     ) nf
     left join (
         select recordId as nodeIdA, NodeType, _systemId, lat, lon
-        from dvrtDB..NetNodes
+        from wrNetDB..Nodes
         where BegDate <= @effectiveDate and EndDate > @effectiveDate
     ) nna ON nf.FromNode = nna.nodeIdA
     left join (
         select recordId as nodeIdB, NodeType, _systemId, lat, lon
-        from dvrtDB..NetNodes
+        from wrNetDB..Nodes
         where BegDate <= @effectiveDate and EndDate > @effectiveDate
     ) nnb ON nf.ToNode = nnb.nodeIdB
     where (   nna._systemId = @systemId 
@@ -337,7 +337,7 @@ def query__nodes_from_list(cnxn, node_ids):
     declare @effectiveDate date = current_timestamp;
 
     select recordId, NodeType, lon, lat
-    from dvrtDB..NetNodes 
+    from wrNetDB..Nodes 
     where BegDate <= @effectiveDate and EndDate > @effectiveDate
         and (""" + where_clause + """)
     """).fetchall()
@@ -379,7 +379,7 @@ def query__flowlines_from_list(cnxn, flowline_ids):
     declare @effectiveDate date = current_timestamp;
 
     select recordId, FromNode, ToNode, FlowlineName, FlowlineType
-    from dvrtDB..NetFlowlines
+    from wrNetDB..Flowlines
     where BegDate <= @effectiveDate and EndDate > @effectiveDate
         and (""" + where_clause + """)
     """).fetchall()
@@ -430,23 +430,23 @@ def query__paths_old(cnxn, system_id=None):
     rows = cursor.execute(""" 
     DECLARE @systemId int = ?;
     select p.recordId, p.Wrnum, p.PriorityOrder, p.MaxDivRateCFS
-    from dvrtDB..NetPaths p
+    from wrNetDB..Paths p
     inner join (         
         select distinct y.PathId  /* LOOK FOR PATHS PASSING FROM A NODE IN VIEW */
-        from dvrtDB..NetNodes nn
-        inner join dvrtDB..NetFlowlines x ON x.FromNode = nn.recordId   
-        inner join dvrtDB..NetPathLines y ON y.FlowlineID = x.recordId  
+        from wrNetDB..Nodes nn
+        inner join wrNetDB..Flowlines x ON x.FromNode = nn.recordId   
+        inner join wrNetDB..PathLines y ON y.FlowlineID = x.recordId  
         where (nn._systemId=@systemId OR @systemId=-1)  
         union   
         select distinct y.PathId   /* LOOK FOR PATHS PASSING TO A NODE IN VIEW */   
-        from dvrtDB..NetNodes nn
-        inner join dvrtDB..NetFlowlines x ON x.ToNode = nn.recordId 
-        inner join dvrtDB..NetPathLines y ON y.FlowlineID = x.recordId  
+        from wrNetDB..Nodes nn
+        inner join wrNetDB..Flowlines x ON x.ToNode = nn.recordId 
+        inner join wrNetDB..PathLines y ON y.FlowlineID = x.recordId  
         where (nn._systemId=@systemId OR @systemId=-1)   
         union   
         select distinct y.PathId   /* LOOK FOR PATHS BEGINING OR ENDING AT A NODE IN VIEW */
-        from dvrtDB..NetNodes nn
-        inner join dvrtDB..NetPathPoints y ON y.NodeId = nn.recordId
+        from wrNetDB..Nodes nn
+        inner join wrNetDB..PathPoints y ON y.NodeId = nn.recordId
         where (nn._systemId=@systemId OR @systemId=-1) 
     ) x ON p.recordId = x.PathId
     """, system_id).fetchall()
@@ -476,7 +476,7 @@ def query__paths_old(cnxn, system_id=None):
     # Now get all the path points (both beg- and end-points)
     rows = cursor.execute(""" 
     select PathId, NodeId, PointType
-    from dvrtDB..NetPathPoints 
+    from wrNetDB..PathPoints 
     """ + where_pathId_clause).fetchall()
 
     for row in rows:
@@ -493,7 +493,7 @@ def query__paths_old(cnxn, system_id=None):
     # Now get all the flowlines (both forward and backward)
     rows = cursor.execute(""" 
     select PathId, FlowlineID, FlowDir
-    from dvrtDB..NetPathLines
+    from wrNetDB..PathLines
     """ + where_pathId_clause).fetchall()
 
     for row in rows:
@@ -546,16 +546,16 @@ def query__paths(cnxn, flowlines, nodes):
     #print(list(flowlines.keys()))
     rows = cursor.execute(""" 
     select p.recordId, p.Wrnum, p.PriorityOrder, p.MaxDivRateCFS
-    from dvrtDB..NetPaths p
+    from wrNetDB..Paths p
     inner join (         
         select distinct pl.PathId  /* LOOK FOR PATHS PASSING THROUGH ONE OF THE SELECTED FLOWLINES */
-        from dvrtDB..NetPathLines pl
+        from wrNetDB..PathLines pl
         inner join (
           """ + where_id_in_list(list(flowlines.keys()), 'flowlineId') + """
         ) x ON x.flowlineId = pl.FlowlineID     
         union
         select distinct pp.PathId   /* LOOK FOR PATHS BEGINING OR ENDING AT A NODE IN VIEW */
-        from dvrtDB..NetPathPoints pp
+        from wrNetDB..PathPoints pp
         inner join (
           """ + where_id_in_list(list(nodes.keys()), 'nodeId') + """
         ) y ON y.nodeId = pp.NodeId
@@ -588,7 +588,7 @@ def query__paths(cnxn, flowlines, nodes):
     # Now get all the path points (both beg- and end-points)
     rows = cursor.execute(""" 
     select PathId, NodeId, PointType
-    from dvrtDB..NetPathPoints 
+    from wrNetDB..PathPoints 
     """ + where_pathId_clause).fetchall()
 
     for row in rows:
@@ -608,7 +608,7 @@ def query__paths(cnxn, flowlines, nodes):
     # Now get all the flowlines (both forward and backward)
     rows = cursor.execute(""" 
     select PathId, FlowlineID, FlowDir
-    from dvrtDB..NetPathLines
+    from wrNetDB..PathLines
     """ + where_pathId_clause).fetchall()
 
     for row in rows:
@@ -648,7 +648,7 @@ def query__meas(cnxn, date, station_ids):
 
     select SM.STATION_ID, SM.STATION_NAME, NA.FlowlineId, NA.FlowlineDist, NA.NodeId, DR.STATION_VALUE
     from dvrtDB..STATION_MASTER SM
-    left join dvrtDB..NetAddresses NA ON SM.ADDRESS_ID = NA.recordId
+    left join wrNetDB..Addresses NA ON SM.ADDRESS_ID = NA.recordId
     left join (
         SELECT STATION_ID, RV_""" + date_MM_DD + """ as STATION_VALUE
         FROM   dvrtDB..DAILY_RECORDS
@@ -696,7 +696,7 @@ def query__meas2(cnxn, beg_date, end_date, station_ids):
     sql = """ 
     select SM.STATION_ID, SM.STATION_NAME, NA.FlowlineId, NA.FlowlineDist, NA.NodeId, DR.RECORD_DATE, DR.DAILY_VALUE
     from dvrtDB..STATION_MASTER SM
-    left join dvrtDB..NetAddresses NA ON SM.ADDRESS_ID = NA.recordId
+    left join wrNetDB..Addresses NA ON SM.ADDRESS_ID = NA.recordId
     left join (
         SELECT STATION_ID, RECORD_DATE, DAILY_VALUE
         FROM   dvrtDB..DAILY_RECORDS_PIVOT
