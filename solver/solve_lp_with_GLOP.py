@@ -3,7 +3,7 @@ from ortools.linear_solver import pywraplp
 from math import inf, isnan, isclose
 
 
-class LinearSolver:
+class LPSolver:
     """Wrapper around the linear solver engine (currently using GLOP).
     This class could be used to solve linear optimization problems in general.
     """
@@ -120,13 +120,13 @@ class LinearSolver:
             objective.SetCoefficient(variable, 1)
 
         # Solve the system.
-        if LinearSolver.PRINT_SOLVER_MESSAGES:
+        if LPSolver.PRINT_SOLVER_MESSAGES:
             self.solver.EnableOutput()
         status = self.solver.Solve()
 
         
         # Retrieve the solution results.
-        if status == LinearSolver.SOLVER_OPTIMAL:
+        if status == LPSolver.SOLVER_OPTIMAL:
 
             objective_value = objective.Value()
 
@@ -144,7 +144,7 @@ class LinearSolver:
                 3 : "UNBOUNDED",
                 4 : "ABNORMAL",
             }
-            raise LinearSolverError('Could not find optimal solution! Status = ' + 
+            raise LPSolverError('Could not find optimal solution! Status = ' + 
                        str(status) + ':' + status_text[status] 
                        + '/n/n' + self.lp_string())
 
@@ -364,7 +364,7 @@ class LinearSolver:
             new_objective.SetMinimization()
 
         # Run       
-        if LinearSolver.PRINT_SOLVER_MESSAGES:
+        if LPSolver.PRINT_SOLVER_MESSAGES:
             new_model.EnableOutput()
         status = new_model.Solve()
         print(new_model.ExportModelAsLpFormat(False))
@@ -372,7 +372,7 @@ class LinearSolver:
         return status, new_objective
 
 
-class LinearSolverError(Exception):
+class LPSolverError(Exception):
     """An exception indicating the solver cannot solve a requested problem, 
     perhaps because the problem is infeasible, unbounded, or not properly 
     defined."""

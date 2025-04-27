@@ -1,749 +1,271 @@
+'''
+
+This is where it will all come together. This code will request the data using
+API endpoints, then call the code to solve the accounting, and then save the 
+results using the API endpoints.
+
+
+Big issues to think through and fix:
+
+- A ModelConnector may have multiple measurements, not a one-to-one like I did 
+  for the local database.
+  - I added a new db table.
+  - need API to populate it when model is uploaded.
+  - need API to delete it when model is deleted.
+  - need API to use new DB table to query measurement ts.
+
+- Am I supporting reservoirs yet? Make sure that will work before asking Collin 
+  to add the proposed DB tables.
+
+- There could in theory be multiple connections between the same zones, which is 
+  not yet supported by the general solver.
+
+  
+
+'''
+
 from .apportionment_solver import ApportionmentSolver
-from .globals import Globals
-from .variable import Variable
-from .wr_network import WRNetwork, Account, MeasurementSeries, Zone
 
-DEFAULT_ZONE_ID = '-1'
+API_URL = 'http://127.0.0.1:8000/wr-net/'
 
-
-# NOTE: Non-essential functions require and import additional modules. They are 
-# not imported here so a user can use the core functionality of this code 
-# without needing to install additional modules that are not neccessary. 
-# For example: 
-#       json
-#       jsonpickle
-#       networkx as nx
-#       matplotlib.pyplot as plt
-
-# -----------------------------------------------------------------------------
-
-def prep_solver(graph:'ApportionmentProblem') -> ApportionmentSolver:
-    solver = ApportionmentSolver()
-
-    def find_connecting_reach_id(zone_id):
-        pass
-
-    zones = graph.zones
-    for id in zones:
-        if zones[id].has_natural_flowline:
-            solver.add_reach(id)
-            
-        elif zones[id].is_storage:
-            solver.add_reach_reservoir(find_connecting_reach_id(id), id, 0)
-
-        else:
-            solver.add_reach_diversion(find_connecting_reach_id(id), id, 0)
-
-    solver.set_input(graph, graph.wrnet.measurement_manager)
-    return solver
+class GeneralSolver:
+    """ """
 
 
-def solve(flowlines=None, nodes=None, paths=None, measurements=None
-          , zones=None
-          , day=None
-          , log_file=None
-          , write_output_files=False):
-    """Solve a distribution accounting problem. (Revisions to make more understandable)"""
-    
-    '''# Configure logging.
-    logging = None
-    if log_file is not None:
-        import logging
-        logging.basicConfig(filename=log_file, level=logging.DEBUG, filemode="w", format='%(message)s')'''
-
-    wrnet = WRNetwork()
-    wrnet.load_objects(flowlines, nodes, paths, measurements)
-
-    graph = ApportionmentProblem(wrnet, zones)
-
-    solver = prep_solver(graph)
-
-    '''# Write output, if requested.
-    if write_output_files:
-        input.export_results('output/solver-data.js')
-        input.export_input('output/network-data.json', include_implicit=True)'''
-
-
-    solver.do_computations()
-
-
-    '''# Write output, if requested.
-    if write_output_files:
-
-        solver.log(str(transaction_results))
-        solver.log_tx()
-
-        input.export_results('output/solver-data.js')
-        input.export_input('output/network-data.json', include_implicit=True)'''
-
-
-    # Return results.
-    transactions = solver.compile_tx_results()
-
-    return ApportionmentResults(graph, transactions)
-
-
-
-def solve_period (flowlines=None, nodes=None, paths=None, measurements=None
-          , zones=None, first_day=None, last_day=None
-          , log_file=None, write_output_files=False):
-    """Solve a distribution accounting problem for a period of days."""
-
-    # Get a list of the days in the period range.
-    day_list = get_date_series(first_day, last_day)
-    
-    transactions = []
-    for day in day_list:
-
-        # Calculate the transaction values for each day.
-        my_results = solve(flowlines, nodes, paths, measurements,
-                               zones, day, log_file, write_output_files)
-        
-        # And merge the resulting transactions into one list.
-        transactions = transactions + my_results.transactions
-
-    return transactions
-
-
-def get_date_series (first_day:str, last_day:str) -> list:
-    from datetime import date, timedelta
-
-    series = []
-
-    beg_date = date.fromisoformat(first_day)
-    end_date = date.fromisoformat(last_day)
-
-    if end_date < beg_date:
-        raise ValueError("last_day must not be before first_day!")
-    
-    d = beg_date
-    while d <= end_date:
-        series.append(d.isoformat())
-        d = d + timedelta(days=1)
-
-    return series
-
-
-
-
-class ApportionmentResults:
-    """Class to organize result data and provide helpful result-processing utilities."""
-
-    def __init__(self, input, transactions) -> None:
-        self.transactions = transactions
-        self.variables = input.variables
-
-
-    def to_df(self):
-        """Returns a pandas DataFrame with these columns:
-           -  variable
-           -  date
-           -  from_account
-           -  to_account
-           -  value
-        """
-        import pandas as pd
-        df = pd.DataFrame.from_dict(self.transactions)
-        return df
-
-
-# -----------------------------------------------------------------------------
-class ApportionmentProblem():
-    
-    def __init__(self, wrnet, zones):
-        
-        self.wrnet = wrnet
-
-        # Derived intermediate data structures:
+    def __init__(self):
         self.zones = {}
-        self.subarcs = {}
-        self.variables = {}
-
-        # New data structures
-        self.accounts = AccountList()   #???? TODO! Use real accounts & zones instead of 'subset' accounts!
-
-        #
-        self._init_zones(zones)
-
-    # -------------------------------------------------------------------
-    # the following deals more with the derived/intermediate data
+        self.connections = {}
+        self.beg_date = None
+        self.end_date = None
+        self.transactions = {}
+        self.timeseries = {}
 
 
-    def _init_zones(self, zones):
-        """Given the zones input json, build self.accounts, self.zones, and
-        self.link data structures.
-        """
+    def build_problem(self, accounting_network):
 
-        zones = self._validate_zone_input(zones)
+        self.zones = accounting_network['zones']
+        self.connections = accounting_network['connections']
+        self.beg_date = accounting_network['beg_date']
+        self.end_date = accounting_network['end_date']
 
-        semiprocessed_zones = {}
-        for idx, zone_input in enumerate(zones):
+        self.query_transactions()
+        self.query_timeseries()
 
-            zone = Zone()
-            zone.name = zone_input['name']
-            zone.in_measurements = zone_input['in_measurements']
-            zone.out_measurements = zone_input['out_measurements']
-            if "id" in zone_input:
-                zone.id = zone_input['id']
+
+    def query_transactions(self):
+        """Use the API to query the transactions traversing the accounting 
+        network graph."""
+        import requests
+
+        url = API_URL + 'accounting/transactions'
+
+        response = requests.post(url, timeout=30, json = {
+            'zones': self.zones,
+            'connections': self.connections,
+            'beg_date': self.beg_date,
+            'end_date': self.end_date
+        })
+
+        if not response:
+            raise Exception("Failed to query transactions from API!")
+        
+        results_transactions = response.json()['transactions']
+
+        for trxn in results_transactions:
+            self.add_transaction(
+                path_id=trxn['path_id'],
+                beg_date=trxn['beg_date'],
+                end_date=trxn['end_date'],
+                priority_order=trxn['priority_order'], 
+                path=trxn['path'],
+                cfs_upper_limit=trxn['upper_limit'],
+                wrnum=trxn['wrnum']
+            )
+
+
+    def query_timeseries(self):
+        """Use the API to query the measurement data for each connection in 
+        the accounting  network graph."""
+        import requests
+
+        url = API_URL + 'accounting/measurements'
+
+        response = requests.post(url, timeout=30, json = {
+            'zones': self.zones,
+            'connections': self.connections,
+            'beg_date': self.beg_date,
+            'end_date': self.end_date
+        })
+
+        if not response:
+            raise Exception("Failed to query measurements from API!")
+        
+        results = response.json()['measurements']
+
+        for connection_name in results:
+            ts = results[connection_name]
+            self.add_timeseries(connection_name, ts)
+
+    
+    def add_transaction(self, 
+                        path_id:int, 
+                        beg_date:str,
+                        end_date:str,
+                        priority_order:float, 
+                        path:list[str],
+                        cfs_upper_limit:float = None,
+                        cfs_lower_limit:float = 0,
+                        annual_acft_limit:float = None,
+                        annual_acft_limit_start:str = '0101',
+                        wrnum:str = None
+                        ):
+        """"""
+        if path_id in self.transactions:
+            raise ValueError('A transaction with path_id="'+str(path_id)+'" already exists.')
+        
+        self.transactions[path_id] = {
+            'path_id': path_id,
+            'beg_date': beg_date,
+            'end_date': end_date,
+            'priority_order': priority_order, 
+            'path': path,
+            'cfs_upper_limit': cfs_upper_limit,
+            'cfs_lower_limit': cfs_lower_limit,
+            'annual_acft_limit': annual_acft_limit,
+            'annual_acft_limit_start': annual_acft_limit_start,
+            'wrnum': wrnum
+        }
+
+
+    def add_timeseries(self, id, values:list): 
+        """"""
+        
+        if id in self.timeseries:
+            raise ValueError('A timeseries with id="'+str(id)+'" already exists.')
+        
+        self.timeseries[id] = values
+
+
+    def solve(self):
+        """"""
+        # TODO - the way that the variable details (vars) is generated for each 
+        # day and then returned is weird. Is it possible to generate it once? Or 
+        # to genearte the system once and then just re-run it with different values?
+
+        from datetime import date, datetime, timedelta
+        graph = {}
+        var_values = {"dates":[], "variables":{}, "arcs":{}}
+        errors_cnt = 0
+
+        start_date = datetime.strptime(self.beg_date, "%Y-%m-%d").date()
+        end_date = datetime.strptime(self.end_date, "%Y-%m-%d").date()
+
+        current_date = start_date
+        delta = timedelta(days=1)
+        while current_date <= end_date:
+            # Run 
+            yyyy_mm_dd = current_date.isoformat()
+            print('Running for:', yyyy_mm_dd)
+            system = self.build_single_day_solver(date=yyyy_mm_dd)
+            system.solve()
+
+            vars = system.get_variables()
+
+            # Extract the data.
+            this_var_values = system.get_variable_values()
+
+            # Merge this day's data with the previous data.
+            var_values['dates'].append(yyyy_mm_dd)
+            for v in this_var_values:
+                if v not in var_values['variables']:
+                    var_values['variables'][v] = []
+                var_values['variables'][v].append( this_var_values[v][0] )
+
+            current_date += delta
+        return var_values, errors_cnt, vars
+
+
+    def build_single_day_solver(self, date) -> ApportionmentSolver:
+        """"""
+
+        system = ApportionmentSolver()
+
+        # Add reaches
+        for z in self.zones:
+            if z['type']=='stream':
+                system.add_reach(z['name'], storage_chg=0)
             else:
-                zone.id = str(idx)
+                system.add_zone(z['name'], is_source=False, storage_chg=0)
 
-            # Create a zone within the given measurement bounds.
-            self._define_zone_between_measurements(zone)
-            semiprocessed_zones[zone.id] = zone
+        # Add connections
+        for f in self.connections:
+            flow = self._get_flow_value(f['name'], date)
+            system.connect_zones(f['name'], f['from_zone'], f['to_zone'], flow)
+
+
+        
+        # Add transactions
+        for path_id in self.transactions:
+            trxn = self.transactions[path_id]
+            system.add_transaction(
+                id = path_id,
+                priority = trxn['priority_order'],
+                upper_limit = self._get_transaction_upper_limit(trxn, date),
+                apath = trxn['path']
+            )
+        
+        return system
+
+    def _get_transaction_upper_limit(self, t, date):
+        """"""
+        return 10 # TODO!
+
+    def _get_flow_value(self, connection_name, date):
+        from datetime import datetime
+
+        beg_date = datetime.strptime(self.beg_date, "%Y-%m-%d").date()
+        this_date = datetime.strptime(date, "%Y-%m-%d").date()
+
+        day_idx = (this_date - beg_date).days
+
+        return self.timeseries[connection_name][day_idx]
+
+
+
+
+    def save_to_db(self, variables, results):
+        """Use the API to save this accounting data to the database."""
+        import requests
+
+        api_headers = {"X-API-Key": "secret-key"}
+
+        print({
+            'zones': self.zones,
+            'connections': self.connections,
+            'beg_date': self.beg_date,
+            'end_date': self.end_date,
+            'variables': variables
+        })
+
+        # Upload the model structure.
+        response = requests.post(API_URL + 'wadda/model', timeout=30, json = {
+            'zones': self.zones,
+            'connections': self.connections,
+            'beg_date': self.beg_date,
+            'end_date': self.end_date,
+            'variables': variables
+        }, headers=api_headers)
+
+        if not response:
+            raise Exception("Failed to load model to database!")
+        else:
+            new_model_id = response.json()['model_id']
+            print('new_model_id: ' + str(new_model_id))
         
 
+        # Upload the values timeseries for the variables.
+        url = API_URL + 'wadda/model/'+ str(new_model_id) + '/results'
+        response = requests.post(url, timeout=30, json=results, headers=api_headers)
+        if not response:
+            raise Exception("Failed to load model values to database!")
         
-        self.zones = self._init_zones_2(semiprocessed_zones)
-
-        self.subarcs = self.determine_arcs(self.zones)
-        self.variables = self.add_variables(self.zones, self.subarcs)
-    
-
-    def _validate_zone_input(self, zones):
-
-
-        # Ensure each measurement is used as an input to no more than one zone and
-        # as an outflow from no more than one zone.
-        zone_ins = {}
-        zone_outs = {}
-        out_measurements_nozone = []
-        in_measurements_nozone = []
-
-        for idx, zone_input in enumerate(zones):
-
-            for measId in zone_input['in_measurements']:
-                if measId in zone_ins:
-                    raise Exception('Measurment id #{} is specified as inflow to'
-                                    ' multiple zones!'.format(measId))
-                else:
-                    zone_ins[measId] = idx
-
-            for measId in zone_input['out_measurements']:
-                if measId in zone_outs:
-                    raise Exception('Measurment id #{} is specified as outflow from'
-                                    ' multiple zones!'.format(measId))
-                else:
-                    zone_outs[measId] = idx
-
-        # Now check for measurements that have an inflow zone but no outflow zone
-        # (or vice versa) and create a default zone if neccessary.
-        for measId in zone_ins:
-            if measId not in zone_outs:
-                out_measurements_nozone.append(measId)
-        for measId in zone_outs:
-            if measId not in zone_ins:
-                in_measurements_nozone.append(measId)
-
-        if len(in_measurements_nozone) + len(out_measurements_nozone) > 0:
-            zones.append({
-                "id": DEFAULT_ZONE_ID,
-                "name": "None",
-                "type": "inflow",
-                "in_measurements": in_measurements_nozone,            
-                "out_measurements": out_measurements_nozone,
-            })
-            
-        return zones
-
-
-    def _define_zone_between_measurements(self, zone, exclude_streams=False, exclude_diversions=False):
-        
-        in_measurements = zone.in_measurements
-        out_measurements = zone.out_measurements
-
-        interior_nodes = []
-        boundary_flowlines = []
-
-        for measurementId in in_measurements:
-            # Get the flowline of the measurement.
-            meas: MeasurementSeries = self.wrnet.measurement_manager.byId(measurementId)
-            if meas.flowlineId is not None:
-                if meas.flowlineId in self.wrnet.flowlines:
-                    flowlineId = meas.flowlineId
-                    interior_node = self.wrnet.flowlines[flowlineId].to_node
-
-                    boundary_flowlines.append(flowlineId)
-                    interior_nodes.append(interior_node)
-
-            elif meas.nodeId is not None:
-                if meas.nodeId in self.wrnet.nodes:
-                    # An in-flow that is measured at a node means this is a 
-                    # storage zone. So we need to:
-                    # - find the implicit storage node and mark it as interior
-                    # - find the implicit flowline and mark it as an inflow
-                    if meas.type == 'measured_storage_change':
-                        ms:MeasurementSeries = self.wrnet.measurement_manager.byId('storage-diversion-from-node:'+str(meas.nodeId))
-                        if ms is not None:
-                            flowlineId = ms.flowlineId
-                            interior_node = self.wrnet.flowlines[flowlineId].to_node
-
-                            boundary_flowlines.append(flowlineId)
-                            interior_nodes.append(interior_node)
-
-
-
-        for measurementId in out_measurements:
-            # Get the flowline of the measurement.
-            meas: MeasurementSeries = self.wrnet.measurement_manager.byId(measurementId)
-            if meas.flowlineId is not None:
-                if meas.flowlineId in self.wrnet.flowlines:
-                    flowlineId = meas.flowlineId
-                    interior_node = self.wrnet.flowlines[flowlineId].from_node
-                    
-                    boundary_flowlines.append(flowlineId)
-                    interior_nodes.append(interior_node)
-
-            elif meas.nodeId is not None:
-                if meas.nodeId in self.wrnet.nodes:
-                    # An out-flow that is measured at a node means this is either 
-                    # a diversion to storage or storage loss. 
-                    if meas.type == 'measured_storage_change':
-                        # - find the implicit storage node and mark it as interior
-                        # - find the implicit flowline and mark it as an inflow
-                        ms:MeasurementSeries = self.wrnet.measurement_manager.byId('storage-diversion-from-node:'+str(meas.nodeId))
-                        if ms is not None:
-                            flowlineId = ms.flowlineId
-                            interior_node = self.wrnet.flowlines[flowlineId].from_node
-
-                            boundary_flowlines.append(flowlineId)
-                            interior_nodes.append(interior_node)
-
-        return self._create_subset(zone, interior_nodes, boundary_flowlines, exclude_streams, exclude_diversions)
-    
-
-    def _init_zones_2(self, zones):
-        
-        for id in zones:
-            zone = zones[id]
-
-            from_zones = []
-            to_zones = []
-            has_natural_flowline = False
-            is_storage = False
-            change_handoffs = []
-
-            for flowlineId in zone.in_flowlines:
-                from_node_id = self.wrnet.flowlines[flowlineId].from_node
-                from_zone_id = self.wrnet.nodes[from_node_id]._zone
-                from_zones.append( from_zone_id )
-
-                if self.wrnet.flowlines[flowlineId].is_natural:
-                    has_natural_flowline = True
-
-            for flowlineId in zone.out_flowlines:
-                to_node_id = self.wrnet.flowlines[flowlineId].to_node
-                to_zone_id = self.wrnet.nodes[to_node_id]._zone
-                to_zones.append( to_zone_id )
-                if self.wrnet.flowlines[flowlineId].is_natural:
-                    has_natural_flowline = True
-
-            
-            for flowlineId in zone.interior_flowlines:
-                if self.wrnet.flowlines[flowlineId].is_natural:
-                    has_natural_flowline = True
-
-            if len(zone.interior_nodes) == 1:
-                nodeId = list(zone.interior_nodes)[0]
-                node = self.wrnet.nodes[nodeId]
-                if node.storage and node.is_implicit:
-                    is_storage = True
-
-
-            # A change handoff should be added for each chnum referenced by
-            # "to_change" or "from_change" attributes in the path that ends or
-            # begins (respectively) at a node within the zone.
-            def add_change_handoff(chnum, nodes):
-                zone_ids = set()
-                for node_id in nodes:
-                    nodes_zone = self.wrnet.nodes[node_id]._zone
-                    zone_ids.add(nodes_zone)
-                if len(zone_ids) == 1:
-                    change_handoffs.append(chnum)
-                elif len(zone_ids) == 0:
-                    raise Exception('Cannot process change_handoffs for '
-                                    'path {} because its to_nodes do not '
-                                    'belong to any zone!')
-                else:
-                    raise Exception('Cannot process change_handoffs for '
-                                    'path {} because its to_nodes belong '
-                                    'to more than one zone!')
-                
-            for path_id, path in self.wrnet.paths.items():
-                if path.to_change is not None:
-                    add_change_handoff(path.to_change, path.to_nodes)
-                if path.from_change is not None:
-                    add_change_handoff(path.from_change, path.from_nodes)
-
-            zone.from_zones = list(set(from_zones)) # make the list distinct.
-            zone.to_zones = list(set(to_zones)) # make the list distinct.
-            zone.has_natural_flowline = has_natural_flowline
-            zone.is_storage = is_storage
-            zone.change_handoffs = list(set(change_handoffs))
-
-        return zones
-
-
-    def _create_subset(self, zone, interior_nodes, boundary_flowlines, exclude_streams=False, exclude_diversions=False):
-
-        def getNextNodes(starting_nodeIds):
-            """Return a list of the upstream and downstream nodes.
-            """
-            next_forward_nodes = {}
-            next_backward_nodes = {}
-
-            for starting_nodeId in starting_nodeIds:
-                node = self.wrnet.nodes[starting_nodeId]
-                for flowlineId in node.outflows:
-                    # we want to ignore diversions (non-natural) flowlines that are not used by any paths.
-                    if self.wrnet.flowlines[flowlineId]._is_traversed_by_path or self.wrnet.flowlines[flowlineId].is_natural:
-                        next_nodeId = self.wrnet.flowlines[flowlineId].to_node
-                        next_forward_nodes[flowlineId] = next_nodeId
-                for flowlineId in node.inflows:
-                    # we want to ignore diversions (non-natural) flowlines that are not used by any paths.
-                    if self.wrnet.flowlines[flowlineId]._is_traversed_by_path or self.wrnet.flowlines[flowlineId].is_natural:
-                        next_nodeId = self.wrnet.flowlines[flowlineId].from_node
-                        next_backward_nodes[flowlineId] = next_nodeId
-
-            return next_forward_nodes, next_backward_nodes
-
-
-        def add_next_nodes(flowlineId, nodeId, fontier_nodes, subset, direction):
-
-            if direction == 'FORWARD':
-                subset_boundary_flowlines = subset.out_flowlines
-            elif direction == 'BACKWARD':
-                subset_boundary_flowlines = subset.in_flowlines
-
-            if flowlineId not in subset.interior_flowlines:
-
-                # Is the next node approached using a flowline that is marked as a subset boundary?
-                if flowlineId in boundary_flowlines:
-                    subset_boundary_flowlines.append(flowlineId)
-                elif exclude_streams and self.wrnet.flowlines[flowlineId].is_natural:
-                    subset_boundary_flowlines.append(flowlineId)
-                elif exclude_diversions and not self.wrnet.flowlines[flowlineId].is_natural:
-                    subset_boundary_flowlines.append(flowlineId)
-                
-                # Otherwise, Is the next node already part of a subset?
-                elif self.wrnet.nodes[nodeId]._zone is not None:
-                    # Is it part of this subset?
-                    if self.wrnet.nodes[nodeId]._zone == subset.id:
-                        subset.interior_flowlines.add(flowlineId)
-
-                    # Or part of a different subset?
-                    else:
-                        subset_boundary_flowlines.append(flowlineId)
-
-                else:
-                    subset.interior_flowlines.add(flowlineId)
-                    # Has the next node never been processed before?
-                    if nodeId not in subset.interior_nodes:
-                        fontier_nodes[nodeId] = True
-                        subset.interior_nodes.add(nodeId)
-
-
-        # Prepare to loop...
-        fontier_nodes = {nodeId:True for nodeId in interior_nodes}
-        zone.interior_nodes.update(interior_nodes)
-        next_forward_nodes, next_backward_nodes = getNextNodes(interior_nodes)
-
-        # Traverse the network, node to node, until there are no more nodes to visit that may be part of this same subset.
-        while len(fontier_nodes) > 0:
-            fontier_nodes = {}
-            for flowlineId, nodeId in next_forward_nodes.items():
-                add_next_nodes(flowlineId, nodeId, fontier_nodes, zone, 'FORWARD')
-
-            for flowlineId, nodeId in next_backward_nodes.items():
-                add_next_nodes(flowlineId, nodeId, fontier_nodes, zone, 'BACKWARD')
-
-            next_forward_nodes, next_backward_nodes = getNextNodes(fontier_nodes.keys())
-
-        # Check if the interior-nodes collection contains any special nodes that are implicit inflows/outflows. 
-        for nodeId in zone.interior_nodes:
-            node_type = self.wrnet.nodes[nodeId].type
-            if node_type == 4 or node_type == 5:
-                zone.inflow_nodes.append(nodeId)
-            if node_type == 1:
-                zone.storage_nodes.append(nodeId)
-            if node_type == 3 or node_type == 2:
-                zone.use_nodes.append(nodeId)
-
-        #
-        for nodeId in zone.interior_nodes:
-            self.wrnet.nodes[nodeId]._zone = zone.id
-        
-
-        return zone
-
-
-    def determine_arcs(self, zones):
-        """Generate the arcs dataset describing connections between zones.
-
-        For each one, we need:
-        - is it measured?
-        - can the flow be less than zero? Or does the arc represent a type of connection where water can flow either way?
-        - from zones 
-        - to subset
-        - 
-        """
-        
-        subarcs = {}
-
-        for id in zones:
-            zone = zones[id]
-
-            for flowlineId in zone.out_flowlines:
-
-                from_node = self.wrnet.flowlines[flowlineId].from_node
-                to_node = self.wrnet.flowlines[flowlineId].to_node
-
-                from_zone = self.wrnet.nodes[from_node]._zone
-                to_zone = self.wrnet.nodes[to_node]._zone
-
-                if from_zone is None or to_zone is None:
-                    continue # This arc must not be needed. Skip it!
-
-                if from_zone != to_zone:
-
-                    from_type = ''
-                    if zones[from_zone].has_natural_flowline:
-                        from_type = 'SOURCE'
-                    elif zones[from_zone].is_storage:
-                        from_type = 'STORAGE'
-                    else:
-                        from_type = 'DIV'
-                        
-                    to_type = ''
-                    if zones[to_zone].has_natural_flowline:
-                        to_type = 'SOURCE'
-                    elif zones[to_zone].is_storage:
-                        to_type = 'STORAGE'
-                    else:
-                        to_type = 'DIV'
-
-                    subarc_type = from_type + '->' + to_type
-
-                    subarcs[flowlineId] = Subarc(from_zone, to_zone)
-                    subarcs[flowlineId].type = subarc_type
-
-        return subarcs
-
-
-    def add_variables(self, zones, subarcs):
-
-        paths = self.wrnet.paths
-        nodes = self.wrnet.nodes
-
-        variables = {}
-
-        def flowlines_to_subarcs(flowlines):
-            return flowlines
-
-        ''' Path variables. 
-        -----------------------------------------------------------------------
-        For apportionments and storage deliveries)
-        '''
-        for pathId in paths:
-            
-            # If a valid 'cfs_limit' number is specified, use it for the upper-bound,
-            try: 
-                ub = float(paths[pathId].cfs_limit)
-            except Exception: 
-                ub = Globals.DEFAULT_PATH_UB 
-
-            # For each 'junction':
-            # TODO complex paths
-
-            if len(paths[pathId].from_nodes) == 0:
-                print('Path #{} does not have any "from_nodes"! Cannot create variable for it!'.format(pathId))
-                continue
-
-            if len(paths[pathId].to_nodes) == 0:
-                print('Path #{} does not have any "to_nodes"! Cannot create variable for it!'.format(pathId))
-                continue
-
-            # temp fix for simple paths:
-            from_zone = nodes[ paths[pathId].from_nodes[0] ]._zone
-            to_zone = nodes[ paths[pathId].to_nodes[0] ]._zone
-
-            if from_zone is not None:
-                from_zone = zones[from_zone]
-
-            if to_zone is not None:
-                to_zone = zones[to_zone]
-
-            forward_flowlines = paths[pathId].forward_flowlines
-            backward_flowlines = paths[pathId].backward_flowlines
-
-            #from_account =  paths[pathId].from_account
-            #to_account = paths[pathId].to_account
-
-
-            v = Variable(id='PATH_'+pathId, type='PATH', 
-                         lb=0, 
-                         ub=ub, 
-                         from_zone=from_zone, 
-                         to_zone=to_zone, 
-                         from_change=paths[pathId].from_change,
-                         to_change=paths[pathId].to_change,
-                         forward_subarcs=flowlines_to_subarcs(forward_flowlines), 
-                         backward_subarcs=flowlines_to_subarcs(backward_flowlines),
-                         #from_account=from_account, 
-                         #to_account=to_account
-                         )
-            variables[v.id] = v
-
-
-        ''' Reach gain/loss variables. 
-        -----------------------------------------------------------------------
-        Gains are positive(+), losses are negative(-).
-        '''
-        for id in zones:
-
-            if zones[id].has_natural_flowline:
-                v = Variable(id='GAIN_REACH_'+id, 
-                             type='GAIN_REACH', 
-                             lb=None, 
-                             ub=None, 
-                             from_zone=None,
-                             to_zone=zones[id])
-                variables[v.id] = v
-
-
-        for flowlineId in subarcs:
-
-            subarc = subarcs[flowlineId]
-            from_zoneId = subarc.from_zone
-            to_zoneId = subarc.to_zone
-            subarc_type = subarc.type
-            
-
-            ''' Reach connection variables. 
-            -----------------------------------------------------------------------
-            Natural flow in an upstream reach should be available and shepherded 
-            to a downstream senior right.
-            '''
-            if subarc_type == 'SOURCE->SOURCE':
-                v = Variable(id='NF_DLVY_'+from_zoneId+'_TO_'+to_zoneId, 
-                             type='NF_DLVY', 
-                             lb=0, 
-                             ub=None, 
-                             from_zone=zones[from_zoneId], 
-                             to_zone=zones[to_zoneId], 
-                             forward_subarcs=flowlines_to_subarcs([flowlineId]))
-                variables[v.id] = v
-
-
-            '''Spill variables. 
-            -----------------------------------------------------------------------
-            If a reservoir water or import water is introduced to the natural 
-            stream but not diverted, it becomes natural flow to be apportioned by 
-            priority.  
-            '''
-            if subarc_type == 'DIV->SOURCE':
-                v = Variable(id='NF_SPILL_'+from_zoneId+'_TO_'+to_zoneId, 
-                             lb=0, 
-                             ub=None, 
-                             from_zone=zones[from_zoneId], 
-                             to_zone=zones[to_zoneId], 
-                             forward_subarcs=[flowlineId])
-                variables[v.id] = v
-            if subarc_type == 'SOURCE->STORAGE':
-                v = Variable(id='NF_SPILL_'+to_zoneId+'_TO_'+from_zoneId, 
-                             lb=0, 
-                             ub=None, 
-                             from_zone=zones[to_zoneId], 
-                             to_zone=zones[from_zoneId], 
-                             backward_subarcs=flowlines_to_subarcs([flowlineId]))
-                variables[v.id] = v
-            
-
-
-            '''Unauthorized diversion variables.
-            -----------------------------------------------------------------------
-            Any other water removed from the natural system without a diversion or 
-            delivery path should be marked as unauthorized.
-            '''
-            if subarc_type == 'SOURCE->DIV':
-                v = Variable(id='UNAUTH_'+from_zoneId+'_TO_'+to_zoneId, 
-                            lb=0, 
-                            ub=None, 
-                            from_zone=zones[from_zoneId], 
-                            to_zone=zones[to_zoneId], 
-                            forward_subarcs=flowlines_to_subarcs([flowlineId]))
-                variables[v.id] = v
-            if subarc_type == 'SOURCE->STORAGE':
-                v = Variable(id='UNAUTH_'+from_zoneId+'_TO_'+to_zoneId, 
-                            lb=0, 
-                            ub=None, 
-                            from_zone=zones[from_zoneId], 
-                            to_zone=zones[to_zoneId], 
-                            forward_subarcs=flowlines_to_subarcs([flowlineId]))
-                variables[v.id] = v
-
-
-        return variables
-
-
-    def export_results(self, file):
-        """ Exports the problem input to a file using JSON format.
-
-        Parameters
-        ----------
-        file (string) a file to write JSON to.
-        
-        """
-        import jsonpickle
-
-        output = {}
-
-        output['zones'] = self.zones
-        output['subarcs'] = self.subarcs
-        output['variables'] = self.variables
-
-        with open(file, 'w') as f:
-            #f.write(json.dumps(output, indent=2))
-            f.write('json = ' + jsonpickle.encode(output, unpicklable=False, indent=2 ))
-
-
-
-
-
-# -----------------------------------------------------------------------------
-
-class AccountList:
-    def __init__(self) -> None:
-        self.dict = {}
-
-    def add(self, account:Account):
-        id = account.id
-        if id in self.dict:
-            raise ValueError("AccountList already has an Account with id of {} so cannot add this account!".format(id))
-        self.dict[id] = account
-
-    def get(self, id):
-        value = None
-        if id in self.dict:
-            value = self.dict[id]
-        return value
-
-    def __str__(self) -> str:
-        return ', '.join( [str(x.id) + ':' + x.name for x in self.dict] )
-
-
-
-class Subarc:
-    def __init__(self, from_zone, to_zone, type=''):
-        self.from_zone = from_zone
-        self.to_zone = to_zone
-        self.type = type
-        self.measurement_name = None
-        self.measurement_id = None
-        self.value = None
-        self.variables = []
-
-
-# -----------------------------------------------------------------------------
-
-

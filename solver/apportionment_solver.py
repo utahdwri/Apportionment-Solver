@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from math import inf, isclose
-from .lp_solver_GLOP import LinearSolver, LinearSolverError
+from .solve_lp_with_GLOP import LPSolver, LPSolverError
 from .globals import Globals
 
 
@@ -25,7 +25,7 @@ class ApportionmentSolver:
         out = ''
         for name in self.nodes:
             n:ApportionmentSolverNode = self.nodes[name]
-            if n.type == 'REACH':
+            if n.is_source:
                 out += '\n' + n.name + f'(\u0394S={n.storage_chg:9.4f}, gains-losses={n.net_reach_gains:9.4f})'
                 for f in n.outflows:
                     out += f'\n {f.flow:9.4f} >> {f.to_node.name}'
@@ -46,6 +46,90 @@ class ApportionmentSolver:
     def log(self, message):
         if False:
             print('LOG', message)
+    
+    # --------------------------------------------------------------------------
+    # New methods to build the apportionment graph (aka transaction flow graph)
+    # 4/8/2025
+    # --------------------------------------------------------------------------
+
+    def add_zone(self, name:str,
+                 is_source:bool,
+                 storage_chg:float = 0,
+                 ) -> None:
+        """Create a zone (can represent a stream reach, a reservoir, an import, 
+        or a use zone)."""
+
+        # Create the node.
+        self.nodes[name] = ApportionmentSolverNode(
+            name=name, 
+            is_source=is_source,
+            storage_chg=storage_chg
+        )
+
+        return self.nodes[name]
+
+
+
+    def connect_zones(self, arc_name:str, from_name:str, to_name:str, flow:float, allow_both_directions=False):
+        """Create an arc connecting two zones, and also create a slack variable
+        to ensure the given flow is feasible. The arc_name is None then a name 
+        will be automatically generated for the new connection.
+        
+        Returns the Arc and the Var.
+        """
+
+        if arc_name is None:
+            arc_name = from_name + '>>' + to_name
+
+        self._validate_existing_name(self.nodes, from_name)
+        self._validate_existing_name(self.nodes, to_name)
+
+        # Connect the two nodes with an arc.
+        self._validate_new_name(self.arcs, arc_name)
+        self.arcs[arc_name] = ApportionmentSolverArc(
+            name=arc_name, 
+            from_node=self.nodes[from_name],
+            to_node=self.nodes[to_name],
+            flow=flow
+        )
+
+        # Create a variable representing flow through this connection that is
+        # not covered by any other variable -- this is essentially a slack 
+        # variable.
+        flow_var_name = 'FLOW_' + from_name + '_TO_' + to_name
+        self.vars[flow_var_name] = ApportionmentSolverVar(
+            name=flow_var_name,
+            path_id=None,
+            priority=None,
+            arc_path=[ApportionmentSolverVarPathItem(arc=self.arcs[arc_name], factor=1)],
+            lb=0,
+            ub=None,
+            value=None
+        )
+
+        # If the flow variable goes from a non-source to a source, set the spill flag.
+        if not self.nodes[from_name].is_source and self.nodes[to_name].is_source:
+            self.vars[flow_var_name].is_spill = True
+
+
+        if allow_both_directions:
+            flow_var_name2 = 'FLOW_' + to_name + '_TO_' + from_name
+            self.vars[flow_var_name2] = ApportionmentSolverVar(
+                name=flow_var_name2,
+                path_id=None,
+                priority=None,
+                arc_path=[ApportionmentSolverVarPathItem(arc=self.arcs[arc_name], factor=-1)],
+                lb=0,
+                ub=None,
+                value=None
+            )
+
+            # If the flow variable goes from a non-source to a source, set the spill flag.
+            if not self.nodes[to_name].is_source and self.nodes[from_name].is_source:
+                self.vars[flow_var_name2].is_spill = True
+
+        return self.arcs[arc_name], self.vars[flow_var_name]
+
 
     # --------------------------------------------------------------------------
     # Methods to build the apportionment graph (aka transaction flow graph)
@@ -57,261 +141,73 @@ class ApportionmentSolver:
                   expected_loss:float=None ) -> None:
         """Create a stream reach."""
 
-        self._validate_new_name(self.nodes, name)
+        gains_zone_name = name + '_GAINS'
+        losses_zone_name = name + '_LOSS'
 
-        # Create the node.
-        self.nodes[name] = ApportionmentSolverNode(
-            name=name, 
-            type='REACH',
-            storage_chg=storage_chg
-        )
+        self.add_zone(name, True, storage_chg)
+        self.add_zone(gains_zone_name, False, 0)
+        self.add_zone(losses_zone_name, False, 0)
 
-        # Create a gain-node. Every reach node has an acompaning gains node.
-        gain_name = name + '_GAINS'
-        self.nodes[gain_name] = ApportionmentSolverNode(
-            name=gain_name, 
-            type='GAINS'
-        )
+        gain_arc, gain_var = self.connect_zones('GAINS_TO:'+name, gains_zone_name, name, None)
+        loss_arc, loss_var = self.connect_zones('LOSSES_FROM:'+name, name, losses_zone_name, None)
 
-        # Connect the gain-node to the stream node.
-        arc_name = gain_name + '>>' + name
-        self.arcs[arc_name] = ApportionmentSolverArc(
-            name=arc_name, 
-            from_node=self.nodes[gain_name],
-            to_node=self.nodes[name],
-            flow=None
-        )
+        gain_var.expected_value=expected_gain
+        loss_var.expected_value=expected_loss
 
-        # Create a loss-node. Every reach node has an acompaning loss node.
-        loss_name = name + '_LOSS'
-        self.nodes[loss_name] = ApportionmentSolverNode(
-            name=loss_name, 
-            type='LOSS'
-        )
 
-        # Connect the loss-node to the stream node.
-        arc_name = name + '>>' + loss_name
-        self.arcs[arc_name] = ApportionmentSolverArc(
-            name=arc_name, 
-            from_node=self.nodes[name],
-            to_node=self.nodes[loss_name],
-            flow=None
-        )
-
-        # Create a variable representing the unapportioned inflow from the
-        # gain node into this reach.
-        gain_var_name = 'GAIN_' + name
-        self.vars[gain_var_name] = ApportionmentSolverVar(
-            name=gain_var_name,
-            path_id=None,
-            priority=None,
-            node_path=[self.nodes[gain_name], self.nodes[name]],
-            lb=0,
-            ub=None,
-            value=None,
-            expected_value=expected_gain
-        )
-
-        # Create a variable representing the unapportioned inflow from the
-        # gain node into this reach.
-        loss_var_name = 'LOSS_' + name
-        self.vars[loss_var_name] = ApportionmentSolverVar(
-            name=loss_var_name,
-            path_id=None,
-            priority=None,
-            node_path=[self.nodes[name], self.nodes[loss_name]],
-            lb=0,
-            ub=None,
-            value=None,
-            expected_value=expected_loss
-        )
-
-    def add_reach_reservoir(self, reach_name:str, resv_name:str, storage_chg:float, storage_loss:float=0):
+    def add_reach_reservoir(self, connection_name:str, reach_name:str, 
+                            resv_name:str, 
+                            storage_chg:float, 
+                            storage_loss:float=0
+                            ):
         """Define an on-stream reservoir. An on-stream reaservoir is represented
         as a distinct node that is connected to the stream node."""
-
-        self._validate_existing_name(self.nodes, reach_name)
-        self._validate_new_name(self.nodes, resv_name)
-
-        # Create the node.
-        self.nodes[resv_name] = ApportionmentSolverNode(
-            name=resv_name, 
-            type='STORAGE',
-            storage_chg=storage_chg + storage_loss,
-            storage_on_reach=reach_name
-        )
-
-        # Connect the reservoir node to the stream node.
-        arc_name = reach_name + '>>' + resv_name
-        self.arcs[arc_name] = ApportionmentSolverArc(
-            name=arc_name, 
-            from_node=self.nodes[reach_name],
-            to_node=self.nodes[resv_name],
-            flow=None
-        )
-
-        # Create a variable representing unauthorized diversions to the reservoir.
-        unauth_var_name = 'UNAUTH_' + resv_name
-        self.vars[unauth_var_name] = ApportionmentSolverVar(
-            name=unauth_var_name,
-            path_id=None,
-            priority=None,
-            node_path=[self.nodes[reach_name], self.nodes[resv_name]],
-            lb=0,
-            ub=None,
-            value=None
-        )
-
-        # Create a variable representing uncontrolled releases from the reservoir.
-        spill_var_name = 'SPILL_' + resv_name
-        self.vars[spill_var_name] = ApportionmentSolverVar(
-            name=spill_var_name,
-            path_id=None,
-            priority=None,
-            node_path=[self.nodes[resv_name], self.nodes[reach_name]],
-            lb=0,
-            ub=None,
-            value=None
-        )
-        #print('spill_var_name', spill_var_name)
-
-    def add_handoff(self, reach_name:str, handoff_name:str):
-        """Add a change handoff node."""
-
-        self._validate_existing_name(self.nodes, reach_name)
-        self._validate_new_name(self.nodes, handoff_name)
-
-        # Create the node.
-        self.nodes[handoff_name] = ApportionmentSolverNode(
-            name=handoff_name, 
-            type='HANDOFF'
-        )
-
-        # Connect the reservoir node to the stream node.
-        arc_name = reach_name + '>>' + handoff_name
-        self.arcs[arc_name] = ApportionmentSolverArc(
-            name=arc_name, 
-            from_node=self.nodes[reach_name],
-            to_node=self.nodes[handoff_name],
-            flow=0
-        )
+        resv_zone = self.add_zone(resv_name, False, storage_chg + storage_loss)
+        resv_zone.storage_on_reach=reach_name
+        self.connect_zones(connection_name, reach_name, resv_name, None, allow_both_directions=True)
 
         
-    def add_reach_diversion(self, reach_name:str, div_name:str, flow:float):
+    def add_reach_diversion(self, connection_name:str, reach_name:str, div_name:str, flow:float):
         """Define a measured artificial outflow from a stream reach."""
+        self.add_zone(div_name, False)
+        self.connect_zones(connection_name, reach_name, div_name, flow)
 
-        self._validate_existing_name(self.nodes, reach_name)
-        self._validate_new_name(self.nodes, div_name)
 
-        # Create the node.
-        self.nodes[div_name] = ApportionmentSolverNode(
-            name=div_name, 
-            type='DIVERSION'
-        )
-
-        # Connect the diversion node to the stream reach.
-        arc_name = reach_name + '>>' + div_name
-        self.arcs[arc_name] = ApportionmentSolverArc(
-            name=arc_name, 
-            from_node=self.nodes[reach_name],
-            to_node=self.nodes[div_name],
-            flow=flow
-        )
-
-        # Create a variable representing unauthorized diversions.
-        unauth_var_name = 'UNAUTH_' + div_name
-        self.vars[unauth_var_name] = ApportionmentSolverVar(
-            name=unauth_var_name,
-            path_id=None,
-            priority=None,
-            node_path=[self.nodes[reach_name], self.nodes[div_name]],
-            lb=0,
-            ub=None,
-            value=None
-        )
-
-    def add_reach_import(self, reach_name:str, imp_name:str, flow:float):
+    def add_reach_import(self, connection_name:str, reach_name:str, imp_name:str, flow:float):
         """Define a measured artificial inflow to a stream reach."""
+        self.add_zone(imp_name, False)
+        self.connect_zones(connection_name, imp_name, reach_name, flow)
 
-        self._validate_existing_name(self.nodes, reach_name)
-        self._validate_new_name(self.nodes, imp_name)
 
-        # Create the node.
-        self.nodes[imp_name] = ApportionmentSolverNode(
-            name=imp_name, 
-            type='IMPORT'
-        )
-
-        # Connect the node to the stream reach.
-        arc_name = imp_name + '>>' + reach_name
-        self.arcs[arc_name] = ApportionmentSolverArc(
-            name=arc_name, 
-            from_node=self.nodes[imp_name],
-            to_node=self.nodes[reach_name],
-            flow=flow
-        )
-
-        # Create a variable representing uncontrolled releases.
-        spill_var_name = 'SPILL_' + imp_name
-        self.vars[spill_var_name] = ApportionmentSolverVar(
-            name=spill_var_name,
-            path_id=None,
-            priority=None,
-            node_path=[self.nodes[imp_name], self.nodes[reach_name]],
-            lb=0,
-            ub=None,
-            value=None
-        )
-
-    def add_connection(self, from_name:str, to_name:str, flow:float):
+    def add_connection(self, connection_name:str, from_name:str, to_name:str, flow:float):
         """Define how two stream reaches are connected."""
-        # 1/20/2025 - This function was updated and renamed so it could be used 
-        #             to connect any two nodes, not just two reach nodes. 
-
-        self._validate_existing_name(self.nodes, from_name)
-        self._validate_existing_name(self.nodes, to_name)
-
-        # Connect the two nodes.
-        arc_name = from_name + '>>' + to_name
-        self._validate_new_name(self.arcs, arc_name)
-        self.arcs[arc_name] = ApportionmentSolverArc(
-            name=arc_name, 
-            from_node=self.nodes[from_name],
-            to_node=self.nodes[to_name],
-            flow=flow
-        )
+        self.connect_zones(connection_name, from_name, to_name, flow)
 
 
-
-        # Create a variable representing this flow.
-        flow_var_name = 'FLOW_' + from_name + '_TO_' + to_name
-        self.vars[flow_var_name] = ApportionmentSolverVar(
-            name=flow_var_name,
-            path_id=None,
-            priority=None,
-            node_path=[self.nodes[from_name], self.nodes[to_name]],
-            lb=0,
-            ub=None,
-            value=None
-        )
-
-    def add_transaction(self, id:int, priority:float, upper_limit:float, path:list[str],
+    def add_transaction(self, id:int, priority:float, upper_limit:float, 
                         lower_limit:float = 0,
+                        apath:list = None,
                         limited_by_id:int = None,
                         series_name:str = None,
                         child_series_name:str = None, 
                         expected_value:float = None ):
         """Define an authorized transaction (a flow variable with a priority).
         
-        The expected_value is only used for running tests.
+        The expected_value is only used for evaluating tests.
         """
 
         # Convert the path list of names to a list of node objects.
-        node_path = []
-        if path is not None: # a path may be None if it hold sub-series.
-            for node_name in path:
-                self._validate_existing_name(self.nodes, node_name)
-                node_path.append(self.nodes[node_name])
+        arc_path = None
+
+        if apath is None:
+            arc_path = [] # a path may be None if it hold sub-series.
+        else:
+            arc_path = []
+            for item in apath:
+                arc_name = item['connection_name']
+                factor = item['factor']
+                self._validate_existing_name(self.arcs, arc_name)
+                arc_path.append(ApportionmentSolverVarPathItem(arc=self.arcs[arc_name], factor=factor))
 
         # Add the variable.
         var_name = 'TRXN_' + str(id)
@@ -319,7 +215,7 @@ class ApportionmentSolver:
             name=var_name,
             path_id=id,
             priority=priority,
-            node_path=node_path,
+            arc_path=arc_path,
             lb=lower_limit,
             ub=upper_limit,
             value=None,
@@ -368,9 +264,10 @@ class ApportionmentSolver:
         # So these spills should be calculated and fixed prior to the apportionments.
         self._minimize_reservoir_spills(engine)
 
-        # Relax handoff constraints.
-        # Temporaraly allow inflow to a change handoff to exceed outflow.
-        self._relax_handoff_constraints(engine)
+        # Removed for now
+        ### # Relax handoff constraints.
+        ### # Temporaraly allow inflow to a change handoff to exceed outflow.
+        ### self._relax_handoff_constraints(engine)
 
 
         # Calculate the apportionments.
@@ -414,11 +311,28 @@ class ApportionmentSolver:
     # --------------------------------------------------------------------------
     # Output problem definition into something that can be charted
     # --------------------------------------------------------------------------
+    def get_variables(self):
+        vars = [
+            {
+                'name': self.vars[x].name,
+                'path_id': self.vars[x].path_id,
+                'path': [{'connection_name':a.arc.name, 'factor':a.factor} for a in self.vars[x].arc_path]
+            } for x in self.vars
+        ]
+        return vars
+
+    def get_variable_values(self):
+        var_values = {
+            x:[self.vars[x].value] for x in self.vars
+        }
+        return var_values
+
+
     def to_sankey_data(self, use_expected_values=False):
         graph = {
             "zones":{
                 x:{
-                    "type": self.nodes[x].type
+                    "is_source": self.nodes[x].is_source
                 } for x in self.nodes},
             "subarcs":{
                 x:{
@@ -428,8 +342,8 @@ class ApportionmentSolver:
                 } for x in self.arcs},
             "variables":{
                 x:{
-                    "path": [a.name for a in self.vars[x]._arc_path], 
-                    "f": self.vars[x]._arc_fact,
+                    "path": [a.arc.name for a in self.vars[x].arc_path], 
+                    "f": [a.factor for a in self.vars[x].arc_path],
                     "priority": self.vars[x].priority
                 } for x in self.vars},
         }
@@ -510,7 +424,7 @@ class ApportionmentSolver:
         # Add mass balance constraints & coeficients.
         for name in self.nodes:
             n = self.nodes[name]
-            if n.type == 'REACH':
+            if n.is_source:
 
                 # calculate sum = meas_outflows + meas_increase_in_storage - meas_inflows
                 reach_gain = None
@@ -545,10 +459,10 @@ class ApportionmentSolver:
 
 
 
-    def _build_linear_equations(self) -> LinearSolver:
+    def _build_linear_equations(self) -> LPSolver:
         """Add the variables and constraints to the linear solver engine."""
         
-        engine = LinearSolver()
+        engine = LPSolver()
 
         # Add all variables.
         for name in self.vars:
@@ -563,7 +477,7 @@ class ApportionmentSolver:
 
             # 1/6 - I've removed the reach mass balance constraints.
             # Do we need the handoff nodes? 
-            if n.type == 'HANDOFF':
+            if False: #n.type == 'HANDOFF':
                 con_name = 'HDOFF_MB_' + n.name
                 engine.add_constriant(name=con_name, lb=0, ub=0)
 
@@ -591,7 +505,7 @@ class ApportionmentSolver:
             a = self.arcs[name]
             if a.flow is None:
                 continue
-            if a.to_node.type == 'HANDOFF':
+            if False: #a.to_node.type == 'HANDOFF':
                 continue # we've effectively already added this constraint previously 
 
             con_name = 'MEAS_' + a.name
@@ -654,7 +568,7 @@ class ApportionmentSolver:
         # Determine the minimum spill sum
         spill_variables = []
         for name in self.vars:
-            if name[0:6] == 'SPILL_':
+            if self.vars[name].is_spill:
                 spill_variables.append(name)
 
         if len(spill_variables) > 0:
@@ -664,7 +578,7 @@ class ApportionmentSolver:
             # create a new constraint on the set of spills.
             engine.add_constriant(name='LIMIT_SPILLS', lb=0, ub=objective_value)
             for var_name in self.vars:
-                if var_name[0:6] == 'SPILL_':
+                if self.vars[var_name].is_spill:
                     engine.set_coeficient('LIMIT_SPILLS', var_name, 1)
 
 
@@ -686,10 +600,8 @@ class ApportionmentSolver:
 
         # Convert the path data to a priority-ordered schedule to loop through.
         schedule = self._get_schedule_series()
-        handoffs_by_latest_withdrawal_priority = self._get_handoffs()
 
         self.log("\nSchedule: " + str(schedule))
-        self.log("\nHandoffs_by_latest_withdrawal_priority: " + str(handoffs_by_latest_withdrawal_priority))
 
 
         # Solve.          
@@ -713,54 +625,6 @@ class ApportionmentSolver:
             
             elif item["var_name"] is not None:
                 self._maximize_var(engine, item["var_name"])
-
-            #print('!', self._compile_tx_results())
-            #print('!!', engine.lp_string())
-
-            # If a handoff is now complete, 
-            priority = item['priority']
-            if priority in handoffs_by_latest_withdrawal_priority:
-                handoffs = handoffs_by_latest_withdrawal_priority[priority]
-
-                # ##
-                self.log("Completed Handoffs: " + str(handoffs) + "\n")
-
-                # Can the handoff slack variable be minimized to zero?             (new: After enforcing in=out at the handoff node, can the delivery be met?
-                # If no, that means there is un-claimed water at the handoff node. (new: Or do diversions into the handoff node need to be reduced?
-                handoffs_with_extra_water = []
-                for handoff in handoffs:
-                    conId = 'HDOFF_MB_' + str(handoff['id'])
-
-
-                    # Close the handoff.
-                    # From now on, require that IN=OUT at the change-handoff node.
-                    engine.update_constraint_bounds(conId, ub=0)
-
-                    #print('***',engine.lp_string())
-
-                    # Check if the problem is still feasible.
-                    try:
-                        to_handoff_variables = []
-                        for var_name in handoff["to_vars"]:
-                            to_handoff_variables.append(var_name)
-                        engine.solve_objective(to_handoff_variables, maximization=True)
-
-                    except LinearSolverError:
-                        # If not feasible, make a note ...
-                        handoffs_with_extra_water.append( handoff )
-
-                        # And allow inflows into the handoff node to be reduced (so the above constraint is possible)
-                        for var_name in handoff["to_vars"]:
-                            engine.update_variable_bounds(var_name, lb=0)
-
-
-                # If so, we need to loop back and apportion it.
-                if len(handoffs_with_extra_water) > 0:
-                    start_p = min([x['earliest_deposit_priority'] for x in handoffs_with_extra_water])
-                    stop_p = item['priority']
-                    self.log("Need to re-apportion this water. Looping back to: {}".format(start_p))
-                    self._calculate_apportionments(engine, start_p, stop_p)
-
             
             self.log("\nCompleted iteration for priority: {}".format(item["priority"]) )
 
@@ -1067,82 +931,13 @@ class ApportionmentSolver:
     ## TODO - fix this to use updated/rearanged objects.
     ##      - replace pathId with var_name
 
-    def _get_handoffs(self):
-    
-        """ Does it make sense for a path to end at multiple handoff caches? 
-            Or a handoff cache and other end-points? If so, 
-            how will we know how much flow is available to take from the cache?
-        """
-
-
-        pri_vars = {name:self.vars[name] for name in self.vars if self.vars[name].priority is not None}
-
-
-        # Need the earliest priority of a deposit into the handoff cache. 
-        # Need the latest priority of a withdrawl from the handoff cache. 
-        # Need lists of the paths that deposit into the cache and withdrawal from the cache.
-
-        handoffs_by_id = {} # key is the priority when the 
-                            # value is another dictionary
-
-        # Add an item for each handoff, and populate "to_vars"
-        for node_name in self.nodes:
-            n = self.nodes[node_name]
-            if n.type == 'HANDOFF':
-                handoffs_by_id[node_name] = {
-                    "id": node_name,
-                    "earliest_deposit_priority": None,   # this is populated later
-                    "latest_withdrawal_priority": None,  # this is populated later
-                    "from_vars": [],                    # this is populated later
-                    "to_vars": []                       # this is populated later
-                }
-        # Populate "to_vars"
-        for var_name in pri_vars:
-            v = pri_vars[var_name]
-            try:
-                first_node_name = v.node_path[0].name
-                last_node_name = v.node_path[-1].name
-
-                if last_node_name in handoffs_by_id:
-                    handoffs_by_id[last_node_name]["to_vars"].append(var_name)
-                if first_node_name in handoffs_by_id:
-                    handoffs_by_id[first_node_name]["from_vars"].append(var_name)
-            except:
-                pass
-
-        # ... now update "earliest_deposit_priority" and "latest_withdrawal_priority"
-        for id in handoffs_by_id:
-            maxp_to = max([pri_vars[x].priority for x in handoffs_by_id[id]["to_vars"]])
-            minp_to = min([pri_vars[x].priority for x in handoffs_by_id[id]["to_vars"]])
-            maxp_from = max([pri_vars[x].priority for x in handoffs_by_id[id]["from_vars"]])
-            minp_from = min([pri_vars[x].priority for x in handoffs_by_id[id]["from_vars"]])
-
-            if maxp_to > minp_from:
-                raise ValueError('Handoff ['+str(id)+'] has a deposite path that is junior to a withdrawal path!')
-
-            handoffs_by_id[id]["earliest_deposit_priority"] = minp_to
-            handoffs_by_id[id]["latest_withdrawal_priority"] = maxp_from
-
-
-        # Now rearange so the data is sorted by "latest_withdrawal_priority"
-        handoffs_by_latest_withdrawal_priority = {}
-        for id in handoffs_by_id:
-            p = handoffs_by_id[id]['latest_withdrawal_priority']
-            if p not in handoffs_by_latest_withdrawal_priority:
-                handoffs_by_latest_withdrawal_priority[p] = []
-            handoffs_by_latest_withdrawal_priority[p].append( handoffs_by_id[id] )
-
-
-        return handoffs_by_latest_withdrawal_priority
-
-
 
 
 @dataclass
 class ApportionmentSolverNode:
     """A Node in the apportionment Graph."""
     name: str
-    type: str
+    is_source: bool
     storage_chg: float = 0
     
     # If this is set, it indicates the node is an on-stream storage node. The 
@@ -1176,6 +971,11 @@ class ApportionmentSolverArc:
         self.from_node.outflows.append(self)
         self.to_node.inflows.append(self)
 
+@dataclass
+class ApportionmentSolverVarPathItem:
+    """"""
+    arc: ApportionmentSolverArc
+    factor: float
 
 @dataclass
 class ApportionmentSolverVar:
@@ -1184,46 +984,28 @@ class ApportionmentSolverVar:
     name: str
     path_id: int
     priority: float
-    node_path: list[ApportionmentSolverNode]
     lb: float
     ub: float 
+    arc_path: list[ApportionmentSolverVarPathItem] = None
     value: float = None
     series: str = None
     child_series: str = None
     expected_value: float = None
     other_limited_vars:'ApportionmentSolverVarGroup' = None
+    is_spill:bool = False # A var has is_spill=True when it represents water under 
+                     # the name of a user being released back to the natural 
+                     # system, e.g. the slack variable representing reservoir 
+                     # releases with no downstream diversion or imports with no 
+                     # downstream diversion.
 
     def __post_init__(self):
 
-        self._arc_path = []
-        self._arc_fact = []
-
-        # Convert the given node_path to _arc_path and _arc_fact.
-        for i in range(1, len(self.node_path)):
-            a = self.node_path[i-1]
-            b = self.node_path[i]
-
-            found = False
-            for arc in a.outflows:
-                if arc.to_node == b:
-                    found = True
-                    self._arc_path.append(arc)
-                    self._arc_fact.append(1)
-                    break
-            if found:
-                continue
-            for arc in a.inflows:
-                if arc.from_node == b:
-                    self._arc_path.append(arc)
-                    self._arc_fact.append(-1)
-                    break
-
         # Add references to this Var to each traversed Arc.
-        for arc, fact in zip(self._arc_path, self._arc_fact):
-            if fact > 0:
-                arc.forward_vars.append(self)
-            if fact < 0:
-                arc.backward_vars.append(self)
+        for i in self.arc_path:
+            if i.factor > 0:
+                i.arc.forward_vars.append(self)
+            if i.factor < 0:
+                i.arc.backward_vars.append(self)
 
 
 @dataclass
