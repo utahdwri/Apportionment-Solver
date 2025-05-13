@@ -27,6 +27,7 @@ Big issues to think through and fix:
 from .apportionment_solver import ApportionmentSolver
 
 API_URL = 'http://127.0.0.1:8000/wr-net/'
+COALESCE_MISSING_FLOWS_TO_ZERO = True
 
 class GeneralSolver:
     """ """
@@ -34,7 +35,7 @@ class GeneralSolver:
 
     def __init__(self):
         self.zones = {}
-        self.connections = {}
+        self.interzonal_flows = {}
         self.beg_date = None
         self.end_date = None
         self.transactions = {}
@@ -44,7 +45,7 @@ class GeneralSolver:
     def build_problem(self, accounting_network):
 
         self.zones = accounting_network['zones']
-        self.connections = accounting_network['connections']
+        self.interzonal_flows = accounting_network['interzonal_flows']
         self.beg_date = accounting_network['beg_date']
         self.end_date = accounting_network['end_date']
 
@@ -57,11 +58,19 @@ class GeneralSolver:
         network graph."""
         import requests
 
-        url = API_URL + 'accounting/transactions'
+        url = API_URL + 'accounting-graph/transactions'
+
+        import json
+        print(json.dumps({
+            'zones': self.zones,
+            'interzonal_flows': self.interzonal_flows,
+            'beg_date': self.beg_date,
+            'end_date': self.end_date
+        }))
 
         response = requests.post(url, timeout=30, json = {
             'zones': self.zones,
-            'connections': self.connections,
+            'interzonal_flows': self.interzonal_flows,
             'beg_date': self.beg_date,
             'end_date': self.end_date
         })
@@ -88,11 +97,11 @@ class GeneralSolver:
         the accounting  network graph."""
         import requests
 
-        url = API_URL + 'accounting/measurements'
+        url = API_URL + 'accounting-graph/measurements'
 
         response = requests.post(url, timeout=30, json = {
             'zones': self.zones,
-            'connections': self.connections,
+            'interzonal_flows': self.interzonal_flows,
             'beg_date': self.beg_date,
             'end_date': self.end_date
         })
@@ -198,19 +207,24 @@ class GeneralSolver:
                 system.add_zone(z['name'], is_source=False, storage_chg=0)
 
         # Add connections
-        for f in self.connections:
-            flow = self._get_flow_value(f['name'], date)
-            system.connect_zones(f['name'], f['from_zone'], f['to_zone'], flow)
+        for f in self.interzonal_flows:
+            flow_value = self._get_flow_value(f['name'], date)
+            if COALESCE_MISSING_FLOWS_TO_ZERO and flow_value is None:
+                flow_value = 0
+            #print('flow_value', f['name'], date, flow_value)
+            system.connect_zones(f['name'], f['from_zone'], f['to_zone'], flow_value)
 
 
         
         # Add transactions
         for path_id in self.transactions:
             trxn = self.transactions[path_id]
+            upper_limit =  self._get_transaction_upper_limit(trxn, date)
+            #print('_get_transaction_upper_limit', date, upper_limit, trxn['cfs_upper_limit'])
             system.add_transaction(
                 id = path_id,
                 priority = trxn['priority_order'],
-                upper_limit = self._get_transaction_upper_limit(trxn, date),
+                upper_limit =upper_limit,
                 apath = trxn['path']
             )
         
@@ -218,7 +232,10 @@ class GeneralSolver:
 
     def _get_transaction_upper_limit(self, t, date):
         """"""
-        return 10 # TODO!
+        for intv in t['cfs_upper_limit']:
+            if date >= intv['beg_date'] and date < intv['end_date']:
+                return intv['value']
+        return None
 
     def _get_flow_value(self, connection_name, date):
         from datetime import datetime
@@ -228,7 +245,9 @@ class GeneralSolver:
 
         day_idx = (this_date - beg_date).days
 
-        return self.timeseries[connection_name][day_idx]
+        flow_value = self.timeseries[connection_name][day_idx]
+
+        return flow_value
 
 
 
@@ -236,35 +255,29 @@ class GeneralSolver:
     def save_to_db(self, variables, results):
         """Use the API to save this accounting data to the database."""
         import requests
+        import json
 
         api_headers = {"X-API-Key": "secret-key"}
 
-        print({
+        payload = {
             'zones': self.zones,
-            'connections': self.connections,
+            'interzonal_flows': self.interzonal_flows,
             'beg_date': self.beg_date,
             'end_date': self.end_date,
             'variables': variables
-        })
-
+        }
         # Upload the model structure.
-        response = requests.post(API_URL + 'wadda/model', timeout=30, json = {
-            'zones': self.zones,
-            'connections': self.connections,
-            'beg_date': self.beg_date,
-            'end_date': self.end_date,
-            'variables': variables
-        }, headers=api_headers)
+        response = requests.post(API_URL + 'accounting-model/', timeout=30, json = payload, headers=api_headers)
 
         if not response:
-            raise Exception("Failed to load model to database!")
+            raise Exception(f"Failed to load model to database! {response.text}")
         else:
             new_model_id = response.json()['model_id']
             print('new_model_id: ' + str(new_model_id))
         
 
         # Upload the values timeseries for the variables.
-        url = API_URL + 'wadda/model/'+ str(new_model_id) + '/results'
+        url = API_URL + 'accounting-model/'+ str(new_model_id) + '/results'
         response = requests.post(url, timeout=30, json=results, headers=api_headers)
         if not response:
             raise Exception("Failed to load model values to database!")

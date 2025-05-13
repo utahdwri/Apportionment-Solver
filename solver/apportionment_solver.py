@@ -204,7 +204,7 @@ class ApportionmentSolver:
         else:
             arc_path = []
             for item in apath:
-                arc_name = item['connection_name']
+                arc_name = item['flow_name']
                 factor = item['factor']
                 self._validate_existing_name(self.arcs, arc_name)
                 arc_path.append(ApportionmentSolverVarPathItem(arc=self.arcs[arc_name], factor=factor))
@@ -316,7 +316,7 @@ class ApportionmentSolver:
             {
                 'name': self.vars[x].name,
                 'path_id': self.vars[x].path_id,
-                'path': [{'connection_name':a.arc.name, 'factor':a.factor} for a in self.vars[x].arc_path]
+                'path': [{'flow_name':a.arc.name, 'factor':a.factor} for a in self.vars[x].arc_path]
             } for x in self.vars
         ]
         return vars
@@ -439,7 +439,7 @@ class ApportionmentSolver:
                         reach_gain = a
                     elif a.flow is None and coef == 1:
                         if reach_loss is not None:
-                            raise Exception('Something went wrong. There should only be one unmeasured outflow.')
+                            raise Exception(f'There should only be one unmeasured outflow, but found {a.name} in addition to {reach_loss.name}.')
                         reach_loss = a
                     else:
                         sum += coef * a.flow
