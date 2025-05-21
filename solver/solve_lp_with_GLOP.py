@@ -25,11 +25,11 @@ class LPSolver:
         
 
         # Keep a dictionary of variables and constraints for convenience.
-        self.vars = {}
-        self.cons = {}
+        self.vars: dict[str,pywraplp.Variable] = {}
+        self.cons: dict[str,pywraplp.Constraint] = {}
 
 
-    def add_variable(self, name:str, lb:float=0, ub:float=None) -> None:
+    def add_variable(self, name:str, lb:float|None=0, ub:float|None=None) -> None:
         """Add a variable to the system of equations."""
 
         # Allow None to be used to indicate there is no lb or ub.
@@ -55,7 +55,7 @@ class LPSolver:
         self.vars[name] = var
 
 
-    def add_constriant(self, name:str, lb:float=None, ub:float=None) -> None:
+    def add_constriant(self, name:str, lb:float|None=None, ub:float|None=None) -> None:
         "Add a constraint to the system of equations."
 
         # Allow None to be used to indicate there is no lb or ub.
@@ -82,7 +82,7 @@ class LPSolver:
         self.cons[name] = con
 
 
-    def set_coeficient(self, constraint_name, variable_name, coef) -> None:
+    def set_coeficient(self, constraint_name:str, variable_name:str, coef:float|None) -> None:
 
         if coef is None:
             raise Exception(f'New coef for constraint {constraint_name} is None!')
@@ -167,7 +167,7 @@ class LPSolver:
         return objective_value
 
 
-    def update_variable_bounds(self, name:str, lb:float=None, ub:float=None):
+    def update_variable_bounds(self, name:str, lb:float|None=None, ub:float|None=None):
 
         variable = self.vars[name]
 
@@ -208,32 +208,38 @@ class LPSolver:
             variable.SetUb(ub)
 
 
-    def update_constraint_bounds(self, name:str, lb:float=None, ub:float=None):
+    def update_constraint_ub(self, name:str, ub:float|None=None):
         
         constraint = self.cons[name]
-        if lb is not None:
-            if isnan(lb):
-                raise Exception(f'Lower bound value for constraint {name} is NaN!')
-            constraint.SetLb(lb)
-        if ub is not None:
-            if isnan(ub):
-                raise Exception(f'Upper bound value for constraint {name} is NaN!')
-            constraint.SetUb(ub)
+        if ub is None:
+            ub = inf
+        if isnan(ub):
+            raise Exception(f'Upper bound value for constraint {name} is NaN!')
+        constraint.SetUb(ub)
 
 
-    def get_constraint_names(self) -> list:
+    def update_constraint_lb(self, name:str, lb:float|None=None):
+        
+        constraint = self.cons[name]
+        if lb is  None:
+            lb = inf
+        if isnan(lb):
+            raise Exception(f'Lower bound value for constraint {name} is NaN!')
+        constraint.SetLb(lb)
+
+    def get_constraint_names(self) -> list[str]:
         """Return a list of the constraints."""
-        return self.cons.keys()
+        return list(self.cons.keys())
 
 
     def lp_string(self) -> str:
         """Return a LP format string representing the linear program. """
-        value = self.solver.ExportModelAsLpFormat(False)
+        value:str = self.solver.ExportModelAsLpFormat(False)
         #value = self.solver.ExportModelAsMpsFormat(True, True)
         return value
     
     
-    def maximize_group_by_proportions(self, variable_names, proportion_factors):
+    def maximize_group_by_proportions(self, variable_names:list[str], proportion_factors:dict[str,float]) -> dict[str,float]:
 
         # List of constraints used only for merging purposes.
         merge_var, merge_constraints = self._merge(variable_names, 
@@ -287,8 +293,8 @@ class LPSolver:
         return merge_var, merge_constraints
 
 
-    def _unmerge(self, variable_names, proportion_factors, merge_var, 
-                 merge_constraints, solved_value):
+    def _unmerge(self, variable_names:list[str], proportion_factors:dict[str,float], merge_var, 
+                 merge_constraints, solved_value) -> dict[str,float]:
         var_values = {}
 
         # Clear the merged constraints. 
@@ -316,60 +322,6 @@ class LPSolver:
 
         return var_values
 
-
-
-    def reformulate_and_solve(self):
-        """Maybe the issue requires re-building the model -- that's what this will try."""
-
-        original_model = self.solver
-
-        # Create a new solver (GLOP model)
-        new_model = pywraplp.Solver.CreateSolver('GLOP')
-        new_vars = {}
-        new_cons = {}
-
-        # Copy variables
-        for name in self.vars:
-            original_var = self.vars[name]
-            print(name, original_var.ub() - original_var.lb())
-            new_vars[name] = new_model.NumVar(original_var.lb(), original_var.ub(), name)
-
-            if original_var.ub() - original_var.lb() < 1e-10:
-                new_vars[name].SetBounds(original_var.ub(), original_var.ub())
-            
-        # Copy constraints
-        for name in self.cons:
-            original_con = self.cons[name]
-            new_cons[name] = new_model.Constraint(name)
-            new_cons[name].SetBounds(original_con.lb(), original_con.ub())
-
-            # Copy contraint coefs
-            for varname in new_vars:
-                coef = original_con.GetCoefficient( self.vars[varname] )
-                if coef != 0:
-                    new_cons[name].SetCoefficient( new_vars[varname], coef )
-
-        # Copy objective function
-        original_objective = original_model.Objective()
-        new_objective = new_model.Objective()
-        new_objective.Clear()
-        for varname in new_vars:
-            coef = original_objective.GetCoefficient( self.vars[varname] )
-            if coef != 0:
-                new_objective.SetCoefficient( new_vars[varname], coef )
-
-        if original_objective.maximization():
-            new_objective.SetMaximization()
-        else:
-            new_objective.SetMinimization()
-
-        # Run       
-        if LPSolver.PRINT_SOLVER_MESSAGES:
-            new_model.EnableOutput()
-        status = new_model.Solve()
-        print(new_model.ExportModelAsLpFormat(False))
-
-        return status, new_objective
 
 
 class LPSolverError(Exception):

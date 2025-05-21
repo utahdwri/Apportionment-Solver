@@ -13,10 +13,10 @@ class A_SingleReachProblems(unittest.TestCase):
         system = ApportionmentSolver()
         system.add_reach('RIVER')
         system.add_reach_diversion('RIVER>USER', 'RIVER', 'USER', 12)
-        system.add_transaction(id=1, priority=1, upper_limit= 3, apath=[{'connection_name':'RIVER>USER', 'factor':1}], expected_value=3)
-        system.add_transaction(id=2, priority=2, upper_limit= 6, apath=[{'connection_name':'RIVER>USER', 'factor':1}], expected_value=6)
-        system.add_transaction(id=3, priority=3, upper_limit=12, apath=[{'connection_name':'RIVER>USER', 'factor':1}], expected_value=3)
-        system.add_transaction(id=4, priority=4, upper_limit= 4, apath=[{'connection_name':'RIVER>USER', 'factor':1}], expected_value=0)
+        system.add_transaction(id=1, priority=1, upper_limit= 3, apath=[{'flow_name':'RIVER>USER', 'factor':1}], expected_value=3)
+        system.add_transaction(id=2, priority=2, upper_limit= 6, apath=[{'flow_name':'RIVER>USER', 'factor':1}], expected_value=6)
+        system.add_transaction(id=3, priority=3, upper_limit=12, apath=[{'flow_name':'RIVER>USER', 'factor':1}], expected_value=3)
+        system.add_transaction(id=4, priority=4, upper_limit= 4, apath=[{'flow_name':'RIVER>USER', 'factor':1}], expected_value=0)
         
         system.solve()
         system.assert_variables_equal_expected()
@@ -30,10 +30,10 @@ class A_SingleReachProblems(unittest.TestCase):
         system = ApportionmentSolver()
         system.add_reach('RIVER')
         system.add_reach_diversion('RIVER>USER', 'RIVER', 'USER', 100)
-        system.add_transaction(id=1, priority=1, upper_limit= 3, apath=[{'connection_name':'RIVER>USER', 'factor':1}], expected_value=3)
-        system.add_transaction(id=2, priority=2, upper_limit= 6, apath=[{'connection_name':'RIVER>USER', 'factor':1}], expected_value=6)
-        system.add_transaction(id=3, priority=3, upper_limit=12, apath=[{'connection_name':'RIVER>USER', 'factor':1}], expected_value=12)
-        system.add_transaction(id=4, priority=4, upper_limit= 4, apath=[{'connection_name':'RIVER>USER', 'factor':1}], expected_value=4)
+        system.add_transaction(id=1, priority=1, upper_limit= 3, apath=[{'flow_name':'RIVER>USER', 'factor':1}], expected_value=3)
+        system.add_transaction(id=2, priority=2, upper_limit= 6, apath=[{'flow_name':'RIVER>USER', 'factor':1}], expected_value=6)
+        system.add_transaction(id=3, priority=3, upper_limit=12, apath=[{'flow_name':'RIVER>USER', 'factor':1}], expected_value=12)
+        system.add_transaction(id=4, priority=4, upper_limit= 4, apath=[{'flow_name':'RIVER>USER', 'factor':1}], expected_value=4)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -46,10 +46,10 @@ class A_SingleReachProblems(unittest.TestCase):
         system.add_reach_diversion('RIVER>A', 'RIVER', 'A', 10)
         system.add_reach_diversion('RIVER>B', 'RIVER', 'B', 5)
         system.add_reach_diversion('RIVER>C', 'RIVER', 'C', 6)
-        system.add_transaction(id=1, priority=1, upper_limit=1, apath=[{'connection_name':'RIVER>A', 'factor':1}], expected_value=1) #limited by water right
-        system.add_transaction(id=2, priority=1, upper_limit=6, apath=[{'connection_name':'RIVER>B', 'factor':1}], expected_value=5) #limited by measured diversion
-        system.add_transaction(id=3, priority=1, upper_limit=6, apath=[{'connection_name':'RIVER>C', 'factor':1}], expected_value=3) #limited by proportion
-        system.add_transaction(id=4, priority=1, upper_limit=6, apath=[{'connection_name':'RIVER>C', 'factor':1}], expected_value=3) #limited by proportion
+        system.add_transaction(id=1, priority=1, upper_limit=1, apath=[{'flow_name':'RIVER>A', 'factor':1}], expected_value=1) #limited by water right
+        system.add_transaction(id=2, priority=1, upper_limit=6, apath=[{'flow_name':'RIVER>B', 'factor':1}], expected_value=5) #limited by measured diversion
+        system.add_transaction(id=3, priority=1, upper_limit=6, apath=[{'flow_name':'RIVER>C', 'factor':1}], expected_value=3) #limited by proportion
+        system.add_transaction(id=4, priority=1, upper_limit=6, apath=[{'flow_name':'RIVER>C', 'factor':1}], expected_value=3) #limited by proportion
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -64,10 +64,10 @@ class A_SingleReachProblems(unittest.TestCase):
         system.add_reach_diversion('RIVER>A', 'RIVER', 'A', 0)
         system.add_reach_diversion('RIVER>B', 'RIVER', 'B', 0)
         system.add_reach_diversion('RIVER>C', 'RIVER', 'C', 0)
-        system.add_transaction(id=1, priority=1, upper_limit=0, apath=[{'connection_name':'RIVER>A', 'factor':1}], expected_value=0) #limited by water right
-        system.add_transaction(id=2, priority=1, upper_limit=0, apath=[{'connection_name':'RIVER>B', 'factor':1}], expected_value=0) #limited by measured diversion
-        system.add_transaction(id=3, priority=1, upper_limit=0, apath=[{'connection_name':'RIVER>C', 'factor':1}], expected_value=0) #limited by proportion
-        system.add_transaction(id=4, priority=1, upper_limit=0, apath=[{'connection_name':'RIVER>C', 'factor':1}], expected_value=0) #limited by proportion
+        system.add_transaction(id=1, priority=1, upper_limit=0, apath=[{'flow_name':'RIVER>A', 'factor':1}], expected_value=0) #limited by water right
+        system.add_transaction(id=2, priority=1, upper_limit=0, apath=[{'flow_name':'RIVER>B', 'factor':1}], expected_value=0) #limited by measured diversion
+        system.add_transaction(id=3, priority=1, upper_limit=0, apath=[{'flow_name':'RIVER>C', 'factor':1}], expected_value=0) #limited by proportion
+        system.add_transaction(id=4, priority=1, upper_limit=0, apath=[{'flow_name':'RIVER>C', 'factor':1}], expected_value=0) #limited by proportion
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -94,15 +94,15 @@ class A_SingleReachProblems(unittest.TestCase):
 
 class B_Reservoirs(unittest.TestCase):
     
-    def reservoir_problem_input(self, stor_chg=None, stor_loss=None, Q_AB=None, 
-                                Q_DIV1=None, Q_BC=None, Q_DIV2=None, Q_DIV3=None, 
-                                Q_CD=None):
+    def reservoir_problem_input(self, stor_chg=0, stor_loss=0, Q_AB=0, 
+                                Q_DIV1=0, Q_BC=0, Q_DIV2=0, Q_DIV3=0, 
+                                Q_CD=0):
         """    
-        1---#-->2------> \~~~3~~~/ ---#-->4----->5---#-->6
-                #         \_____/         #      #
-                |                         |      |
-                v                         v      v
-                200                       400    500
+        1---#-->2------> \\~~~3~~~/ ---#-->4----->5---#-->6
+                #         \\_____/         #      #
+                |                          |      |
+                v                          v      v
+                200                        400    500
 
         """
         system = ApportionmentSolver()
@@ -131,11 +131,11 @@ class B_Reservoirs(unittest.TestCase):
         system.add_reach_reservoir('RIVER>STORAGE', 'RIVER', 'STORAGE', 0)
         system.add_reach_diversion('RIVER>A', 'RIVER', 'A', 10)
         system.add_reach_diversion('RIVER>B', 'RIVER', 'B', 10)
-        system.add_transaction(id=1, priority=1, upper_limit=2, apath=[{'connection_name':'RIVER>A', 'factor':1}])
-        system.add_transaction(id=2, priority=1, upper_limit=4, apath=[{'connection_name':'RIVER>B', 'factor':1}])
-        system.add_transaction(id=3, priority=2, upper_limit=50, apath=[{'connection_name':'RIVER>STORAGE', 'factor':1}])
-        system.add_transaction(id=4, priority=3, upper_limit=None, apath=[{'connection_name':'RIVER>STORAGE', 'factor':-1}, {'connection_name':'RIVER>A', 'factor':1}], expected_value=8)
-        system.add_transaction(id=5, priority=3, upper_limit=None, apath=[{'connection_name':'RIVER>STORAGE', 'factor':-1}, {'connection_name':'RIVER>B', 'factor':1}], expected_value=6)
+        system.add_transaction(id=1, priority=1, upper_limit=2, apath=[{'flow_name':'RIVER>A', 'factor':1}])
+        system.add_transaction(id=2, priority=1, upper_limit=4, apath=[{'flow_name':'RIVER>B', 'factor':1}])
+        system.add_transaction(id=3, priority=2, upper_limit=50, apath=[{'flow_name':'RIVER>STORAGE', 'factor':1}])
+        system.add_transaction(id=4, priority=3, upper_limit=None, apath=[{'flow_name':'RIVER>STORAGE', 'factor':-1}, {'flow_name':'RIVER>A', 'factor':1}], expected_value=8)
+        system.add_transaction(id=5, priority=3, upper_limit=None, apath=[{'flow_name':'RIVER>STORAGE', 'factor':-1}, {'flow_name':'RIVER>B', 'factor':1}], expected_value=6)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -151,11 +151,11 @@ class B_Reservoirs(unittest.TestCase):
         system.add_reach_reservoir('UPSTREAM>STORAGE', 'UPSTREAM', 'STORAGE', 0)
         system.add_reach_diversion('DOWNSTREAM>A', 'DOWNSTREAM', 'A', 10)
         system.add_reach_diversion('DOWNSTREAM>B', 'DOWNSTREAM', 'B', 10)
-        system.add_transaction(id=1, priority=1, upper_limit=2, apath=[{'connection_name':'DOWNSTREAM>A', 'factor':1}])
-        system.add_transaction(id=2, priority=1, upper_limit=4, apath=[{'connection_name':'DOWNSTREAM>B', 'factor':1}])
-        system.add_transaction(id=3, priority=2, upper_limit=50, apath=[{'connection_name':'UPSTREAM>STORAGE', 'factor':1}])
-        system.add_transaction(id=4, priority=3, upper_limit=None, apath=[{'connection_name':'UPSTREAM>STORAGE', 'factor':-1}, {'connection_name':'UPSTREAM>DOWNSTREAM', 'factor':1}, {'connection_name':'DOWNSTREAM>A', 'factor':1}], expected_value=1)
-        system.add_transaction(id=5, priority=3, upper_limit=None, apath=[{'connection_name':'UPSTREAM>STORAGE', 'factor':-1}, {'connection_name':'UPSTREAM>DOWNSTREAM', 'factor':1}, {'connection_name':'DOWNSTREAM>B', 'factor':1}], expected_value=1)
+        system.add_transaction(id=1, priority=1, upper_limit=2, apath=[{'flow_name':'DOWNSTREAM>A', 'factor':1}])
+        system.add_transaction(id=2, priority=1, upper_limit=4, apath=[{'flow_name':'DOWNSTREAM>B', 'factor':1}])
+        system.add_transaction(id=3, priority=2, upper_limit=50, apath=[{'flow_name':'UPSTREAM>STORAGE', 'factor':1}])
+        system.add_transaction(id=4, priority=3, upper_limit=None, apath=[{'flow_name':'UPSTREAM>STORAGE', 'factor':-1}, {'flow_name':'UPSTREAM>DOWNSTREAM', 'factor':1}, {'flow_name':'DOWNSTREAM>A', 'factor':1}], expected_value=1)
+        system.add_transaction(id=5, priority=3, upper_limit=None, apath=[{'flow_name':'UPSTREAM>STORAGE', 'factor':-1}, {'flow_name':'UPSTREAM>DOWNSTREAM', 'factor':1}, {'flow_name':'DOWNSTREAM>B', 'factor':1}], expected_value=1)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -165,12 +165,12 @@ class B_Reservoirs(unittest.TestCase):
         """This is a prety trivial example, just to check the most simple case... should probably make some more interesting tests...
         """
         system = self.reservoir_problem_input(stor_chg=0, stor_loss=0, Q_AB=5, Q_DIV1=2, Q_BC=7, Q_DIV2=4, Q_DIV3=4, Q_CD=1)
-        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'connection_name':'B>1', 'factor':1}], expected_value=2)
-        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'connection_name':'C>2', 'factor':1}], expected_value=4)
-        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'connection_name':'C>3', 'factor':1}], expected_value=4)
-        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'connection_name':'B>STOR', 'factor':1}], expected_value=0)
-        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>3', 'factor':1}], expected_value=0)
-        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>2', 'factor':1}], expected_value=0)
+        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'flow_name':'B>1', 'factor':1}], expected_value=2)
+        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'flow_name':'C>2', 'factor':1}], expected_value=4)
+        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'flow_name':'C>3', 'factor':1}], expected_value=4)
+        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'flow_name':'B>STOR', 'factor':1}], expected_value=0)
+        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>3', 'factor':1}], expected_value=0)
+        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>2', 'factor':1}], expected_value=0)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -179,12 +179,12 @@ class B_Reservoirs(unittest.TestCase):
         """Test storage diversions with no deliveries.
         """
         system = self.reservoir_problem_input(stor_chg=2, stor_loss=0, Q_AB=5, Q_DIV1=2, Q_BC=7, Q_DIV2=4, Q_DIV3=4, Q_CD=1)
-        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'connection_name':'B>1', 'factor':1}], expected_value=2)
-        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'connection_name':'C>2', 'factor':1}], expected_value=4)
-        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'connection_name':'C>3', 'factor':1}], expected_value=4)
-        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'connection_name':'B>STOR', 'factor':1}], expected_value=2)
-        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>3', 'factor':1}], expected_value=0)
-        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>2', 'factor':1}], expected_value=0)
+        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'flow_name':'B>1', 'factor':1}], expected_value=2)
+        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'flow_name':'C>2', 'factor':1}], expected_value=4)
+        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'flow_name':'C>3', 'factor':1}], expected_value=4)
+        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'flow_name':'B>STOR', 'factor':1}], expected_value=2)
+        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>3', 'factor':1}], expected_value=0)
+        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>2', 'factor':1}], expected_value=0)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -193,12 +193,12 @@ class B_Reservoirs(unittest.TestCase):
         """Test storage deliveries with no diversions.
         """
         system = self.reservoir_problem_input(stor_chg=-2, stor_loss=0, Q_AB=5, Q_DIV1=2, Q_BC=7, Q_DIV2=6, Q_DIV3=4, Q_CD=1)
-        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'connection_name':'B>1'   , 'factor':1}], expected_value=2)
-        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'connection_name':'C>2'   , 'factor':1}], expected_value=4)
-        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'connection_name':'C>3'   , 'factor':1}], expected_value=4)
-        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'connection_name':'B>STOR', 'factor':1}], expected_value=0)
-        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>3', 'factor':1}], expected_value=0)
-        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>2', 'factor':1}], expected_value=2)
+        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'flow_name':'B>1'   , 'factor':1}], expected_value=2)
+        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'flow_name':'C>2'   , 'factor':1}], expected_value=4)
+        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'flow_name':'C>3'   , 'factor':1}], expected_value=4)
+        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'flow_name':'B>STOR', 'factor':1}], expected_value=0)
+        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>3', 'factor':1}], expected_value=0)
+        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>2', 'factor':1}], expected_value=2)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -208,12 +208,12 @@ class B_Reservoirs(unittest.TestCase):
         """
         system = self.reservoir_problem_input(stor_chg=-2, stor_loss=0, Q_AB=5, Q_DIV1=2, Q_BC=7, Q_DIV2=6, Q_DIV3=4, Q_CD=1)
 
-        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'connection_name':'B>1'   , 'factor':1}], expected_value=2)
-        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'connection_name':'C>2'   , 'factor':1}], expected_value=4)
-        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'connection_name':'C>3'   , 'factor':1}], expected_value=4)
-        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'connection_name':'B>STOR', 'factor':1}], expected_value=0)
-        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>3', 'factor':1}], expected_value=0)
-        system.add_transaction(id=6, priority=9900, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>2', 'factor':1}], expected_value=2) # changed priority
+        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'flow_name':'B>1'   , 'factor':1}], expected_value=2)
+        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'flow_name':'C>2'   , 'factor':1}], expected_value=4)
+        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'flow_name':'C>3'   , 'factor':1}], expected_value=4)
+        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'flow_name':'B>STOR', 'factor':1}], expected_value=0)
+        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>3', 'factor':1}], expected_value=0)
+        system.add_transaction(id=6, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>2', 'factor':1}], expected_value=2) # changed priority
         
         system.solve()
         system.assert_variables_equal_expected()
@@ -223,12 +223,12 @@ class B_Reservoirs(unittest.TestCase):
         """
         system = self.reservoir_problem_input(stor_chg=-1, stor_loss=1, Q_AB=5, Q_DIV1=2, Q_BC=7, Q_DIV2=6, Q_DIV3=4, Q_CD=1)
 
-        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'connection_name':'B>1'   , 'factor':1}], expected_value=2)
-        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'connection_name':'C>2'   , 'factor':1}], expected_value=4)
-        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'connection_name':'C>3'   , 'factor':1}], expected_value=4)
-        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'connection_name':'B>STOR', 'factor':1}], expected_value=2)
-        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>3', 'factor':1}], expected_value=0)
-        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>2', 'factor':1}], expected_value=2)
+        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'flow_name':'B>1'   , 'factor':1}], expected_value=2)
+        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'flow_name':'C>2'   , 'factor':1}], expected_value=4)
+        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'flow_name':'C>3'   , 'factor':1}], expected_value=4)
+        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'flow_name':'B>STOR', 'factor':1}], expected_value=2)
+        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>3', 'factor':1}], expected_value=0)
+        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>2', 'factor':1}], expected_value=2)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -238,12 +238,12 @@ class B_Reservoirs(unittest.TestCase):
         """
         system = self.reservoir_problem_input(stor_chg=-4, stor_loss=1, Q_AB=2, Q_DIV1=1, Q_BC=4, Q_DIV2=2+2, Q_DIV3=3+1, Q_CD=1)
 
-        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'connection_name':'B>1'   , 'factor':1}], expected_value=1)
-        system.add_transaction(id=2, priority=   1, upper_limit=   4, apath=[{'connection_name':'C>2'   , 'factor':1}], expected_value=2) # changed priority
-        system.add_transaction(id=3, priority=   1, upper_limit=   6, apath=[{'connection_name':'C>3'   , 'factor':1}], expected_value=3) # changed priority
-        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'connection_name':'B>STOR', 'factor':1}], expected_value=0)
-        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>3', 'factor':1}], expected_value=1)
-        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>2', 'factor':1}], expected_value=2)
+        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'flow_name':'B>1'   , 'factor':1}], expected_value=1)
+        system.add_transaction(id=2, priority=   1, upper_limit=   4, apath=[{'flow_name':'C>2'   , 'factor':1}], expected_value=2) # changed priority
+        system.add_transaction(id=3, priority=   1, upper_limit=   6, apath=[{'flow_name':'C>3'   , 'factor':1}], expected_value=3) # changed priority
+        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'flow_name':'B>STOR', 'factor':1}], expected_value=0)
+        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>3', 'factor':1}], expected_value=1)
+        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>2', 'factor':1}], expected_value=2)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -257,12 +257,12 @@ class B_Reservoirs(unittest.TestCase):
         """
         system = self.reservoir_problem_input(stor_chg=-4, stor_loss=1, Q_AB=0, Q_DIV1=1, Q_BC=6, Q_DIV2=7, Q_DIV3=7, Q_CD=0)
 
-        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'connection_name':'B>1'   , 'factor':1}], expected_value=1)
-        system.add_transaction(id=2, priority=   1, upper_limit=   4, apath=[{'connection_name':'C>2'   , 'factor':1}], expected_value=8/10*4)
-        system.add_transaction(id=3, priority=   1, upper_limit=   6, apath=[{'connection_name':'C>3'   , 'factor':1}], expected_value=8/10*6)
-        system.add_transaction(id=4, priority=   1, upper_limit=  20, apath=[{'connection_name':'B>STOR', 'factor':1}], expected_value=3)
-        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>3', 'factor':1}], expected_value=7 - 8/10*6)
-        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>2', 'factor':1}], expected_value=7 - 8/10*4)
+        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'flow_name':'B>1'   , 'factor':1}], expected_value=1)
+        system.add_transaction(id=2, priority=   1, upper_limit=   4, apath=[{'flow_name':'C>2'   , 'factor':1}], expected_value=8/10*4)
+        system.add_transaction(id=3, priority=   1, upper_limit=   6, apath=[{'flow_name':'C>3'   , 'factor':1}], expected_value=8/10*6)
+        system.add_transaction(id=4, priority=   1, upper_limit=  20, apath=[{'flow_name':'B>STOR', 'factor':1}], expected_value=3)
+        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>3', 'factor':1}], expected_value=7 - 8/10*6)
+        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>2', 'factor':1}], expected_value=7 - 8/10*4)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -273,13 +273,13 @@ class B_Reservoirs(unittest.TestCase):
         system = self.reservoir_problem_input(stor_chg=-2, stor_loss=0, Q_AB=0, Q_DIV1=0, Q_BC=2, Q_DIV2=6, Q_DIV3=8, Q_CD=0)
 
         #system.add_transaction(id=1, priority=   1, limit=   2, path=['REACH-B','DIV-1'])
-        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'connection_name':'C>2'   , 'factor':1}], expected_value=4)
-        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'connection_name':'C>3'   , 'factor':1}], expected_value=6)
-        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'connection_name':'B>STOR', 'factor':1}], expected_value=0)
-        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>3', 'factor':1}], expected_value=2)
-        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>2', 'factor':1}], expected_value=0)
+        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'flow_name':'C>2'   , 'factor':1}], expected_value=4)
+        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'flow_name':'C>3'   , 'factor':1}], expected_value=6)
+        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'flow_name':'B>STOR', 'factor':1}], expected_value=0)
+        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>3', 'factor':1}], expected_value=2)
+        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>2', 'factor':1}], expected_value=0)
         # Change 1 so it delivers water downstream.
-        system.add_transaction(id=101, priority=1, upper_limit=2, apath=[{'connection_name':'B>C', 'factor':1},{'connection_name':'C>2', 'factor':1}], expected_value=0)
+        system.add_transaction(id=101, priority=1, upper_limit=2, apath=[{'flow_name':'B>C', 'factor':1},{'flow_name':'C>2', 'factor':1}], expected_value=0)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -289,12 +289,12 @@ class B_Reservoirs(unittest.TestCase):
         """
         system = self.reservoir_problem_input(stor_chg=-2, stor_loss=0, Q_AB=2, Q_DIV1=0, Q_BC=4, Q_DIV2=6, Q_DIV3=8, Q_CD=0)
 
-        system.add_transaction(id=101, priority=1, upper_limit=2, apath=[{'connection_name':'B>C', 'factor':1},{'connection_name':'C>2', 'factor':1}], expected_value=2)# Change 1 so it delivers water downstream.
-        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'connection_name':'C>2'   , 'factor':1}], expected_value=4)
-        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'connection_name':'C>3'   , 'factor':1}], expected_value=6)
-        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'connection_name':'B>STOR', 'factor':1}], expected_value=0)
-        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>3', 'factor':1}], expected_value=2)
-        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>2', 'factor':1}], expected_value=0)
+        system.add_transaction(id=101, priority=1, upper_limit=2, apath=[{'flow_name':'B>C', 'factor':1},{'flow_name':'C>2', 'factor':1}], expected_value=2)# Change 1 so it delivers water downstream.
+        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'flow_name':'C>2'   , 'factor':1}], expected_value=4)
+        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'flow_name':'C>3'   , 'factor':1}], expected_value=6)
+        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'flow_name':'B>STOR', 'factor':1}], expected_value=0)
+        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>3', 'factor':1}], expected_value=2)
+        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>2', 'factor':1}], expected_value=0)
         
         system.solve()
         system.assert_variables_equal_expected()
@@ -304,12 +304,12 @@ class B_Reservoirs(unittest.TestCase):
         """
         system = self.reservoir_problem_input(stor_chg=-5, stor_loss=0, Q_AB=0, Q_DIV1=2, Q_BC=5, Q_DIV2=0, Q_DIV3=0, Q_CD=5)
 
-        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'connection_name':'B>1'   , 'factor':1}], expected_value=2)
-        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'connection_name':'C>2'   , 'factor':1}], expected_value=0)
-        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'connection_name':'C>3'   , 'factor':1}], expected_value=0)
-        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'connection_name':'B>STOR', 'factor':1}], expected_value=0)
-        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>3', 'factor':1}], expected_value=0)
-        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>2', 'factor':1}], expected_value=0)
+        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'flow_name':'B>1'   , 'factor':1}], expected_value=2)
+        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'flow_name':'C>2'   , 'factor':1}], expected_value=0)
+        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'flow_name':'C>3'   , 'factor':1}], expected_value=0)
+        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'flow_name':'B>STOR', 'factor':1}], expected_value=0)
+        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>3', 'factor':1}], expected_value=0)
+        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>2', 'factor':1}], expected_value=0)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -319,12 +319,12 @@ class B_Reservoirs(unittest.TestCase):
         """
         system = self.reservoir_problem_input(stor_chg=25, stor_loss=0, Q_AB=0, Q_DIV1=0, Q_BC=0, Q_DIV2=0, Q_DIV3=0, Q_CD=0)
 
-        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'connection_name':'B>1'   , 'factor':1}], expected_value=0)
-        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'connection_name':'C>2'   , 'factor':1}], expected_value=0)
-        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'connection_name':'C>3'   , 'factor':1}], expected_value=0)
-        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'connection_name':'B>STOR', 'factor':1}], expected_value=20)
-        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>3', 'factor':1}], expected_value=0)
-        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>2', 'factor':1}], expected_value=0)
+        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'flow_name':'B>1'   , 'factor':1}], expected_value=0)
+        system.add_transaction(id=2, priority=   2, upper_limit=   4, apath=[{'flow_name':'C>2'   , 'factor':1}], expected_value=0)
+        system.add_transaction(id=3, priority=   3, upper_limit=   6, apath=[{'flow_name':'C>3'   , 'factor':1}], expected_value=0)
+        system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'flow_name':'B>STOR', 'factor':1}], expected_value=20)
+        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>3', 'factor':1}], expected_value=0)
+        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>2', 'factor':1}], expected_value=0)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -335,12 +335,12 @@ class B_Reservoirs(unittest.TestCase):
         """
         system = self.reservoir_problem_input(stor_chg=-10, stor_loss=0, Q_AB=0, Q_DIV1=0, Q_BC=20, Q_DIV2=15, Q_DIV3=10, Q_CD=5)
 
-        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'connection_name':'B>1'   , 'factor':1}], expected_value=0)
-        system.add_transaction(id=2, priority=   2, upper_limit=   5, apath=[{'connection_name':'C>2'   , 'factor':1}], expected_value=5)
-        system.add_transaction(id=3, priority=   3, upper_limit=   2, apath=[{'connection_name':'C>3'   , 'factor':1}], expected_value=2)
-        system.add_transaction(id=4, priority=   4, upper_limit= 100, apath=[{'connection_name':'B>STOR', 'factor':1}], expected_value=8)
-        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>3', 'factor':1}], expected_value=8)
-        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'connection_name':'B>STOR', 'factor':-1}, {'connection_name':'B>C', 'factor':1}, {'connection_name':'C>2', 'factor':1}], expected_value=10)
+        system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'flow_name':'B>1'   , 'factor':1}], expected_value=0)
+        system.add_transaction(id=2, priority=   2, upper_limit=   5, apath=[{'flow_name':'C>2'   , 'factor':1}], expected_value=5)
+        system.add_transaction(id=3, priority=   3, upper_limit=   2, apath=[{'flow_name':'C>3'   , 'factor':1}], expected_value=2)
+        system.add_transaction(id=4, priority=   4, upper_limit= 100, apath=[{'flow_name':'B>STOR', 'factor':1}], expected_value=8)
+        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>3', 'factor':1}], expected_value=8)
+        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>2', 'factor':1}], expected_value=10)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -355,9 +355,9 @@ class B_Reservoirs(unittest.TestCase):
         system.add_reach_reservoir('S>R', 'S', 'R', storage_chg=-5, storage_loss=0)
         system.add_reach_diversion('S>A', 'S', 'A', flow=5)
 
-        system.add_transaction(id=1, priority=1900, upper_limit=5, apath=[{'connection_name':'S>A', 'factor':1}], expected_value=0)
-        system.add_transaction(id=2, priority=1950, upper_limit=100, apath=[{'connection_name':'S>R', 'factor':1}], expected_value=0)
-        system.add_transaction(id=3, priority=9999, upper_limit=None, apath=[{'connection_name':'S>R', 'factor':-1}, {'connection_name':'S>A', 'factor':1}], expected_value=5)
+        system.add_transaction(id=1, priority=1900, upper_limit=5, apath=[{'flow_name':'S>A', 'factor':1}], expected_value=0)
+        system.add_transaction(id=2, priority=1950, upper_limit=100, apath=[{'flow_name':'S>R', 'factor':1}], expected_value=0)
+        system.add_transaction(id=3, priority=9999, upper_limit=None, apath=[{'flow_name':'S>R', 'factor':-1}, {'flow_name':'S>A', 'factor':1}], expected_value=5)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -380,9 +380,9 @@ class B_Reservoirs(unittest.TestCase):
         system.add_reach_diversion('S>A', 'S', 'A', flow=5)
         system.add_connection('S>OUT', 'S', 'OUTFLOW', flow=5)
 
-        system.add_transaction(id=1, priority=1900, upper_limit=5, apath=[{'connection_name':'S>A', 'factor':1}], expected_value=5)
-        system.add_transaction(id=2, priority=1950, upper_limit=100, apath=[{'connection_name':'S>R', 'factor':1}], expected_value=0)
-        system.add_transaction(id=3, priority=9999, upper_limit=None, apath=[{'connection_name':'S>R', 'factor':-1}, {'connection_name':'S>A', 'factor':1}], expected_value=0)
+        system.add_transaction(id=1, priority=1900, upper_limit=5, apath=[{'flow_name':'S>A', 'factor':1}], expected_value=5)
+        system.add_transaction(id=2, priority=1950, upper_limit=100, apath=[{'flow_name':'S>R', 'factor':1}], expected_value=0)
+        system.add_transaction(id=3, priority=9999, upper_limit=None, apath=[{'flow_name':'S>R', 'factor':-1}, {'flow_name':'S>A', 'factor':1}], expected_value=0)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -397,8 +397,8 @@ class B_Imports(unittest.TestCase):
         system.add_reach_import('IMP>S', 'S', 'IMP', flow=5)
         system.add_reach_diversion('S>DIV', 'S', 'DIV', flow=5)
 
-        system.add_transaction(id=1, priority=10, upper_limit=5, apath=[{'connection_name':'IMP>S', 'factor':1}, {'connection_name':'S>DIV', 'factor':1}], expected_value=5)
-        system.add_transaction(id=2, priority=2, upper_limit=5, apath=[{'connection_name':'S>DIV', 'factor':1}], expected_value=0)
+        system.add_transaction(id=1, priority=10, upper_limit=5, apath=[{'flow_name':'IMP>S', 'factor':1}, {'flow_name':'S>DIV', 'factor':1}], expected_value=5)
+        system.add_transaction(id=2, priority=2, upper_limit=5, apath=[{'flow_name':'S>DIV', 'factor':1}], expected_value=0)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -414,9 +414,9 @@ class B_Imports(unittest.TestCase):
         system.add_reach('LOWER-REACH')
         system.add_connection('Upper>Lower', 'UPPER-REACH', 'LOWER-REACH', 5)
         system.add_reach_diversion('Lower>A', 'LOWER-REACH', 'A', 8)
-        system.add_transaction(id=1, priority=1, upper_limit=10, apath=[{'connection_name':'GAINS_TO:LOWER-REACH', 'factor':1},{'connection_name':'Lower>A', 'factor':1}],
+        system.add_transaction(id=1, priority=1, upper_limit=10, apath=[{'flow_name':'GAINS_TO:LOWER-REACH', 'factor':1},{'flow_name':'Lower>A', 'factor':1}],
                                expected_value=3) # This should be limited to the gains in the lower reach
-        system.add_transaction(id=2, priority=2, upper_limit=10, apath=[{'connection_name':'Lower>A', 'factor':1}],
+        system.add_transaction(id=2, priority=2, upper_limit=10, apath=[{'flow_name':'Lower>A', 'factor':1}],
                                expected_value=5) # This should be the remaining diversion
 
         system.solve()
@@ -435,9 +435,9 @@ class D_PrioritySeries(unittest.TestCase):
         system.add_reach('RIVER')
         system.add_reach_diversion('Diversion', 'RIVER', 'USER', 12)
         system.add_transaction(id=1, priority=1, upper_limit= 7, apath=None, expected_value=7, child_series_name='sub-series')
-        system.add_transaction(id=2, series_name='sub-series', priority=2, upper_limit= 6, apath=[{'connection_name':'Diversion', 'factor':1}], expected_value=6)
-        system.add_transaction(id=3, series_name='sub-series', priority=3, upper_limit=12, apath=[{'connection_name':'Diversion', 'factor':1}], expected_value=1)
-        system.add_transaction(id=4, series_name='sub-series', priority=4, upper_limit= 4, apath=[{'connection_name':'Diversion', 'factor':1}], expected_value=0)
+        system.add_transaction(id=2, series_name='sub-series', priority=2, upper_limit= 6, apath=[{'flow_name':'Diversion', 'factor':1}], expected_value=6)
+        system.add_transaction(id=3, series_name='sub-series', priority=3, upper_limit=12, apath=[{'flow_name':'Diversion', 'factor':1}], expected_value=1)
+        system.add_transaction(id=4, series_name='sub-series', priority=4, upper_limit= 4, apath=[{'flow_name':'Diversion', 'factor':1}], expected_value=0)
         
         system.solve()
         system.assert_variables_equal_expected()
@@ -463,11 +463,11 @@ class D_PrioritySeries(unittest.TestCase):
         system.add_reach_diversion('DiversionA', 'RIVER', 'A', 6)
         system.add_reach_diversion('DiversionB', 'RIVER', 'B', 4)
         system.add_transaction(id=1, priority=1, upper_limit= 10, apath=None, child_series_name='sub-series-1')
-        system.add_transaction(id=2,   series_name='sub-series-1', priority=1, upper_limit= 4, apath=[{'connection_name':'DiversionA', 'factor':1}], expected_value=3.75)
-        system.add_transaction(id=3,   series_name='sub-series-1', priority=2, upper_limit= 6, apath=[{'connection_name':'DiversionB', 'factor':1}], expected_value=1.25)
+        system.add_transaction(id=2,   series_name='sub-series-1', priority=1, upper_limit= 4, apath=[{'flow_name':'DiversionA', 'factor':1}], expected_value=3.75)
+        system.add_transaction(id=3,   series_name='sub-series-1', priority=2, upper_limit= 6, apath=[{'flow_name':'DiversionB', 'factor':1}], expected_value=1.25)
         system.add_transaction(id=4, priority=1, upper_limit= 10, apath=None, child_series_name='sub-series-2')
-        system.add_transaction(id=5,   series_name='sub-series-2', priority=1, upper_limit= 6, apath=[{'connection_name':'DiversionA', 'factor':1}], expected_value=2.25)
-        system.add_transaction(id=6,   series_name='sub-series-2', priority=1, upper_limit= 4, apath=[{'connection_name':'DiversionB', 'factor':1}], expected_value=2.75)
+        system.add_transaction(id=5,   series_name='sub-series-2', priority=1, upper_limit= 6, apath=[{'flow_name':'DiversionA', 'factor':1}], expected_value=2.25)
+        system.add_transaction(id=6,   series_name='sub-series-2', priority=1, upper_limit= 4, apath=[{'flow_name':'DiversionB', 'factor':1}], expected_value=2.75)
         
         system.solve()
         system.assert_variables_equal_expected()
@@ -486,16 +486,16 @@ class D_PrioritySeries(unittest.TestCase):
         system.add_reach_diversion('>C', 'LOWER', 'C', 5)
 
         system.add_transaction(id=2, priority=1, upper_limit= 4, apath=None, expected_value=4, child_series_name='series-A')
-        system.add_transaction(id=20, series_name='series-A', priority=10, upper_limit=None, apath=[{'connection_name':'>A', 'factor':1}], expected_value=2)
-        system.add_transaction(id=21, series_name='series-A', priority=11, upper_limit=None, apath=[{'connection_name':'UPPER>LOWER', 'factor':-1}, {'connection_name':'UPPER>RESV', 'factor':1}], expected_value=2)
+        system.add_transaction(id=20, series_name='series-A', priority=10, upper_limit=None, apath=[{'flow_name':'>A', 'factor':1}], expected_value=2)
+        system.add_transaction(id=21, series_name='series-A', priority=11, upper_limit=None, apath=[{'flow_name':'UPPER>LOWER', 'factor':-1}, {'flow_name':'UPPER>RESV', 'factor':1}], expected_value=2)
 
         system.add_transaction(id=3, priority=1, upper_limit= 8, apath=None, expected_value=8, child_series_name='series-B')
-        system.add_transaction(id=30, series_name='series-B', priority=10, upper_limit=None, apath=[{'connection_name':'>B', 'factor':1}], expected_value=8)
-        system.add_transaction(id=31, series_name='series-B', priority=11, upper_limit=None, apath=[{'connection_name':'UPPER>LOWER', 'factor':-1}, {'connection_name':'UPPER>RESV', 'factor':1}], expected_value=0)
+        system.add_transaction(id=30, series_name='series-B', priority=10, upper_limit=None, apath=[{'flow_name':'>B', 'factor':1}], expected_value=8)
+        system.add_transaction(id=31, series_name='series-B', priority=11, upper_limit=None, apath=[{'flow_name':'UPPER>LOWER', 'factor':-1}, {'flow_name':'UPPER>RESV', 'factor':1}], expected_value=0)
 
         system.add_transaction(id=4, priority=1, upper_limit= 9, apath=None, expected_value=9, child_series_name='series-C')
-        system.add_transaction(id=40, series_name='series-C', priority=10, upper_limit=None, apath=[{'connection_name':'>C', 'factor':1}], expected_value=5)
-        system.add_transaction(id=41, series_name='series-C', priority=11, upper_limit=None, apath=[{'connection_name':'UPPER>LOWER', 'factor':-1}, {'connection_name':'UPPER>RESV', 'factor':1}], expected_value=4)
+        system.add_transaction(id=40, series_name='series-C', priority=10, upper_limit=None, apath=[{'flow_name':'>C', 'factor':1}], expected_value=5)
+        system.add_transaction(id=41, series_name='series-C', priority=11, upper_limit=None, apath=[{'flow_name':'UPPER>LOWER', 'factor':-1}, {'flow_name':'UPPER>RESV', 'factor':1}], expected_value=4)
         
         system.solve()
         system.assert_variables_equal_expected()
@@ -515,16 +515,16 @@ class D_PrioritySeries(unittest.TestCase):
         system.add_reach_diversion('>C', 'LOWER', 'C', 5)
 
         system.add_transaction(id=2, priority=1, upper_limit= 4, apath=None, child_series_name='series-A')
-        system.add_transaction(id=20, series_name='series-A', priority=10, upper_limit=None, apath=[{'connection_name':'>A', 'factor':1}], expected_value=2)
-        system.add_transaction(id=21, series_name='series-A', priority=11, upper_limit=None, apath=[{'connection_name':'UPPER>LOWER', 'factor':-1}, {'connection_name':'UPPER>RESV', 'factor':1}], expected_value=0.22222 + 2.777777 * 2/6.5)
+        system.add_transaction(id=20, series_name='series-A', priority=10, upper_limit=None, apath=[{'flow_name':'>A', 'factor':1}], expected_value=2)
+        system.add_transaction(id=21, series_name='series-A', priority=11, upper_limit=None, apath=[{'flow_name':'UPPER>LOWER', 'factor':-1}, {'flow_name':'UPPER>RESV', 'factor':1}], expected_value=0.22222 + 2.777777 * 2/6.5)
 
         system.add_transaction(id=3, priority=1, upper_limit= 8, apath=None, child_series_name='series-B')
-        system.add_transaction(id=30, series_name='series-B', priority=10, upper_limit=None, apath=[{'connection_name':'>B', 'factor':1}], expected_value=8)
-        system.add_transaction(id=31, series_name='series-B', priority=11, upper_limit=None, apath=[{'connection_name':'UPPER>LOWER', 'factor':-1}, {'connection_name':'UPPER>RESV', 'factor':1}], expected_value=0)
+        system.add_transaction(id=30, series_name='series-B', priority=10, upper_limit=None, apath=[{'flow_name':'>B', 'factor':1}], expected_value=8)
+        system.add_transaction(id=31, series_name='series-B', priority=11, upper_limit=None, apath=[{'flow_name':'UPPER>LOWER', 'factor':-1}, {'flow_name':'UPPER>RESV', 'factor':1}], expected_value=0)
 
         system.add_transaction(id=4, priority=1, upper_limit= 9, apath=None, child_series_name='series-C')
-        system.add_transaction(id=40, series_name='series-C', priority=10, upper_limit=None, apath=[{'connection_name':'>C', 'factor':1}], expected_value=5)
-        system.add_transaction(id=41, series_name='series-C', priority=11, upper_limit=None, apath=[{'connection_name':'UPPER>LOWER', 'factor':-1}, {'connection_name':'UPPER>RESV', 'factor':1}], expected_value=0 + 2.777777 * 4.5/6.5)
+        system.add_transaction(id=40, series_name='series-C', priority=10, upper_limit=None, apath=[{'flow_name':'>C', 'factor':1}], expected_value=5)
+        system.add_transaction(id=41, series_name='series-C', priority=11, upper_limit=None, apath=[{'flow_name':'UPPER>LOWER', 'factor':-1}, {'flow_name':'UPPER>RESV', 'factor':1}], expected_value=0 + 2.777777 * 4.5/6.5)
         
         system.solve()
         system.assert_variables_equal_expected()
@@ -545,12 +545,12 @@ class D_PrioritySeries(unittest.TestCase):
         system.add_reach_diversion('R2>B', 'R2', 'B', 30)
         system.add_reach_diversion('R3>C', 'R3', 'C', 20)
 
-        system.add_transaction(id=1, priority=1, upper_limit=30, apath=[{'connection_name':'R1>A', 'factor':1}], expected_value=20)
-        system.add_transaction(id=2, priority=1, upper_limit=20, apath=[{'connection_name':'R2>B', 'factor':1}], expected_value=20)
-        system.add_transaction(id=3, priority=1, upper_limit=40, apath=[{'connection_name':'R3>C', 'factor':1}], expected_value=20)
-        system.add_transaction(id=11, priority=2, upper_limit=None, apath=[{'connection_name':'Imports>R1', 'factor':1}, {'connection_name':'R1>A', 'factor':1}])
-        system.add_transaction(id=12, priority=3, upper_limit=None, apath=[{'connection_name':'Imports>R1', 'factor':1}, {'connection_name':'R1>R2', 'factor':1}, {'connection_name':'R2>B', 'factor':1}])
-        system.add_transaction(id=13, priority=4, upper_limit=None, apath=[{'connection_name':'Imports>R1', 'factor':1}, {'connection_name':'R1>R2', 'factor':1}, {'connection_name':'R2>R3', 'factor':1}, {'connection_name':'R3>C', 'factor':1}])
+        system.add_transaction(id=1, priority=1, upper_limit=30, apath=[{'flow_name':'R1>A', 'factor':1}], expected_value=20)
+        system.add_transaction(id=2, priority=1, upper_limit=20, apath=[{'flow_name':'R2>B', 'factor':1}], expected_value=20)
+        system.add_transaction(id=3, priority=1, upper_limit=40, apath=[{'flow_name':'R3>C', 'factor':1}], expected_value=20)
+        system.add_transaction(id=11, priority=2, upper_limit=None, apath=[{'flow_name':'Imports>R1', 'factor':1}, {'flow_name':'R1>A', 'factor':1}])
+        system.add_transaction(id=12, priority=3, upper_limit=None, apath=[{'flow_name':'Imports>R1', 'factor':1}, {'flow_name':'R1>R2', 'factor':1}, {'flow_name':'R2>B', 'factor':1}])
+        system.add_transaction(id=13, priority=4, upper_limit=None, apath=[{'flow_name':'Imports>R1', 'factor':1}, {'flow_name':'R1>R2', 'factor':1}, {'flow_name':'R2>R3', 'factor':1}, {'flow_name':'R3>C', 'factor':1}])
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -570,12 +570,12 @@ class D_PrioritySeries(unittest.TestCase):
         system.add_reach_diversion('R2>B', 'R2', 'B', 30)
         system.add_reach_diversion('R3>C', 'R3', 'C', 20)
 
-        system.add_transaction(id=1, priority=1, upper_limit=30, apath=[{'connection_name':'R1>A', 'factor':1}], expected_value=0)
-        system.add_transaction(id=2, priority=1, upper_limit=20, apath=[{'connection_name':'R2>B', 'factor':1}], expected_value=20)
-        system.add_transaction(id=3, priority=1, upper_limit=40, apath=[{'connection_name':'R3>C', 'factor':1}], expected_value=20)
-        system.add_transaction(id=11, priority=2, upper_limit=None, apath=[{'connection_name':'Imports>R1', 'factor':1}, {'connection_name':'R1>A', 'factor':1}])
-        system.add_transaction(id=12, priority=3, upper_limit=None, apath=[{'connection_name':'Imports>R1', 'factor':1}, {'connection_name':'R1>R2', 'factor':1}, {'connection_name':'R2>B', 'factor':1}])
-        system.add_transaction(id=13, priority=4, upper_limit=None, apath=[{'connection_name':'Imports>R1', 'factor':1}, {'connection_name':'R1>R2', 'factor':1}, {'connection_name':'R2>R3', 'factor':1}, {'connection_name':'R3>C', 'factor':1}])
+        system.add_transaction(id=1, priority=1, upper_limit=30, apath=[{'flow_name':'R1>A', 'factor':1}], expected_value=0)
+        system.add_transaction(id=2, priority=1, upper_limit=20, apath=[{'flow_name':'R2>B', 'factor':1}], expected_value=20)
+        system.add_transaction(id=3, priority=1, upper_limit=40, apath=[{'flow_name':'R3>C', 'factor':1}], expected_value=20)
+        system.add_transaction(id=11, priority=2, upper_limit=None, apath=[{'flow_name':'Imports>R1', 'factor':1}, {'flow_name':'R1>A', 'factor':1}])
+        system.add_transaction(id=12, priority=3, upper_limit=None, apath=[{'flow_name':'Imports>R1', 'factor':1}, {'flow_name':'R1>R2', 'factor':1}, {'flow_name':'R2>B', 'factor':1}])
+        system.add_transaction(id=13, priority=4, upper_limit=None, apath=[{'flow_name':'Imports>R1', 'factor':1}, {'flow_name':'R1>R2', 'factor':1}, {'flow_name':'R2>R3', 'factor':1}, {'flow_name':'R3>C', 'factor':1}])
 
 
         system.solve()
@@ -592,8 +592,8 @@ class E_SharedTrxnLimits(unittest.TestCase):
         system.add_reach('RIVER')
         system.add_reach_diversion('>A', 'RIVER', 'A', 10)
         system.add_reach_diversion('>B', 'RIVER', 'B', 10)
-        system.add_transaction(id=1, priority=1, upper_limit= 15, apath=[{'connection_name':'>A', 'factor':1}], expected_value=10)
-        system.add_transaction(id=2, priority=2, upper_limit=None, apath=[{'connection_name':'>B', 'factor':1}], limited_by_id=1, expected_value=5)
+        system.add_transaction(id=1, priority=1, upper_limit= 15, apath=[{'flow_name':'>A', 'factor':1}], expected_value=10)
+        system.add_transaction(id=2, priority=2, upper_limit=None, apath=[{'flow_name':'>B', 'factor':1}], limited_by_id=1, expected_value=5)
         
         system.solve()
         system.assert_variables_equal_expected()
@@ -608,7 +608,7 @@ class F_TransactionsThatMayBeNegative(unittest.TestCase):
         system.add_reach('RIVER')
         system.add_reach_reservoir('River>A', 'RIVER', 'RESV-A', 10)
         system.add_reach_reservoir('River>B', 'RIVER', 'RESV-B', -10)
-        system.add_transaction(id=1, priority=1, upper_limit= 15, apath=[{'connection_name':'River>A', 'factor':-1}, {'connection_name':'River>B', 'factor':1}], lower_limit=-15, expected_value=-10)
+        system.add_transaction(id=1, priority=1, upper_limit= 15, apath=[{'flow_name':'River>A', 'factor':-1}, {'flow_name':'River>B', 'factor':1}], lower_limit=-15, expected_value=-10)
         
         system.solve()
         system.assert_variables_equal_expected()
@@ -629,11 +629,11 @@ class DocumentationExamples(unittest.TestCase):
         system.add_reach_diversion('B>1', 'REACH-B', 'DIV-1', flow=50)
         system.add_reach_diversion('B>2', 'REACH-B', 'DIV-2', flow=50)
 
-        system.add_transaction(id=1, priority=1880, upper_limit=  40, apath=[{'connection_name':'B>1', 'factor':1}], expected_value=40)
-        system.add_transaction(id=2, priority=1890, upper_limit=  20, apath=[{'connection_name':'B>1', 'factor':1}], expected_value=10)
-        system.add_transaction(id=3, priority=1890, upper_limit=  40, apath=[{'connection_name':'B>2', 'factor':1}], expected_value=20)
-        system.add_transaction(id=4, priority=1950, upper_limit= 100, apath=[{'connection_name':'A>STOR', 'factor':1}], expected_value=0)
-        system.add_transaction(id=5, priority=9901, upper_limit=None, apath=[{'connection_name':'A>STOR', 'factor':-1},{'connection_name':'A>B', 'factor':1},{'connection_name':'B>2', 'factor':1}], expected_value=30)
+        system.add_transaction(id=1, priority=1880, upper_limit=  40, apath=[{'flow_name':'B>1', 'factor':1}], expected_value=40)
+        system.add_transaction(id=2, priority=1890, upper_limit=  20, apath=[{'flow_name':'B>1', 'factor':1}], expected_value=10)
+        system.add_transaction(id=3, priority=1890, upper_limit=  40, apath=[{'flow_name':'B>2', 'factor':1}], expected_value=20)
+        system.add_transaction(id=4, priority=1950, upper_limit= 100, apath=[{'flow_name':'A>STOR', 'factor':1}], expected_value=0)
+        system.add_transaction(id=5, priority=9901, upper_limit=None, apath=[{'flow_name':'A>STOR', 'factor':-1},{'flow_name':'A>B', 'factor':1},{'flow_name':'B>2', 'factor':1}], expected_value=30)
 
         system.solve()
         system.assert_variables_equal_expected()

@@ -4,27 +4,10 @@ This is where it will all come together. This code will request the data using
 API endpoints, then call the code to solve the accounting, and then save the 
 results using the API endpoints.
 
-
-Big issues to think through and fix:
-
-- A ModelConnector may have multiple measurements, not a one-to-one like I did 
-  for the local database.
-  - I added a new db table.
-  - need API to populate it when model is uploaded.
-  - need API to delete it when model is deleted.
-  - need API to use new DB table to query measurement ts.
-
-- Am I supporting reservoirs yet? Make sure that will work before asking Collin 
-  to add the proposed DB tables.
-
-- There could in theory be multiple connections between the same zones, which is 
-  not yet supported by the general solver.
-
-  
-
 '''
 
 from .apportionment_solver import ApportionmentSolver
+from .data_models import ZoneTypes
 
 API_URL = 'http://127.0.0.1:8000/wr-net/'
 COALESCE_MISSING_FLOWS_TO_ZERO = True
@@ -34,15 +17,16 @@ class GeneralSolver:
 
 
     def __init__(self):
-        self.zones = {}
-        self.interzonal_flows = {}
-        self.beg_date = None
-        self.end_date = None
+        self.beg_date:str = ''
+        self.end_date:str = ''
+        self.zones = []
+        self.interzonal_flows = []
         self.transactions = {}
         self.timeseries = {}
 
 
-    def build_problem(self, accounting_network):
+    #TODO - depricate and replace with query_system
+    def build_problem(self, accounting_network): 
 
         self.zones = accounting_network['zones']
         self.interzonal_flows = accounting_network['interzonal_flows']
@@ -53,6 +37,44 @@ class GeneralSolver:
         self.query_timeseries()
 
 
+    def query_system(self, system_name, beg_date, end_date):
+        self.beg_date = beg_date
+        self.end_date = end_date
+
+        self.query_zones_and_flows(system_name)
+        self.query_transactions()
+        self.query_timeseries()
+
+
+    def query_zones_and_flows(self, system_name):
+        """Use the API to query the accounting network graph."""
+        import requests
+
+        url = API_URL + 'accounting-model2/accounting-graph/for-system/' + system_name + f'?beg_date={self.beg_date}&end_date={self.end_date}'
+
+        response = requests.get(url, timeout=30)
+
+        # Need to convert formats a little.
+        zones = response.json()['zones']
+        for id in zones:
+            self.zones.append({
+                'name': str(zones[id]['id']),
+                'type': zones[id]['type']
+            })
+
+        # Need to convert formats a little.
+        flows = response.json()['interzonal_flows']
+        for id in flows:
+            self.interzonal_flows.append({
+                'name': str(flows[id]['id']),
+                'from_zone': str(flows[id]['from_zone_id']),
+                'to_zone': str(flows[id]['to_zone_id']),
+                'uhd_mapping': flows[id]['uhd_mapping']
+            })
+
+
+    # TODO - replace with a query of the variables. Then update the apportionment_solver 
+    # so we can pass the variables right into that solver. 
     def query_transactions(self):
         """Use the API to query the transactions traversing the accounting 
         network graph."""
@@ -122,11 +144,11 @@ class GeneralSolver:
                         end_date:str,
                         priority_order:float, 
                         path:list[str],
-                        cfs_upper_limit:float = None,
+                        cfs_upper_limit:float | None = None,
                         cfs_lower_limit:float = 0,
-                        annual_acft_limit:float = None,
+                        annual_acft_limit:float | None = None,
                         annual_acft_limit_start:str = '0101',
-                        wrnum:str = None
+                        wrnum:str | None = None
                         ):
         """"""
         if path_id in self.transactions:
@@ -171,6 +193,7 @@ class GeneralSolver:
 
         current_date = start_date
         delta = timedelta(days=1)
+        vars = None
         while current_date <= end_date:
             # Run 
             yyyy_mm_dd = current_date.isoformat()
@@ -204,7 +227,7 @@ class GeneralSolver:
             if z['type']=='stream':
                 system.add_reach(z['name'], storage_chg=0)
             else:
-                system.add_zone(z['name'], is_source=False, storage_chg=0)
+                system.add_zone(z['name'], is_source=False, type=ZoneTypes(z['type']), storage_chg=0)
 
         # Add connections
         for f in self.interzonal_flows:

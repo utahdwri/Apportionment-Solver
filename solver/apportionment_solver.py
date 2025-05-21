@@ -1,7 +1,24 @@
-from dataclasses import dataclass
-from math import inf, isclose
-from .solve_lp_with_GLOP import LPSolver, LPSolverError
-from .globals import Globals
+from math import isclose
+from .solve_lp_with_GLOP import LPSolver
+from .data_models import (
+    ApportionmentSolverArc, 
+    ApportionmentSolverZone, 
+    ApportionmentSolverVar, 
+    ApportionmentSolverVarPathItem, 
+    ApportionmentSolverVarGroup,
+    ZoneTypes,
+    ScheduleVariable,
+    SequentialSchedule,
+    ProportionalSchedule,
+    SequentialScheduleItem,
+    ProportionalScheduleItem,
+)
+
+
+# If a path has no cfs_limit, this large value will be used as its limit. Then before the apportionments are 
+# sent back as results, any instances of this large value will be replaced with text to convey the idea 
+# that the upper-bound is undetermined.
+DEFAULT_PATH_UB = 1e10
 
 
 class ApportionmentSolver:
@@ -9,14 +26,14 @@ class ApportionmentSolver:
 
     def __init__(self):
 
-        self.nodes : dict['str','ApportionmentSolverNode'] = {}
+        self.nodes : dict['str','ApportionmentSolverZone'] = {}
         self.arcs : dict['str','ApportionmentSolverArc'] = {}
         self.vars : dict['str','ApportionmentSolverVar'] = {}
 
 
     def __str__(self):
 
-        def warn_if_value_is_incorrect(t):
+        def warn_if_value_is_incorrect(t:ApportionmentSolverVar):
             if t.expected_value is not None and t.value is not None:
                 if abs(t.expected_value - t.value) > 1e-4:
                     return f'*** NOT EQUAL TO EXPECTED VALUE OF {t.expected_value:9.4f}'
@@ -24,18 +41,18 @@ class ApportionmentSolver:
 
         out = ''
         for name in self.nodes:
-            n:ApportionmentSolverNode = self.nodes[name]
+            n:ApportionmentSolverZone = self.nodes[name]
             if n.is_source:
                 out += '\n' + n.name + f'(\u0394S={n.storage_chg:9.4f}, gains-losses={n.net_reach_gains:9.4f})'
                 for f in n.outflows:
-                    out += f'\n {f.flow:9.4f} >> {f.to_node.name}'
+                    out += f'\n {f.flow:9.4f} >> {f.to_zone.name}'
                     for t in f.forward_vars:
                         out += f'\n      {t.name: <26} = {t.value:9.4f}' + warn_if_value_is_incorrect(t)
                     for t in f.backward_vars:
                         out += f'\n      {t.name: <26} = {t.value:9.4f} *backwards' + warn_if_value_is_incorrect(t)
 
                 for f in n.inflows:
-                    out += f'\n {f.flow:9.4f} << {f.from_node.name}'
+                    out += f'\n {f.flow:9.4f} << {f.from_zone.name}'
                     for t in f.forward_vars:
                         out += f'\n      {t.name: <26} = {t.value:9.4f}' + warn_if_value_is_incorrect(t)
                     for t in f.backward_vars:
@@ -43,34 +60,84 @@ class ApportionmentSolver:
 
         return out
 
-    def log(self, message):
-        if False:
+    def log(self, message:str):
+        if True:
             print('LOG', message)
     
+
+
+
+    # --------------------------------------------------------------------------
+    # New methods to reuse the same ApportionmentSolver object for each day
+    # 5/12/2025
+    # --------------------------------------------------------------------------
+    def set_zone_storage_changes(self, storage_changes_by_zone_id):
+        pass
+
+    def set_interzone_flows(self, interzone_flows):
+        pass
+
+    def set_variable_limits(self, variable_limits):
+        pass
+
     # --------------------------------------------------------------------------
     # New methods to build the apportionment graph (aka transaction flow graph)
     # 4/8/2025
     # --------------------------------------------------------------------------
 
+    def load_accounting_graph(self, 
+                              zones: list[dict[str,str]], 
+                              interzone_flows: list[dict[str,str]], 
+                              variables
+                              ) -> None:
+        """Build the accounting graph by adding each zone and interzone-flow. """
+
+        for zone in zones:
+            self.add_zone(
+                name=zone['id'],
+                type=ZoneTypes(zone['type']),
+                is_source=zone['type'] == 'stream'
+            )
+
+        for flow in interzone_flows:
+            self.add_connection(
+                connection_name=flow['name'],
+                from_name=flow['from_zone_id'],
+                to_name=flow['to_zone_id'],
+                flow=0 # Is this supposed to be defined here??
+            )
+
+        for variable in variables:
+            self.add_transaction(
+                id=variable['id'],
+                priority=variable['priority_order'],
+                upper_limit=variable['??'],
+                lower_limit=0,
+                apath=[]
+            )
+
+
     def add_zone(self, name:str,
-                 is_source:bool,
-                 storage_chg:float = 0,
-                 ) -> None:
+                 is_source:bool, # TODO - this is redundant with type.
+                 type:ZoneTypes,
+                 storage_chg:float = 0
+                 ) -> ApportionmentSolverZone:
         """Create a zone (can represent a stream reach, a reservoir, an import, 
         or a use zone)."""
 
         # Create the node.
-        self.nodes[name] = ApportionmentSolverNode(
+        self.nodes[name] = ApportionmentSolverZone(
             name=name, 
             is_source=is_source,
-            storage_chg=storage_chg
+            storage_chg=storage_chg,
+            type=type
         )
 
         return self.nodes[name]
 
 
 
-    def connect_zones(self, arc_name:str, from_name:str, to_name:str, flow:float, allow_both_directions=False):
+    def connect_zones(self, arc_name:str, from_name:str, to_name:str, flow:float|None, allow_both_directions:bool=False):
         """Create an arc connecting two zones, and also create a slack variable
         to ensure the given flow is feasible. The arc_name is None then a name 
         will be automatically generated for the new connection.
@@ -88,8 +155,8 @@ class ApportionmentSolver:
         self._validate_new_name(self.arcs, arc_name)
         self.arcs[arc_name] = ApportionmentSolverArc(
             name=arc_name, 
-            from_node=self.nodes[from_name],
-            to_node=self.nodes[to_name],
+            from_zone=self.nodes[from_name],
+            to_zone=self.nodes[to_name],
             flow=flow
         )
 
@@ -137,16 +204,16 @@ class ApportionmentSolver:
 
     def add_reach(self, name:str, 
                   storage_chg:float=0, 
-                  expected_gain:float=None,
-                  expected_loss:float=None ) -> None:
+                  expected_gain:float|None=None,
+                  expected_loss:float|None=None ) -> None:
         """Create a stream reach."""
 
         gains_zone_name = name + '_GAINS'
         losses_zone_name = name + '_LOSS'
 
-        self.add_zone(name, True, storage_chg)
-        self.add_zone(gains_zone_name, False, 0)
-        self.add_zone(losses_zone_name, False, 0)
+        self.add_zone(name, True, ZoneTypes.STREAM, storage_chg)
+        self.add_zone(gains_zone_name, False, ZoneTypes.SYSTEM_GAIN_LOSS, 0)
+        self.add_zone(losses_zone_name, False, ZoneTypes.SYSTEM_GAIN_LOSS, 0)
 
         gain_arc, gain_var = self.connect_zones('GAINS_TO:'+name, gains_zone_name, name, None)
         loss_arc, loss_var = self.connect_zones('LOSSES_FROM:'+name, name, losses_zone_name, None)
@@ -162,20 +229,20 @@ class ApportionmentSolver:
                             ):
         """Define an on-stream reservoir. An on-stream reaservoir is represented
         as a distinct node that is connected to the stream node."""
-        resv_zone = self.add_zone(resv_name, False, storage_chg + storage_loss)
+        resv_zone = self.add_zone(resv_name, False, ZoneTypes.STORAGE, storage_chg + storage_loss)
         resv_zone.storage_on_reach=reach_name
         self.connect_zones(connection_name, reach_name, resv_name, None, allow_both_directions=True)
 
         
     def add_reach_diversion(self, connection_name:str, reach_name:str, div_name:str, flow:float):
         """Define a measured artificial outflow from a stream reach."""
-        self.add_zone(div_name, False)
+        self.add_zone(div_name, False, ZoneTypes.USE)
         self.connect_zones(connection_name, reach_name, div_name, flow)
 
 
     def add_reach_import(self, connection_name:str, reach_name:str, imp_name:str, flow:float):
         """Define a measured artificial inflow to a stream reach."""
-        self.add_zone(imp_name, False)
+        self.add_zone(imp_name, False, ZoneTypes.IMPORT)
         self.connect_zones(connection_name, imp_name, reach_name, flow)
 
 
@@ -184,13 +251,14 @@ class ApportionmentSolver:
         self.connect_zones(connection_name, from_name, to_name, flow)
 
 
-    def add_transaction(self, id:int, priority:float, upper_limit:float, 
-                        lower_limit:float = 0,
-                        apath:list = None,
-                        limited_by_id:int = None,
-                        series_name:str = None,
-                        child_series_name:str = None, 
-                        expected_value:float = None ):
+    def add_transaction(self, id:int, priority:float|None, upper_limit:float|None, 
+                        lower_limit:float | None = 0,
+                        apath:list | None = None,
+                        limited_by_id:int| None  = None,
+                        series_name:str | None = None,
+                        child_series_name:str| None  = None, 
+                        expected_value:float| None  = None 
+                        ):
         """Define an authorized transaction (a flow variable with a priority).
         
         The expected_value is only used for evaluating tests.
@@ -244,7 +312,7 @@ class ApportionmentSolver:
     # Method to actually build and solve the system of linear equations.
     # --------------------------------------------------------------------------
 
-    def solve(self):
+    def solve(self) -> dict[str,float]:
 
         # This supports cases where the flow from the reach to on-stream 
         # reservoirs requires a mass balance calculation. (This is similar 
@@ -264,10 +332,6 @@ class ApportionmentSolver:
         # So these spills should be calculated and fixed prior to the apportionments.
         self._minimize_reservoir_spills(engine)
 
-        # Removed for now
-        ### # Relax handoff constraints.
-        ### # Temporaraly allow inflow to a change handoff to exceed outflow.
-        ### self._relax_handoff_constraints(engine)
 
 
         # Calculate the apportionments.
@@ -283,7 +347,7 @@ class ApportionmentSolver:
     # --------------------------------------------------------------------------
     # Utility function for testing
     # --------------------------------------------------------------------------
-    def assert_variables_equal_expected(self, message=''):
+    def assert_variables_equal_expected(self, message:str='') -> None:
         """Check if each of the variables match the expected 
         value to 4 decimal places. 
 
@@ -297,13 +361,19 @@ class ApportionmentSolver:
             expected_value = self.vars[var_name].expected_value
             computed_value = self.vars[var_name].value
             if expected_value is not None:
-                cnt += 1
-                msg = ( message +
-                       f'Variable "{var_name}": computed ({computed_value}) != expected'
-                       f' ({expected_value})\n'+str(self)
-                       )
-                assert abs(expected_value - computed_value) < 1e-4, msg
-
+                if computed_value is None:
+                    msg = ( message +
+                        f'Variable "{var_name}": computed (None) != expected'
+                        f' ({expected_value})\n'+str(self)
+                        )
+                    assert computed_value is not None, msg
+                else:
+                    cnt += 1
+                    msg = ( message +
+                        f'Variable "{var_name}": computed ({computed_value}) != expected'
+                        f' ({expected_value})\n'+str(self)
+                        )
+                    assert abs(expected_value - computed_value) < 1e-4, msg
         if cnt == 0:
             raise Exception('No variables were given an expected_value!')
 
@@ -328,7 +398,7 @@ class ApportionmentSolver:
         return var_values
 
 
-    def to_sankey_data(self, use_expected_values=False):
+    def to_sankey_data(self, use_expected_values:bool=False):
         graph = {
             "zones":{
                 x:{
@@ -336,8 +406,8 @@ class ApportionmentSolver:
                 } for x in self.nodes},
             "subarcs":{
                 x:{
-                    "from": self.arcs[x].from_node.name, 
-                    "to": self.arcs[x].to_node.name, 
+                    "from": self.arcs[x].from_zone.name, 
+                    "to": self.arcs[x].to_zone.name, 
                     "capacity":0
                 } for x in self.arcs},
             "variables":{
@@ -363,14 +433,14 @@ class ApportionmentSolver:
     # Helper functions
     # --------------------------------------------------------------------------
 
-    def _validate_new_name(self, collection, name):
+    def _validate_new_name(self, collection, name) -> None:
         """Raise an error if the given name is in the given collection."""
         if name is None or not isinstance(name, str):
             raise ValueError('A name is required!')
         if name in collection:
             raise ValueError(f'The name "{name}" is already beeing used!')
         
-    def _validate_existing_name(self, collection, name):
+    def _validate_existing_name(self, collection, name) -> None:
         """Raise an error if the given name is NOT in the given collection."""
         if name is None or not isinstance(name, str):
             raise ValueError('A name is required!')
@@ -388,16 +458,21 @@ class ApportionmentSolver:
         for name in self.nodes:
             n = self.nodes[name]
             if n.is_storage_node():
-
+                if n.storage_on_reach is None:
+                    raise ValueError(f'Storage node {n.name} is missing storage_on_reach attribute.')
                 reach_node = self.nodes[n.storage_on_reach]
                 resv_imports = 0 # Total inflow from the reservoir from nodes other than the reach node.
                 resv_exports = 0 # Total outflow from the reservoir (not counting evap) to nodes other than the reach node.
                 for a in n.inflows:
-                    if a.from_node != reach_node:
+                    if a.from_zone != reach_node:
+                        if a.flow is None:
+                            raise ValueError(f'Interzone flow {a.name} was expected to have a numeric flow, but it is None.')
                         resv_imports += a.flow
 
                 for a in n.outflows:
-                    if a.to_node != reach_node:
+                    if a.to_zone != reach_node:
+                        if a.flow is None:
+                            raise ValueError(f'Interzone flow {a.name} was expected to have a numeric flow, but it is None.')
                         resv_exports += a.flow
 
                 # Identify the arc that needs its flow calculated.
@@ -418,7 +493,8 @@ class ApportionmentSolver:
 
     def _calculate_reach_gains_losses(self):
         """The reach gains/losses are not measured directly, but we can add 
-        measurement constraints for these arc using simple mass balances."""
+        measurement constraints for these interzone flows using mass balance 
+        equations."""
 
         # Loop through each stream reach
         # Add mass balance constraints & coeficients.
@@ -433,14 +509,15 @@ class ApportionmentSolver:
                 for a, coef in ( [(a,-1) for a in n.inflows ] + 
                                  [(a, 1) for a in n.outflows] 
                                 ):
-                    if a.flow is None and coef == -1:
-                        if reach_gain is not None:
-                            raise Exception('Something went wrong. There should only be one unmeasured inflow.')
-                        reach_gain = a
-                    elif a.flow is None and coef == 1:
-                        if reach_loss is not None:
-                            raise Exception(f'There should only be one unmeasured outflow, but found {a.name} in addition to {reach_loss.name}.')
-                        reach_loss = a
+                    if a.flow is None:
+                        if coef == -1:
+                            if reach_gain is not None:
+                                raise Exception(f'There should only be one unmeasured inflow, but found {a.name} in addition to {reach_gain.name}.')
+                            reach_gain = a
+                        elif coef == 1:
+                            if reach_loss is not None:
+                                raise Exception(f'There should only be one unmeasured outflow, but found {a.name} in addition to {reach_loss.name}.')
+                            reach_loss = a
                     else:
                         sum += coef * a.flow
 
@@ -505,8 +582,6 @@ class ApportionmentSolver:
             a = self.arcs[name]
             if a.flow is None:
                 continue
-            if False: #a.to_node.type == 'HANDOFF':
-                continue # we've effectively already added this constraint previously 
 
             con_name = 'MEAS_' + a.name
             engine.add_constriant(name=con_name, lb=a.flow, ub=a.flow)
@@ -515,6 +590,7 @@ class ApportionmentSolver:
                              [(v,-1) for v in a.backward_vars]
                             ):
                 engine.set_coeficient(con_name, v.name, coef)
+
 
 
         # Add constraint when one trxn variable should be limited together with another variable.
@@ -540,7 +616,7 @@ class ApportionmentSolver:
                 engine.set_coeficient(con_name, name, 1)
         for name in self.vars:
             v = self.vars[name]
-            if v.series in series_names:
+            if v.series in series_names and v.series is not None:
                 con_name = 'SERIES_' + v.series
                 engine.set_coeficient(con_name, name, -1)
 
@@ -583,53 +659,41 @@ class ApportionmentSolver:
 
 
 
-    def _relax_handoff_constraints(self, engine):
-        """ Handoff constraints are INFLOWS - OUTFLOWS = 0
-
-        So we relax to allow outflows to be calculated after inflows (rather 
-        than at the same time) by setting 0 <= INFLOWS - OUTFLOWS, i.e. by
-        removing the upper bound of the constraint.
-
-        """
-        for conId in engine.get_constraint_names():
-            if conId[0:9] == 'HDOFF_MB_':
-                engine.update_constraint_bounds(conId, ub=inf)
-
 
     def _calculate_apportionments(self, engine, start_priority=None, stop_priority=None):
 
         # Convert the path data to a priority-ordered schedule to loop through.
-        schedule = self._get_schedule_series()
+        schedule: SequentialSchedule = self._get_schedule_series()
 
         self.log("\nSchedule: " + str(schedule))
 
 
         # Solve.          
-        for item in schedule:
+        for x in schedule.series:
+            priority = x.priority
+            item = x.item
 
             # Skip trxn vars with priorities earlier than start_priority. 
-            if start_priority is not None and start_priority > item["priority"]:
+            if start_priority is not None and start_priority > priority:
                 continue
             
             # Skip trxn vars with priorities later than stop_priority. 
-            if stop_priority is not None and stop_priority < item["priority"]:
+            if stop_priority is not None and stop_priority < priority:
                 continue
 
-            self.log("\nPriority: {}".format(item["priority"]) )
-
-            #
-
-            if ('proportional_subseries' in item or 
-                'sequential_subseries' in item    ):
+            self.log("\nPriority: {}".format(priority) )
+            
+            if type(item) is ProportionalSchedule:
                 self._maximize_series(engine, item)
+            elif type(item) is SequentialSchedule:
+                self._maximize_series(engine, item)
+            elif type(item) is ScheduleVariable:
+                self._maximize_var(engine, item.var_name)
             
-            elif item["var_name"] is not None:
-                self._maximize_var(engine, item["var_name"])
-            
-            self.log("\nCompleted iteration for priority: {}".format(item["priority"]) )
+            self.log("\nCompleted iteration for priority: {}".format(priority) )
 
 
-    def _solve_for_nonpath_vars(self, engine):
+    def _solve_for_nonpath_vars(self, engine:LPSolver):
 
         # NOTE: I get away with not bothering to seperate the non-path variables
         #       from the path variables in this code because the path variables 
@@ -640,6 +704,7 @@ class ApportionmentSolver:
         for var_name in variable_values:
             solved_value = variable_values[var_name]
             self.vars[var_name].value = solved_value
+            self.log(f' - maxed {var_name} to {solved_value}')
 
 
     def _compile_tx_results(self) -> dict[str,float]:
@@ -660,7 +725,7 @@ class ApportionmentSolver:
 
 
     #
-    def _maximize_var(self, engine, var_name):
+    def _maximize_var(self, engine:LPSolver, var_name):
 
         # Find the maximum feasible.
         new_value = engine.maximize_and_update_variable(var_name)
@@ -668,24 +733,49 @@ class ApportionmentSolver:
         # Update where we save the calculated values. 
         self.vars[var_name].value = new_value
 
+        self.log(f' - maxed {var_name} to {new_value}')
 
-    def _maximize_series(self, engine, series):
+
+    def _maximize_series(self, engine:LPSolver, series: ProportionalSchedule | SequentialSchedule):
         """Maximize the given series of variables (either a sequential or 
         proportional series) until all the variables in the series are 
-        maximized."""
+        maximized.
+        """
         maxed_vars = []
         var_names, factors = self._get_next_iter(series, maxed_vars)
         while var_names:
             self.log('*** var_names, factors: ' + str(var_names) +', ' + str(factors))
 
             #?? Is there a cleaner way to do this? Just pass the list of factors?
-            proportion_factors_by_var_names = {}
+            proportion_factors = {}
             for i, var_name in enumerate(var_names):
-                proportion_factors_by_var_names[var_name] = factors[i]
+                proportion_factors[var_name] = factors[i]
 
+            # 1st, deal with the edge case where every proportion_factor is zero.
+            proportion_factors_sum = sum([v for k, v in proportion_factors.items()])
+            if proportion_factors_sum == 0:
+                for var_name, v in proportion_factors.items():
+                    engine.update_variable_bounds(var_name, lb=0)
+                    self.vars[var_name].value = 0
+                    self.log(f' - initialized {var_name} to {0}')
+                return
 
-            self._maximize_vars_inner(engine, var_names, proportion_factors_by_var_names)
+            # What if a proportion_factor is too close to 0 and will cause numerical issues?
+            for var_name, v in proportion_factors.items():
+                if v > 0 and v < 0.000001:
+                    raise ValueError(f"Proportion factor for Variable {var_name} is too small and may cause numerical issues" + str(proportion_factors))
 
+            # Solve 
+            var_values = engine.maximize_group_by_proportions(var_names, proportion_factors)
+
+            # Update the variables. Set only the lb for now, since we might 
+            # be able to increase this variable further in a future iteration.
+            for var_name, var_value in var_values.items():
+                engine.update_variable_bounds(var_name, lb=var_value)
+                self.vars[var_name].value = var_value
+                self.log(f' - maxed {var_name} to {var_value}')
+
+            # Get a list of the variables that are now maximized.
             maxed_vars = maxed_vars + self._get_newly_maxed_vars(engine, var_names)
             #print('$$$$$$$$$$$$$$$$$$$$$$*****************', engine.lp_string())
 
@@ -702,7 +792,7 @@ class ApportionmentSolver:
         # Loop until the series
     
 
-    def _get_newly_maxed_vars(self, engine, var_names):
+    def _get_newly_maxed_vars(self, engine:LPSolver, var_names):
         """Return a list of which of the given variables are now maximized."""
         maxed_var_names = []
         for var_name in var_names:
@@ -712,7 +802,7 @@ class ApportionmentSolver:
     
     
     # TODO - move or update
-    def _is_var_maxed(self, engine, var_name):
+    def _is_var_maxed(self, engine:LPSolver, var_name):
         # We need to check if the given variable is as large as the constraints will allow. 
         #
 
@@ -721,14 +811,14 @@ class ApportionmentSolver:
         # If the variable can't be increased, it is maximized and return True.
 
         variable = self.vars[var_name]
-        try:
-            objective_value, blah = engine.solve_objective([var_name], maximization=True)
-        except Exception:
-            return True
-        return isclose(variable.value, objective_value, abs_tol=1e-4)
+        objective_value, blah = engine.solve_objective([var_name], maximization=True)
+        if variable.value is None:
+            return False
+        else:
+            return isclose(variable.value, objective_value, abs_tol=1e-4)
 
 
-    def _get_next_iter(self, series, maxed_vars):
+    def _get_next_iter(self, schedule: ProportionalSchedule | SequentialSchedule, maxed_vars):
         """Returns two lists for the next iteration.
         If there are no remaining variables to maximize, returns two empty 
         lists. 
@@ -736,16 +826,18 @@ class ApportionmentSolver:
         var_names = []
         factors = []
 
-        #If it is a sequential series, return the params for the next item.
-        if 'sequential_subseries' in series:
-            subseries =  series['sequential_subseries']
-            for item in subseries:
-                if ('sequential_subseries' in item or 
-                    'proportional_subseries' in item ):
+        # If it is a sequential series, return the params for the next item.
+        if type(schedule) is SequentialSchedule:
+            subseries =  schedule.series
+            for x in subseries:
+                item = x.item
+
+                if type(item) is SequentialSchedule or type(item) is ProportionalSchedule:
                     var_names, factors = self._get_next_iter(item, maxed_vars)
-                elif item['var_name'] not in maxed_vars:
-                    var_names.append(item['var_name'])
-                    factors.append(1)
+                elif type(item) is ScheduleVariable: 
+                    if item.var_name not in maxed_vars:
+                        var_names.append(item.var_name)
+                        factors.append(1)
                 if len(var_names)>0:
                     break
 
@@ -753,101 +845,37 @@ class ApportionmentSolver:
         # of each's proportion. If the proportional series has any sub-series,
         # this will involve identifying which variable(s) from the subseries 
         # need to be considered and their factor(s).
-        elif 'proportional_subseries' in series:
-            subseries = series['proportional_subseries']
-            for item in subseries:
-                if ('sequential_subseries' in item or 
-                    'proportional_subseries' in item ):
+        elif type(schedule) is ProportionalSchedule:
+            subseries = schedule.series
+            for x in subseries:
+                item = x.item
+                factor = x.factor
+
+                if type(item) is SequentialSchedule or type(item) is ProportionalSchedule:
                     svar_names, sfactors = self._get_next_iter(item, maxed_vars)
                     var_names += svar_names
                     sum_sfactors = sum(sfactors)
                     if sfactors:
                         x = 0
                         if sum_sfactors > 0:
-                            x = item['factor'] / sum_sfactors
+                            x = factor / sum_sfactors
                         factors += [f * x for f in sfactors]
 
-                elif item['var_name'] not in maxed_vars:
-                    var_names.append(item['var_name'])
-                    factors.append(item['factor'])
-
+                elif type(item) is ScheduleVariable: 
+                    if item.var_name not in maxed_vars:
+                        var_names.append(item.var_name)
+                        factors.append(factor)
 
         return var_names, factors
     
 
-    def _maximize_vars_inner(self, engine, var_names, proportion_factors):
 
-        # 1st, deal with the edge case where every proportion_factor is zero.
-        proportion_factors_sum = sum([v for k, v in proportion_factors.items()])
-        if proportion_factors_sum == 0:
-            for var_name, v in proportion_factors.items():
-                engine.update_variable_bounds(var_name, lb=0)
-                self.vars[var_name].value = 0
-            return
-
-        # What if a proportion_factor is too close to 1 and will cause numerical issues?
-        for var_name, v in proportion_factors.items():
-            if v > 0 and v < 0.000001:
-                raise ValueError(f"Proportion factor for Variable {var_name} is too small and may cause numerical issues" + str(proportion_factors))
-
-        # Solve 
-        var_values = engine.maximize_group_by_proportions(var_names, proportion_factors)
-
-        # Update the variables. 
-        # Set only the lb for now, since we might be able to increase this variable more in a future iteration.
-        for var_name, var_value in var_values.items():
-            engine.update_variable_bounds(var_name, lb=var_value)
-            self.vars[var_name].value = var_value
-        
 
 
     # Convert the paths dictionary to an ordered schedule list by sorting the 
     # paths by priority while grouping paths with the same priority.
     #!!!
-    def _get_schedule_series(self):
-        
-        """ NEW FORMAT? WILL THIS WORK?
-
-        paths = {
-           "#1": {"series":None, "wrnum":"02-1", "priority":1, ... },
-           "#2": {"series":None, "wrnum":"02-2", "priority":1, "child_series":"child" },
-           "#3": {"series":None, "wrnum":"02-3", "priority":2, ... },
-           "#4": {"series":"child", "wrnum":"02-2A", "priority":88, ... },
-           "#5": {"series":"child", "wrnum":"02-2B", "priority":89, ... },
-        }
-
-        schedule = [
-            {
-                "priority": 1,
-                "pathId": None,
-                "proportional_subseries":[
-                    {
-                        "factor": ...,
-                        "path": "#1"
-                    },
-                    {
-                        "factor": ...,
-                        "path": "#2", 
-                        "sequential_subseries":[
-                            {
-                                "priority": 88, 
-                                "path": "#4"
-                            },
-                            {
-                                "priority": 89, 
-                                "path": "#5"
-                            },
-                        ]
-                    },
-                ]
-            },
-            {
-                "priority": 2,
-                "path": "#3",
-            },
-        ]
-        """
-
+    def _get_schedule_series(self) -> SequentialSchedule:
         
         all_series_priorities = {}
 
@@ -877,49 +905,66 @@ class ApportionmentSolver:
         #print(all_series_priorities)
 
         # define a recursive function to help.
-        def _as_output(s):
+        def _as_output(s) -> SequentialSchedule:
             if s not in all_series_priorities:
-                return []
+                return SequentialSchedule(series=[])
 
-            output = []
+            series: list[SequentialScheduleItem] = []
             priorities = list(all_series_priorities[s].keys())
             priorities.sort()
             for p in priorities:
                 item = {
                    "priority": p
                 }
+
+                # If there is only one item with this priority, it must be either a 
+                # variable or a sequential subseries:
                 if len(all_series_priorities[s][p]) == 1:
                     var_name = all_series_priorities[s][p][0]
-                    item["var_name"] = var_name
                     cs = self.vars[var_name].child_series
                     if cs is not None:
-                        item["sequential_subseries"] = _as_output(cs)
+                        sequential_subseries = _as_output(cs)
+                        series.append(SequentialScheduleItem(priority=p, item=sequential_subseries)) # How to add a 'var_name'?
+                    else:
+                        series.append(SequentialScheduleItem(priority=p, item=ScheduleVariable(var_name)))
+
+                # Otherwise, it must be a proportional subseries:
                 else:
                     item["var_name"] = None
-                    item["proportional_subseries"] = []
+                    proportional_subseries: list[ProportionalScheduleItem] = []
                     cfs_sum = 0
                     for var_name in all_series_priorities[s][p]:
-                        try:
-                            cfs_limit = float(self.vars[var_name].ub)
-                        except Exception:
-                            cfs_limit = Globals.DEFAULT_PATH_UB # if there is no limit specified, use this large value.
+                        ub = self.vars[var_name].ub
+                        if ub is not None:
+                            cfs_limit = float(ub)
+                        else:
+                            cfs_limit = DEFAULT_PATH_UB # if there is no limit specified, use this large value.
                             #               (Note: The priority groups should be formulated to prevent paths with cfs-limits 
                             #                      from being grouped with paths without cfs-limits.)  
                         cfs_sum += cfs_limit
                         
-                        citem = {"factor":cfs_limit, "var_name":var_name}
                         cs = self.vars[var_name].child_series
-                        if cs is not None:
-                            citem["sequential_subseries"] = _as_output(cs)
-                        item["proportional_subseries"].append(citem)
+                        if cs is None:
+                            citem = ProportionalScheduleItem(
+                                factor=cfs_limit,
+                                item=ScheduleVariable(var_name)
+                            )
+
+                        else:
+                            citem = ProportionalScheduleItem(
+                                factor=cfs_limit,
+                                item=_as_output(cs)
+                            )
+                        proportional_subseries.append(citem)
                     
                     # normalize the factor (Is this really necessary?)
-                    for citem in item["proportional_subseries"]:
+                    for citem in proportional_subseries:
                         if cfs_sum > 0:
-                            citem["factor"] /= cfs_sum
+                            citem.factor /= cfs_sum
 
-                output.append(item)
-            return output
+                    series.append(SequentialScheduleItem(priority=p, item=ProportionalSchedule(series=proportional_subseries)))
+
+            return SequentialSchedule(series=series)
 
         return _as_output('')
 
@@ -928,88 +973,15 @@ class ApportionmentSolver:
         #  - To check if such a variable is maximized will require new logic.
 
         
-    ## TODO - fix this to use updated/rearanged objects.
-    ##      - replace pathId with var_name
+    def _is_natural_flow_apportionment_var(self, var_name:str):
+        """Return True if the given variable originates from a reach zone, otherwise False."""
 
+        v = self.vars[var_name]
+        first_arc = v.arc_path[0].arc
+        first_fact = v.arc_path[0].factor
+        source_zone = first_arc.from_zone
+        if first_fact < 0:
+            source_zone = first_arc.to_zone
 
+        return source_zone.is_source
 
-@dataclass
-class ApportionmentSolverNode:
-    """A Node in the apportionment Graph."""
-    name: str
-    is_source: bool
-    storage_chg: float = 0
-    
-    # If this is set, it indicates the node is an on-stream storage node. The 
-    # value indicates the name of the stream reach.
-    storage_on_reach: str | None = None
-    
-    def __post_init__(self):
-        # Create variables.
-        self.inflows:list['ApportionmentSolverArc'] = []
-        self.outflows:list['ApportionmentSolverArc'] = []
-
-    def is_storage_node(self):
-        """Return whether or not this node is a storage node."""
-        return self.storage_on_reach is not None
-
-
-@dataclass
-class ApportionmentSolverArc:
-    """An Arc in the apportionment Graph."""
-    name: str
-    from_node: ApportionmentSolverNode
-    to_node: ApportionmentSolverNode
-    flow: float | None # (Only arcs related to GAINS, LOSSES, or STORAGE nodes can have a None flow specified initially.)
-
-    def __post_init__(self):
-        # Create another variable
-        self.forward_vars = []
-        self.backward_vars = []
-
-        # Link the related nodes to this arc.
-        self.from_node.outflows.append(self)
-        self.to_node.inflows.append(self)
-
-@dataclass
-class ApportionmentSolverVarPathItem:
-    """"""
-    arc: ApportionmentSolverArc
-    factor: float
-
-@dataclass
-class ApportionmentSolverVar:
-    """A variable/transaction in the apportionment Graph. 
-    These are what we aim to solve for!"""
-    name: str
-    path_id: int
-    priority: float
-    lb: float
-    ub: float 
-    arc_path: list[ApportionmentSolverVarPathItem] = None
-    value: float = None
-    series: str = None
-    child_series: str = None
-    expected_value: float = None
-    other_limited_vars:'ApportionmentSolverVarGroup' = None
-    is_spill:bool = False # A var has is_spill=True when it represents water under 
-                     # the name of a user being released back to the natural 
-                     # system, e.g. the slack variable representing reservoir 
-                     # releases with no downstream diversion or imports with no 
-                     # downstream diversion.
-
-    def __post_init__(self):
-
-        # Add references to this Var to each traversed Arc.
-        for i in self.arc_path:
-            if i.factor > 0:
-                i.arc.forward_vars.append(self)
-            if i.factor < 0:
-                i.arc.backward_vars.append(self)
-
-
-@dataclass
-class ApportionmentSolverVarGroup:
-    """
-    """
-    members: list[ApportionmentSolverVar]

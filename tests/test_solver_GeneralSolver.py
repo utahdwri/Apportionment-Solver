@@ -23,13 +23,14 @@ class SolveSystem(unittest.TestCase):
         }
 
         solver = GeneralSolver()
-        solver.build_problem(accounting_network)
+        #solver.build_problem(accounting_network)
+        solver.query_system('Test', '2024-06-01', '2024-06-30')
         var_values, errors_cnt, vars = solver.solve()
         
 
         print('??\n\n')
 
-        solver.save_to_db(vars, var_values)
+        #solver.save_to_db(vars, var_values)
 
 
     def test_sevier(self):
