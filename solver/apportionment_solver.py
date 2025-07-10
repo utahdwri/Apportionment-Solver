@@ -60,6 +60,7 @@ class ApportionmentSolver:
 
         return out
 
+
     def log(self, message:str):
         if True:
             print('LOG', message)
@@ -175,9 +176,9 @@ class ApportionmentSolver:
         )
 
         # If the flow variable goes from a non-source to a source, set the spill flag.
-        if not self.nodes[from_name].is_source and self.nodes[to_name].is_source:
+        if (not self.nodes[from_name].is_source and 
+            not self.nodes[from_name].type == ZoneTypes.SYSTEM_GAIN_LOSS) and (self.nodes[to_name].is_source):
             self.vars[flow_var_name].is_spill = True
-
 
         if allow_both_directions:
             flow_var_name2 = 'FLOW_' + to_name + '_TO_' + from_name
@@ -192,7 +193,8 @@ class ApportionmentSolver:
             )
 
             # If the flow variable goes from a non-source to a source, set the spill flag.
-            if not self.nodes[to_name].is_source and self.nodes[from_name].is_source:
+            if (not self.nodes[to_name].is_source and 
+                not self.nodes[to_name].type == ZoneTypes.SYSTEM_GAIN_LOSS) and (self.nodes[from_name].is_source):
                 self.vars[flow_var_name2].is_spill = True
 
         return self.arcs[arc_name], self.vars[flow_var_name]
@@ -324,18 +326,33 @@ class ApportionmentSolver:
         # measurement constraints for these arc using simple mass balances.
         self._calculate_reach_gains_losses()
 
+
+
         # Convert the nodes, arcs, and variables into a system of linear 
         # equations that can be solved.
         engine = self._build_linear_equations()
 
-        # We cannot allow any apportionment to force reservoir or import water to spill to natural flow.
-        # So these spills should be calculated and fixed prior to the apportionments.
-        self._minimize_reservoir_spills(engine)
+
+        OLD_WAY = False
+        if OLD_WAY:
+            # We cannot allow any apportionment to force reservoir or import water to spill to natural flow.
+            # So these spills should be calculated and fixed prior to the apportionments.
+            self._minimize_reservoir_spills(engine)
 
 
 
-        # Calculate the apportionments.
-        self._calculate_apportionments(engine)
+            # Calculate the apportionments.
+            self._calculate_apportionments(engine)
+        else:
+
+
+            self._build_nf_mass_balance_constraints(engine)
+            print(engine.lp_string())
+            self._calculate_apportionments(engine)
+
+            self._remove_nf_mass_balance_constraints(engine)
+            self._calculate_apportionments(engine)  
+
 
         # Now finalize the other variables (spills, unauthorized, nf gains/losses)
         self._solve_for_nonpath_vars(engine)
@@ -546,7 +563,7 @@ class ApportionmentSolver:
             v = self.vars[name]
             engine.add_variable(name=v.name, lb=v.lb, ub=v.ub)
 
-
+        """
         # Add mass balance constraints & coeficients.
         for name in self.nodes:
             n = self.nodes[name]
@@ -575,7 +592,7 @@ class ApportionmentSolver:
 
                 for var_name in coef_vals:
                     engine.set_coeficient(con_name, var_name, coef_vals[var_name])
-
+        """
 
         # Add measurement constraints & coeficients.
         for name in self.arcs:
@@ -636,7 +653,57 @@ class ApportionmentSolver:
         return engine
 
 
-    def _minimize_reservoir_spills(self, engine):
+    def _build_nf_mass_balance_constraints(self, engine:LPSolver):
+        """
+        The mass balance constraint says:
+        Sum[diversion transactions, including upstream] <= Max(0, NF)
+        """
+
+        # Add mass balance constraints & coeficients.
+        for name in self.nodes:
+            n:ApportionmentSolverZone = self.nodes[name]
+
+            if n.is_source:
+
+                # Need to sum up all of the upstream gains, subtract all the losses, and sum up all the storage changes.
+                sum_tributary_gains = 0
+                sum_tributary_losses = 0
+                sum_tributary_storage_chg = 0
+
+                tributary_source_zones = n.all_tributary_source_zones()
+                for z in tributary_source_zones:
+                    g, l = z.get_gains_losses()
+                    sum_tributary_gains += g
+                    sum_tributary_losses += l
+                    sum_tributary_storage_chg += z.storage_chg
+
+                # Calculate natural flow:
+                natural_flow = sum_tributary_gains - sum_tributary_losses - sum_tributary_storage_chg
+
+                constraint_ub = max(0, natural_flow)
+
+                con_name = 'NFMB_' + n.name
+                engine.add_constriant(name=con_name, ub=constraint_ub)
+
+                for z in tributary_source_zones:
+                    for flow in z.outflows:
+                        for var in flow.forward_vars:
+                            first_flow = var.arc_path[0].arc
+                            first_fact = var.arc_path[0].factor
+                            from_this_zone = (first_flow.from_zone == z and first_fact > 0) or (first_flow.to_zone == z and first_fact < 0)
+
+                            if from_this_zone and var.priority is not None:
+                                engine.set_coeficient(con_name, var.name, 1)
+
+
+    def _remove_nf_mass_balance_constraints(self, engine:LPSolver):
+
+        for constraint_name in engine.get_constraint_names():
+            if constraint_name[:4] == 'NFMB':
+                engine.update_constraint_ub(name=constraint_name, ub=None)
+
+
+    def _minimize_reservoir_spills(self, engine:LPSolver):
         
         # TODO - Is it better to minimize each spill variable separately? Or is it ok to minimize them combined?
 
@@ -648,7 +715,7 @@ class ApportionmentSolver:
                 spill_variables.append(name)
 
         if len(spill_variables) > 0:
-            objective_value, blah = engine.solve_objective(spill_variables, minimization=True)
+            objective_value, blah = engine.solve_objective(spill_variables, maximization=False) # minimize
             
             # Use the solution as the upper bound to 
             # create a new constraint on the set of spills.
@@ -660,7 +727,7 @@ class ApportionmentSolver:
 
 
 
-    def _calculate_apportionments(self, engine, start_priority=None, stop_priority=None):
+    def _calculate_apportionments(self, engine:LPSolver, start_priority=None, stop_priority=None):
 
         # Convert the path data to a priority-ordered schedule to loop through.
         schedule: SequentialSchedule = self._get_schedule_series()
@@ -700,7 +767,7 @@ class ApportionmentSolver:
         #       have already been maximized and updated so they can not be less 
         #       than their max values.
         all_variables = [var_name for var_name in self.vars]
-        blah, variable_values = engine.solve_objective(all_variables, minimization=True)
+        blah, variable_values = engine.solve_objective(all_variables, maximization=False)
         for var_name in variable_values:
             solved_value = variable_values[var_name]
             self.vars[var_name].value = solved_value
@@ -724,16 +791,37 @@ class ApportionmentSolver:
         return tx_results
 
 
+    def _minimize_minus_vars(self, engine:LPSolver, var_names:list[str]) -> dict:
+        origional_ub = {}
+        for var_name in var_names:
+            for minus_var in self.vars[var_name].minus_vars:
+                if minus_var not in origional_ub:
+                    origional_ub[minus_var] = engine.vars[minus_var].ub()
+                    engine.minimize_and_update_variable(minus_var)
+        return origional_ub
+    
+    def _reset_minus_vars(self, engine:LPSolver, origional_ub):
+        for minus_var in origional_ub:
+           engine.update_variable_bounds(minus_var, ub=origional_ub[minus_var])
+
+
     #
     def _maximize_var(self, engine:LPSolver, var_name):
+
+        ## minimize all minus vars
+        origional_ub = self._minimize_minus_vars(engine, [var_name])
+
 
         # Find the maximum feasible.
         new_value = engine.maximize_and_update_variable(var_name)
 
         # Update where we save the calculated values. 
         self.vars[var_name].value = new_value
-
         self.log(f' - maxed {var_name} to {new_value}')
+
+
+        ## reset all minus vars
+        self._reset_minus_vars(engine, origional_ub)
 
 
     def _maximize_series(self, engine:LPSolver, series: ProportionalSchedule | SequentialSchedule):
@@ -765,6 +853,12 @@ class ApportionmentSolver:
                 if v > 0 and v < 0.000001:
                     raise ValueError(f"Proportion factor for Variable {var_name} is too small and may cause numerical issues" + str(proportion_factors))
 
+
+
+            ## minimize all minus vars
+            origional_ub = self._minimize_minus_vars(engine, var_names)
+
+
             # Solve 
             var_values = engine.maximize_group_by_proportions(var_names, proportion_factors)
 
@@ -774,6 +868,8 @@ class ApportionmentSolver:
                 engine.update_variable_bounds(var_name, lb=var_value)
                 self.vars[var_name].value = var_value
                 self.log(f' - maxed {var_name} to {var_value}')
+
+
 
             # Get a list of the variables that are now maximized.
             maxed_vars = maxed_vars + self._get_newly_maxed_vars(engine, var_names)
@@ -786,6 +882,8 @@ class ApportionmentSolver:
             # to continue on into another loop iteration.
             var_names, factors = self._get_next_iter(series, maxed_vars)
 
+            ## reset all minus vars
+            self._reset_minus_vars(engine, origional_ub)
 
         # get the vars from the series
         # get the factor from the series

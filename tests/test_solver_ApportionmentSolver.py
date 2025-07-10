@@ -162,7 +162,7 @@ class B_Reservoirs(unittest.TestCase):
 
 
     def test_trivial(self):
-        """This is a prety trivial example, just to check the most simple case... should probably make some more interesting tests...
+        """This is a prety trivial example, just to check the most simple case.
         """
         system = self.reservoir_problem_input(stor_chg=0, stor_loss=0, Q_AB=5, Q_DIV1=2, Q_BC=7, Q_DIV2=4, Q_DIV3=4, Q_CD=1)
         system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'flow_name':'B>1', 'factor':1}], expected_value=2)
@@ -235,15 +235,37 @@ class B_Reservoirs(unittest.TestCase):
 
     def test_equal_priority_apportionmnets(self):
         """Test equal priority apportionments with storage deliveries on top.
+
+        6/28/2025 - This test started failing after abandoning the "minimize spills first" aproach. 
+        After consideration, I think my origional expected values were in error, so I've updated them.
+
+
+        B>DIV1 = 1
+        B>STOR = -3
+        
+        B>C    = 4
+
+        C>DIV2 = 4
+        C>DIV3 = 4
+
+        C>D  = 1
+
+        -----
+        NF = 2 + 5 = 7
+        -----
+        itr 1: x1=1, x2=2, x3=3
+        itr 2:         +.4   +.6
+
+
         """
         system = self.reservoir_problem_input(stor_chg=-4, stor_loss=1, Q_AB=2, Q_DIV1=1, Q_BC=4, Q_DIV2=2+2, Q_DIV3=3+1, Q_CD=1)
 
         system.add_transaction(id=1, priority=   1, upper_limit=   2, apath=[{'flow_name':'B>1'   , 'factor':1}], expected_value=1)
-        system.add_transaction(id=2, priority=   1, upper_limit=   4, apath=[{'flow_name':'C>2'   , 'factor':1}], expected_value=2) # changed priority
-        system.add_transaction(id=3, priority=   1, upper_limit=   6, apath=[{'flow_name':'C>3'   , 'factor':1}], expected_value=3) # changed priority
+        system.add_transaction(id=2, priority=   1, upper_limit=   4, apath=[{'flow_name':'C>2'   , 'factor':1}], expected_value=2+.4) # changed priority
+        system.add_transaction(id=3, priority=   1, upper_limit=   6, apath=[{'flow_name':'C>3'   , 'factor':1}], expected_value=3+.6) # changed priority
         system.add_transaction(id=4, priority=   4, upper_limit=  20, apath=[{'flow_name':'B>STOR', 'factor':1}], expected_value=0)
-        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>3', 'factor':1}], expected_value=1)
-        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>2', 'factor':1}], expected_value=2)
+        system.add_transaction(id=5, priority=9900, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>3', 'factor':1}], expected_value=1-.6)
+        system.add_transaction(id=6, priority=9901, upper_limit=None, apath=[{'flow_name':'B>STOR', 'factor':-1}, {'flow_name':'B>C', 'factor':1}, {'flow_name':'C>2', 'factor':1}], expected_value=2-.4)
 
         system.solve()
         system.assert_variables_equal_expected()
@@ -369,9 +391,20 @@ class B_Reservoirs(unittest.TestCase):
         This should not happen. 
         '''
 
-    def xtest_water_rights_cant_steal_storage_water_v2(self):
+    def test_water_rights_cant_steal_storage_water_v2(self):
         """This is very similar to the previous test, but what if natural flow 
-        water is avaialable? """
+        water is avaialable? And suppose there was 5 cfs flowing out downstream,
+        did the natural flow water go unused or did the storage delivery go unused?
+        
+        I think the answer is the higher ranked transaction needs to get the allocation.
+        """
+        
+        """
+        To fix, we need a natural flow constraint and methods that allow us to 
+        minimize reservoir spill variables as other vars are maximized.
+
+
+        """
 
         system = ApportionmentSolver()
         system.add_reach('S', expected_gain=5)

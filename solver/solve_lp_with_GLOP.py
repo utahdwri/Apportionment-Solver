@@ -99,21 +99,16 @@ class LPSolver:
         constraint.SetCoefficient(variable, coef)
 
 
-    def solve_objective(self, variable_names, maximization=False, minimization=False):
+    def solve_objective(self, variable_names, maximization=True):
         """Return a solution to the max/minimization problem, 
         or raise a SolverError exception."""
-
-        if maximization and minimization:
-            raise ValueError('Arguments "maximization" and "minimization" cannot both be True!')
-        if not maximization and not minimization:
-            raise ValueError('Either "maximization" or "minimization" must be True!')
 
         # Prepare the objective.
         objective = self.solver.Objective()
         objective.Clear()
         if maximization:
             objective.SetMaximization()
-        if minimization:
+        else:
             objective.SetMinimization()
         for variable_name in variable_names:
             variable = self.vars[variable_name]
@@ -165,7 +160,19 @@ class LPSolver:
 
         # Return.
         return objective_value
+    
+    def minimize_and_update_variable(self, variable_name):
+        """Minimize the given variable and then update its upper bound."""
 
+        # Find its maximum feasible value.
+        objective_value, blah = self.solve_objective([variable_name], 
+                                                     maximization=False)
+
+        # Update its value.
+        self.update_variable_bounds(variable_name, ub=objective_value)
+
+        # Return.
+        return objective_value
 
     def update_variable_bounds(self, name:str, lb:float|None=None, ub:float|None=None):
 

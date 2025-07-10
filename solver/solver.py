@@ -290,7 +290,7 @@ class GeneralSolver:
             'variables': variables
         }
         # Upload the model structure.
-        response = requests.post(API_URL + 'accounting-model/', timeout=30, json = payload, headers=api_headers)
+        response = requests.post(API_URL + 'accounting-model2/', timeout=30, json = payload, headers=api_headers)
 
         if not response:
             raise Exception(f"Failed to load model to database! {response.text}")
@@ -300,7 +300,7 @@ class GeneralSolver:
         
 
         # Upload the values timeseries for the variables.
-        url = API_URL + 'accounting-model/'+ str(new_model_id) + '/results'
+        url = API_URL + 'accounting-model2/'+ str(new_model_id) + '/results'
         response = requests.post(url, timeout=30, json=results, headers=api_headers)
         if not response:
             raise Exception("Failed to load model values to database!")

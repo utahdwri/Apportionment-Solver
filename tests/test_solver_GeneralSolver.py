@@ -334,6 +334,6 @@ class SolveSystem(unittest.TestCase):
         
         print('VALUES: ')
         print(var_values)
-        solver.save_to_db(vars, var_values)
+        #solver.save_to_db(vars, var_values)
 
 

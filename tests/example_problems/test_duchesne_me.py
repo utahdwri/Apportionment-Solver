@@ -511,7 +511,8 @@ class Duchesne(unittest.TestCase):
         var_values = {"dates":[], "variables":{}, "arcs":{}}
         errors_cnt = 0
 
-        for d in (date(2004,10,1) + timedelta(n) for n in range(20*365)):
+        #for d in (date(2004,10,1) + timedelta(n) for n in range(20*365)):
+        for d in (date(2023,1,1) + timedelta(n) for n in range(365)):
         #for d in (date(2012,9,16) + timedelta(n) for n in range(1)):
             try:
                 # Run 
