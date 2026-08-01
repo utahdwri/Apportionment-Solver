@@ -1,19 +1,11 @@
 '''
 
-Update my model (move loss to the zone, etc.?)
-
-
-
-
-Seperate GAIN and LOSS interzone-flow terms need to be combined in order to support loss fractions on interzone-flows.
-
-x. I need to rework the one tests to merge these together.
-2. I need to update the solver.py code so:
-    net gain/loss = [ZONE RESIDUAL] + SUM[LOSSES]
-x. I need to rework all the other tests to merge these together.
-4. Reconsider the residual_for_gains and residual_for_losses attribute.
-
-5. Is there anything left in the gemini file that could be useful to me? Any constraints?
+Update documentation
+Add time-lags
+Specified natural flows
+Track storage balances, and allow paths to be limited by them.
+Better audit tracing of results
+Is there anything left in the gemini file that could be useful to me? Any constraints?
 
 '''
 

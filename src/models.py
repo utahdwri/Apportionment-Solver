@@ -75,10 +75,6 @@ class Zone:
     type: 'ZoneTypes'
     storage_meas_ids: list[str] = field(default_factory=list)
 
-    loss: 'LossCurve | None' = None               #~
-    loss_flow: 'InterzoneFlow | None' = None      #~ or could be defined on the InterzoneFlow?
-    residual_flow: 'InterzoneFlow | None' = None  #~ or could be defined on the InterzoneFlow?
-
 
 @dataclass
 class LossCurvePoint: #~
@@ -94,7 +90,7 @@ class LossCurve: #~
         self.points.sort(key=lambda p: p.inflow)
 
     def get_loss(self, x) -> float:
-        """Given zone inflow (x), return the loss."""
+        """Given flow just above the loss, return the loss."""
 
         if len(self.points) > 0:
 
@@ -120,45 +116,6 @@ class LossCurve: #~
 
         return 0
 
-    def get_loss_when_inflow_is_residual(self, outflow: float) -> float:
-        """Given zone net outflow, return the loss."""
-
-        if len(self.points) > 0:
-            # Calculate the outflow coordinate for the first breakpoint
-            outflow0 = self.points[0].inflow - self.points[0].loss
-
-            # 1. Handle flows below the minimum defined breakpoint (interpolate from 0,0)
-            if outflow <= outflow0:
-                # If outflow0 is 0, it means 100% loss occurred up to this point.
-                # When outflow is 0, loss could mathematically be anything between 0
-                # and points[0].loss, but 0 is the safest physical assumption.
-                if outflow0 <= 0:
-                    return 0
-                return (self.points[0].loss / outflow0) * outflow
-
-            # Calculate the outflow coordinate for the last breakpoint
-            outflow_max = self.points[-1].inflow - self.points[-1].loss
-
-            # 2. Handle flows beyond the maximum breakpoint (ceiling)
-            if outflow >= outflow_max:
-                return self.points[-1].loss
-
-            # 3. Interpolate between known points in "outflow space"
-            for i in range(len(self.points) - 1):
-                p1 = self.points[i]
-                p2 = self.points[i + 1]
-
-                # Convert inflow breakpoints to outflow breakpoints
-                outflow1 = p1.inflow - p1.loss
-                outflow2 = p2.inflow - p2.loss
-
-                if outflow1 <= outflow <= outflow2:
-                    dx = outflow2 - outflow1
-                    slope = (p2.loss - p1.loss) / dx if dx != 0 else 0
-                    return p1.loss + slope * (outflow - outflow1)
-
-        return 0
-
 
 class ZoneTypes(Enum):
     STREAM = 'stream'
@@ -181,14 +138,6 @@ class FlowMeasurement: # This is a new class.
     measurement_id: str
     adjustment_factor: float = 1
 
-# Old code that has been replaced:
-#
-#@dataclass
-#class FlowComponents: # This is an old class that I want to stop using.
-#    flow_type: 'FlowComponentsTypes'
-#    measurement_id: str | None = None
-#    loss_factor: float = 0
-#    gain_factor: float = 0
 
 @dataclass
 class InterzoneFlow:
@@ -210,6 +159,7 @@ class InterzoneFlow:
     lag_to_zone: float = 0
     loss_from_zone: float = 0 # the fraction of flow lost before the observation (0-1)
     loss_to_zone: float = 0 # the fraction of flow lost after the observation (0-1)
+    loss_from_zone_curve: LossCurve | None = None
 
     # Not implemented yet
     nf_measurements: list['FlowMeasurement'] = field(default_factory=list) # gains/loss flows are natural flows
