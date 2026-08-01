@@ -1,0 +1,2300 @@
+{
+  "apportionments": [
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_295",
+      "value": 0.29370212765957443,
+      "reason": "No remaining demand at destination (Measured flow reached at '33')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_296",
+      "value": 1.6782978723404254,
+      "reason": "No remaining demand at destination (Measured flow reached at '33')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_297",
+      "value": 0.15891199574737522,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_297",
+      "value": 0.15891199574737522,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_298",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '33')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "31",
+      "txn_id": "TRXN_371",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '31')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_425",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '33')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_426",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '63')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_431",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '33')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_435",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_436",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '63')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_437",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '63')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_438",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_440",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '33')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_480",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '63')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_505",
+      "value": 1.08854717086952,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_505",
+      "value": 1.08854717086952,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_507",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '33')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_509",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '63')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_527",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '63')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_549",
+      "value": 1.5605157982392244,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_549",
+      "value": 1.5605157982392244,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_578",
+      "value": 0.024949183332337907,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_578",
+      "value": 0.024949183332337907,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_589",
+      "value": 0.19069439489685025,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_589",
+      "value": 0.19069439489685025,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_615",
+      "value": 0.11918399681053139,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_615",
+      "value": 0.11918399681053139,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_617",
+      "value": 0.2145311942589565,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_617",
+      "value": 0.2145311942589565,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "41",
+      "txn_id": "TRXN_1819",
+      "value": 1.3540761069313858,
+      "reason": "No remaining demand at destination (Measured flow reached at '41')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "41",
+      "txn_id": "TRXN_1820",
+      "value": 7.075923893068611,
+      "reason": "No remaining demand at destination (Measured flow reached at '41')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "41",
+      "txn_id": "TRXN_1821",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '41')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "40",
+      "txn_id": "TRXN_1822",
+      "value": 0.025405786873676773,
+      "reason": "No remaining demand at destination (Measured flow reached at '40')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "41",
+      "txn_id": "TRXN_1837",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '41')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "40",
+      "txn_id": "TRXN_1838",
+      "value": 0.33,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "40",
+      "txn_id": "TRXN_1839",
+      "value": 0.015666901905434013,
+      "reason": "No remaining demand at destination (Measured flow reached at '40')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "40",
+      "txn_id": "TRXN_1841",
+      "value": 0.1505292872265349,
+      "reason": "No remaining demand at destination (Measured flow reached at '40')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "39",
+      "txn_id": "TRXN_1842",
+      "value": 0.8542399999999999,
+      "reason": "No remaining demand at destination (Measured flow reached at '39')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "39",
+      "txn_id": "TRXN_1843",
+      "value": 0.3844079999999999,
+      "reason": "No remaining demand at destination (Measured flow reached at '39')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "39",
+      "txn_id": "TRXN_1844",
+      "value": 0.03371999999999999,
+      "reason": "No remaining demand at destination (Measured flow reached at '39')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "39",
+      "txn_id": "TRXN_1845",
+      "value": 0.13263199999999997,
+      "reason": "No remaining demand at destination (Measured flow reached at '39')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "635",
+      "txn_id": "TRXN_1908",
+      "value": 26.513838297872336,
+      "reason": "No remaining demand at destination (Measured flow reached at '635')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "635",
+      "txn_id": "TRXN_1909",
+      "value": 3.552713678800501e-15,
+      "reason": "No remaining demand at destination (Measured flow reached at '635')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "35",
+      "txn_id": "TRXN_1912",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '35')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "34",
+      "txn_id": "TRXN_1930",
+      "value": 41.33536234064658,
+      "reason": "No remaining demand at destination (Measured flow reached at '34')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "34",
+      "txn_id": "TRXN_1931",
+      "value": 5.14492387889569,
+      "reason": "No remaining demand at destination (Measured flow reached at '34')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "34",
+      "txn_id": "TRXN_1934",
+      "value": 0.08026081251077274,
+      "reason": "No remaining demand at destination (Measured flow reached at '34')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "34",
+      "txn_id": "TRXN_1935",
+      "value": 0.41945296794695375,
+      "reason": "No remaining demand at destination (Measured flow reached at '34')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_1938",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '33')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_1940",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '63')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_1941",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '63')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_1942",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_1943",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_1944",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_1952",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "40",
+      "txn_id": "TRXN_1963",
+      "value": 0.09082568807339446,
+      "reason": "No remaining demand at destination (Measured flow reached at '40')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "40",
+      "txn_id": "TRXN_1964",
+      "value": 0.017572335920959768,
+      "reason": "No remaining demand at destination (Measured flow reached at '40')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_1969",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_1969",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_1977",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_1977",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "550",
+      "txn_id": "TRXN_1978",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '550')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_1979",
+      "value": 0.24981204099481,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_1979",
+      "value": 0.24981204099481,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_1981",
+      "value": 0.08800000000002228,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_1981",
+      "value": 0.08800000000002228,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_1982",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_1982",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_1983",
+      "value": 0.6,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_1983",
+      "value": 0.6,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_1985",
+      "value": 5,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_1985",
+      "value": 5,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_1986",
+      "value": 5,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_1986",
+      "value": 5,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "552",
+      "txn_id": "TRXN_1987",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '552')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "552",
+      "txn_id": "TRXN_1988",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '552')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "552",
+      "txn_id": "TRXN_1989",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '552')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "552",
+      "txn_id": "TRXN_1990",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '552')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "35",
+      "txn_id": "TRXN_1992",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '35')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "34",
+      "txn_id": "TRXN_1994",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '34')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "623",
+      "txn_id": "TRXN_2009",
+      "value": 0.00014099890775599126,
+      "reason": "No remaining demand at destination (Measured flow reached at '623')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "36",
+      "txn_id": "TRXN_4277",
+      "value": 0.13984255625769018,
+      "reason": "No remaining demand at destination (Measured flow reached at '36')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "635",
+      "txn_id": "TRXN_4280",
+      "value": 4.639921702127658,
+      "reason": "No remaining demand at destination (Measured flow reached at '635')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "635",
+      "txn_id": "TRXN_4281",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_4282",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_4283",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4284",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_4284",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_4285",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_4286",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_4287",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_4288",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4289",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_4289",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4290",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_4290",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_4291",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '33')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4292",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_4292",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_4293",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '33')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4294",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_4294",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4295",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_4295",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4404",
+      "value": 1.648076307896028,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4407",
+      "value": 0.6674303821389759,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4408",
+      "value": 0.3019327919200129,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4409",
+      "value": 0.22565503396127276,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4410",
+      "value": 1.08854717086952,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4411",
+      "value": 1.5605157982392244,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4412",
+      "value": 0.8174480734843704,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4413",
+      "value": 0.06356479829895008,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4414",
+      "value": 0.45289918788001937,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4415",
+      "value": 0.1430207961726377,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4416",
+      "value": 0.042429502864549176,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4417",
+      "value": 0.6674303821389759,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4418",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4419",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4420",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4421",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4422",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4423",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4424",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4425",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4426",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4427",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4428",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4429",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4430",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4431",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4432",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4433",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4434",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4435",
+      "value": 1.648076307896028,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4436",
+      "value": 0.6674303821389759,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4437",
+      "value": 0.22565503396127276,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4438",
+      "value": 0.3019327919200129,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4439",
+      "value": 1.08854717086952,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4440",
+      "value": 1.5605157982392244,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4441",
+      "value": 0.8174480734843704,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4442",
+      "value": 0.06356479829895008,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4443",
+      "value": 0.45289918788001937,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4444",
+      "value": 0.1430207961726377,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4445",
+      "value": 0.042429502864549176,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4446",
+      "value": 0.6674303821389759,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4447",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4448",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4449",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4450",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4451",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4452",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4452",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4453",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4453",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4454",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4454",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4455",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4455",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4456",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4456",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4457",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4457",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4458",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4458",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4459",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4459",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4460",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4460",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4461",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4461",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4462",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4462",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4463",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4463",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4464",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4465",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4466",
+      "value": 1.7763182884641602,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4467",
+      "value": 15.89119957473752,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4468",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4469",
+      "value": 0.44495358809265056,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4470",
+      "value": 0.13984255625769018,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4707",
+      "value": -362.10838866587756,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "29",
+      "txn_id": "TRXN_4707",
+      "value": -362.10838866587756,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4707",
+      "value": 362.10838866587756,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4708",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "29",
+      "txn_id": "TRXN_4708",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4708",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4709",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4709",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "29",
+      "txn_id": "TRXN_4709",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4709",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4727",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4728",
+      "value": 1.7763182884641602,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4729",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4729",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4730",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4731",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4732",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4733",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4734",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4735",
+      "value": 15.89119957473752,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4736",
+      "value": 0.03130566316223291,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4737",
+      "value": 0.44495358809265056,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4738",
+      "value": 0.13984255625769018,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4739",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4739",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4740",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4740",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4741",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4741",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4742",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4742",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4751",
+      "value": -47.18485422485037,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "29",
+      "txn_id": "TRXN_4751",
+      "value": 47.18485422485037,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4751",
+      "value": 47.18485422485037,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "TRXN_4751",
+      "value": 47.18485422485037,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4752",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "29",
+      "txn_id": "TRXN_4752",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4752",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "642",
+      "txn_id": "TRXN_4752",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4753",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "29",
+      "txn_id": "TRXN_4753",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "31",
+      "txn_id": "TRXN_4753",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4754",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "29",
+      "txn_id": "TRXN_4754",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "TRXN_4754",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4755",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "29",
+      "txn_id": "TRXN_4755",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_4755",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4757",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "29",
+      "txn_id": "TRXN_4757",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "35",
+      "txn_id": "TRXN_4757",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4758",
+      "value": -0.7161574437423582,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "29",
+      "txn_id": "TRXN_4758",
+      "value": 0.7161574437423582,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "36",
+      "txn_id": "TRXN_4758",
+      "value": 0.7161574437423582,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "31",
+      "txn_id": "TRXN_4759",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '31')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_4760",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '63')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "TRXN_4761",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '63')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4767",
+      "value": 330,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4768",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4768",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4769",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4770",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4771",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4772",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4773",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4774",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4775",
+      "value": 0.2145311942589565,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4776",
+      "value": 0.024949183332337907,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4777",
+      "value": 0.11918399681053139,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4778",
+      "value": 0.19069439489685025,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4779",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4780",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4781",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "TRXN_4782",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '349')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4783",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4783",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4784",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4784",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4785",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4785",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4786",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_4786",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4787",
+      "value": 0.2145311942589565,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4788",
+      "value": 0.024949183332337907,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4789",
+      "value": 0.11918399681053139,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "TRXN_4790",
+      "value": 0.19069439489685025,
+      "reason": "No remaining demand at destination (Measured flow reached at '38')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4831",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "29",
+      "txn_id": "TRXN_4831",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4831",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "612",
+      "txn_id": "TRXN_4831",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "623",
+      "txn_id": "TRXN_4942",
+      "value": 0,
+      "reason": "Water Right Limit"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "623",
+      "txn_id": "TRXN_4943",
+      "value": 0.01985900109239314,
+      "reason": "No remaining demand at destination (Measured flow reached at '623')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "TRXN_4944",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "29",
+      "txn_id": "TRXN_4944",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_4944",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "623",
+      "txn_id": "TRXN_4944",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '30')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_1980",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "TRXN_1980",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "TRXN_7737",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "612",
+      "txn_id": "TRXN_7737",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '32')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "554",
+      "txn_id": "TRXN_1924",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '554')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "41",
+      "txn_id": "TRXN_8754",
+      "value": 0,
+      "reason": "No remaining demand at destination (Measured flow reached at '41')"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "42",
+      "txn_id": "SLACK_27_TO_28_42",
+      "value": 66.5,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "42",
+      "txn_id": "SLACK_28_TO_27_42",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "43",
+      "txn_id": "SLACK_27_TO_30_43",
+      "value": 60.34454000000001,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "43",
+      "txn_id": "SLACK_30_TO_27_43",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "29",
+      "txn_id": "SLACK_28_TO_30_29",
+      "value": 380.7073769972848,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "SLACK_28_TO_31_30",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "30",
+      "txn_id": "SLACK_31_TO_28_30",
+      "value": -340.6880000000001,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "31",
+      "txn_id": "SLACK_30_TO_32_31",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "32",
+      "txn_id": "SLACK_30_TO_33_32",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "33",
+      "txn_id": "SLACK_30_TO_35_33",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "34",
+      "txn_id": "SLACK_30_TO_36_34",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "35",
+      "txn_id": "SLACK_30_TO_37_35",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "36",
+      "txn_id": "SLACK_30_TO_38_36",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "38",
+      "txn_id": "SLACK_30_TO_40_38",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "SLACK_30_TO_285_349",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "349",
+      "txn_id": "SLACK_285_TO_30_349",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "550",
+      "txn_id": "SLACK_30_TO_355_550",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "552",
+      "txn_id": "SLACK_30_TO_356_552",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "554",
+      "txn_id": "SLACK_30_TO_357_554",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "556",
+      "txn_id": "SLACK_30_TO_358_556",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "634",
+      "txn_id": "SLACK_30_TO_394_634",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "39",
+      "txn_id": "SLACK_30_TO_41_39",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "40",
+      "txn_id": "SLACK_30_TO_42_40",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "41",
+      "txn_id": "SLACK_30_TO_43_41",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "44",
+      "txn_id": "SLACK_30_TO_3_44",
+      "value": 11.4,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "63",
+      "txn_id": "SLACK_30_TO_60_63",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "612",
+      "txn_id": "SLACK_33_TO_379_612",
+      "value": 0.044114,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "623",
+      "txn_id": "SLACK_33_TO_389_623",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "622",
+      "txn_id": "SLACK_33_TO_45_622",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "463",
+      "txn_id": "SLACK_39_TO_217_463",
+      "value": 62.1442555547338,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "631",
+      "txn_id": "SLACK_39_TO_392_631",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "638",
+      "txn_id": "SLACK_39_TO_396_638",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "641",
+      "txn_id": "SLACK_40_TO_39_641",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "642",
+      "txn_id": "SLACK_40_TO_397_642",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "637",
+      "txn_id": "SLACK_60_TO_396_637",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "551",
+      "txn_id": "SLACK_355_TO_217_551",
+      "value": 0.1893611347197183,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "553",
+      "txn_id": "SLACK_356_TO_217_553",
+      "value": 0.2651878013853822,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "555",
+      "txn_id": "SLACK_357_TO_217_555",
+      "value": 0.12259383888726783,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "632",
+      "txn_id": "SLACK_392_TO_217_632",
+      "value": 1.430194791647755,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "633",
+      "txn_id": "SLACK_393_TO_392_633",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "639",
+      "txn_id": "SLACK_396_TO_217_639",
+      "value": 0.6355913208249289,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "462",
+      "txn_id": "SLACK_60_TO_217_462",
+      "value": 22.518654583035566,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "636",
+      "txn_id": "SLACK_393_TO_217_636",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    },
+    {
+      "date": "2025-09-01",
+      "interzone_flow_id": "635",
+      "txn_id": "SLACK_395_TO_393_635",
+      "value": 0,
+      "reason": "Unsolved / Unconstrained"
+    }
+  ]
+}
