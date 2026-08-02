@@ -494,33 +494,3 @@ class LPSolver:
             return lb != float('-inf') and isclose(activity, lb, abs_tol=1e-4)
 
         return False
-
-
-    def is_variable_maxed(self, variable_name: str) -> bool:
-        """ 4/18/2026 - Gemini:
-        Determines if a variable is mathematically blocked from increasing
-        without re-running the solver. Checks its own upper bound and
-        all constraints it participates in using the cached solution state.
-        """
-        var_obj = self.vars.get(variable_name)
-        if not var_obj:
-            return False
-
-        # 1. Check if the variable is at its own explicit upper bound
-        ub = var_obj.ub()
-        var_val = self._last_solution_values.get(variable_name, 0.0)
-        if ub != float('inf') and isclose(var_val, ub, abs_tol=1e-4):
-            return True
-
-        # 2. Check if ANY constraint it participates in is tight
-        for con_name, constraint in self.cons.items():
-            coef = constraint.GetCoefficient(var_obj)
-            if coef == 0.0:
-                continue
-
-            # If this constraint is tight in the direction the variable pushes it,
-            # the variable cannot increase further.
-            if self.is_constraint_tight(con_name, variable_name):
-                return True
-
-        return False

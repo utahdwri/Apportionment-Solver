@@ -1316,12 +1316,16 @@ class Apportioner:
         vars_list, factors = self._get_next_iter(series, maxed_vs)
         while vars_list:
             var_names = []
+            vars_by_name = {}
             for v in vars_list:
                 if type(v) == Trxn:
-                    anchor = self.tm.get_anchor_var(v)
-                    if anchor: var_names.append(anchor)
+                    var_name = self.tm.get_anchor_var(v)
                 else:
-                    var_names.append(v.id)
+                    var_name = v.id
+
+                if var_name:
+                    var_names.append(var_name)
+                    vars_by_name[var_name] = v
 
             proportion_factors = {var_names[i]: factors[i] for i in range(len(var_names))}
 
@@ -1331,7 +1335,7 @@ class Apportioner:
                     log(f"WARNING: Proportion factor for Variable {var_name} ({f:.8f}) is too small. "
                         f"Moving to sequential execution immediately after this series.")
                     # Match string back to var obj
-                    var_obj = next((v for v in vars_list if (self.tm.get_anchor_var(v) == var_name if type(v)==Trxn else v.id == var_name)), None)
+                    var_obj = vars_by_name.get(var_name)
                     if var_obj and var_obj not in deferred_vars:
                         deferred_vars.append(var_obj)
                         maxed_vs.append(var_obj)  # Mark as "maxed" to drop from current prop iterations
@@ -1361,7 +1365,10 @@ class Apportioner:
 
             # Solve
             solve_group_id = self._next_solve_group_id()
-            var_values = self.engine.maximize_group_by_proportions(var_names, proportion_factors)
+            var_values = self.engine.maximize_group_by_proportions(
+                var_names,
+                proportion_factors
+            )
             member_steps = []
 
             # Update the variables. Set only the lb for now, since we might
@@ -1376,7 +1383,7 @@ class Apportioner:
                 self.engine.update_variable_bounds(var_name, lb=var_value)
                 self.cur_trxn_value[var_name] = var_value
 
-                var_obj = next((v for v in vars_list if (self.tm.get_anchor_var(v) == var_name if type(v)==Trxn else v.id == var_name)), None)
+                var_obj = vars_by_name.get(var_name)
                 if var_obj:
                     member_steps.append(self._record_solve_step(
                         var=var_obj,
@@ -1389,10 +1396,10 @@ class Apportioner:
                         solve_group_id=solve_group_id
                     ))
 
-            # Identify which member or members actually stopped this proportional
-            # increment. The solve-group reason should be based on those members,
-            # rather than on every transaction that happened to be increased.
+            # Identify every member that can no longer increase. This uses
+            # batched objectives so one solve can classify many variables.
             newly_maxed = self._get_newly_maxed_vars(vars_list)
+
             limiting_txn_ids = [v.id for v in newly_maxed]
 
             solve_group = self._record_solve_group(
@@ -1431,12 +1438,75 @@ class Apportioner:
 
 
     def _get_newly_maxed_vars(self, vars: list[Trxn | TrxnGroup]):
-        """Return a list of which of the given variables are now maximized."""
-        return [v for v in vars if self._is_var_maxed(v)]
+        """Return the variables that cannot be increased further.
+
+        The active variables have already been fixed at their current values by
+        lower bounds. Maximizing all unresolved variables together can therefore
+        identify multiple non-maxed variables in one solve. If none of the
+        unresolved variables increases, every remaining variable is maxed.
+        """
+
+        #Old Code:
+        #return [v for v in vars if self._is_var_maxed(v)]
+
+
+        maxed_ids: set[str] = set()
+        remaining: dict[str, Trxn | TrxnGroup] = {}
+        current_values: dict[str, float] = {}
+
+        for var in vars:
+            if type(var) == Trxn:
+                target_var = self.tm.get_anchor_var(var)
+            else:
+                target_var = var.id
+
+            if not target_var:
+                maxed_ids.add(var.id)
+                continue
+
+            current_value = self.cur_trxn_value[target_var]
+            _, upper_bound = self.engine.get_variable_bounds(target_var)
+
+            if (
+                upper_bound != float('inf')
+                and isclose(current_value, upper_bound, abs_tol=SOLVER_TOL)
+            ):
+                maxed_ids.add(var.id)
+                continue
+
+            remaining[target_var] = var
+            current_values[target_var] = current_value
+
+        while remaining:
+            target_vars = list(remaining.keys())
+            _, solved_values = self.engine.solve_objective(
+                target_vars,
+                maximization=True
+            )
+
+            increasable_vars = [
+                target_var
+                for target_var in target_vars
+                if solved_values[target_var]
+                    > current_values[target_var] + SOLVER_TOL
+            ]
+
+            if not increasable_vars:
+                maxed_ids.update(var.id for var in remaining.values())
+                break
+
+            # A variable that increased in this feasible solution is known not
+            # to be maxed. Remove all such variables and test the unresolved
+            # remainder together in the next batch.
+            for target_var in increasable_vars:
+                del remaining[target_var]
+
+        return [var for var in vars if var.id in maxed_ids]
 
     def _is_var_maxed(self, var: Trxn | TrxnGroup):
         """
         Checks if the variable can be increased further.
+        8/1/2026 - no longer used
         """
         if type(var) == Trxn:
             target_var = self.tm.get_anchor_var(var)
