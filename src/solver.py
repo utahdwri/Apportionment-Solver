@@ -20,6 +20,8 @@ from .models import (
     CoreScheduleVariable, CoreSeqSchedule, CoreSeqScheduleItem,
     FlowComponentsTypes, InterzoneFlow,
     SolverInput, SolverOutput, SolverOutputApportionment,
+    SolverOutputConstraintEvidence, SolverOutputSolveGroupEvidence,
+    SolverOutputSolveStepEvidence,
     Trxn, TrxnGroup, TrxnPathItem, Zone, ZoneTypes
 )
 from .solve_lp_with_GLOP import LPSolver, LPSolverError
@@ -42,6 +44,8 @@ PREFIX_CONT = 'CONT_'
 def solve(input: SolverInput, check_expected_values: bool = False) -> SolverOutput:
     """Orchestrates the setup, data loading, equation building, and solving loops."""
     apportionment_results = []
+    solve_step_results = []
+    solve_group_results = []
 
     # 1. Initialize Network Topology
     graph_manager = GraphManager(input.accounting_graph)
@@ -78,9 +82,11 @@ def solve(input: SolverInput, check_expected_values: bool = False) -> SolverOutp
         log(f"\nSchedule: {schedule}")
 
         # Solve sequentially with and without NF mass balance limits
+        apportioner.solve_phase = 'NATURAL_FLOW'
         apportioner.apply_nf_mass_balance_constraints()
         apportioner.calculate_apportionments(schedule)
 
+        apportioner.solve_phase = 'SPILL_REALLOCATION'
         apportioner.remove_nf_mass_balance_constraints()
         apportioner.lock_spill_variables()
         apportioner.calculate_apportionments(schedule)
@@ -92,10 +98,16 @@ def solve(input: SolverInput, check_expected_values: bool = False) -> SolverOutp
 
         # Collect results for this day
         apportionment_results.extend(apportioner.get_variables(date))
+        solve_step_results.extend(apportioner.solve_steps)
+        solve_group_results.extend(apportioner.solve_groups)
 
         #print( apportioner.engine.lp_string() )
 
-    results = SolverOutput(apportionments=apportionment_results)
+    results = SolverOutput(
+        apportionments=apportionment_results,
+        solve_steps=solve_step_results,
+        solve_groups=solve_group_results
+    )
 
     if check_expected_values:
         assert_apportionments_equal_expected(results, input, graph_manager, data_manager, trxn_manager)
@@ -953,6 +965,12 @@ class Apportioner:
         self.dm = dm
         self.cur_trxn_value: dict[str, float] = {}
         self.cur_trxn_reasons: dict[str, str] = {}
+        self.cur_trxn_solve_step_ids: dict[str, list[str]] = {}
+        self.solve_steps: list[SolverOutputSolveStepEvidence] = []
+        self.solve_groups: list[SolverOutputSolveGroupEvidence] = []
+        self.solve_phase = 'UNSPECIFIED'
+        self._solve_step_count = 0
+        self._solve_group_count = 0
         self.all_trxns = tm.all_trxns
         self.engine = self._build_linear_equations()
 
@@ -1139,7 +1157,11 @@ class Apportioner:
             for var_name in anchor_spill_vars:
                 self.engine.set_coeficient(con_name, var_name, 1)
 
-    def calculate_apportionments(self, schedule: CoreSeqSchedule, start_priority=None, stop_priority=None):
+    def calculate_apportionments(self,
+                                 schedule: CoreSeqSchedule,
+                                 start_priority=None,
+                                 stop_priority=None,
+                                 report_priority: float | None = None):
         """Solves the variables in the order defined by the schedule."""
 
 
@@ -1151,28 +1173,40 @@ class Apportioner:
             if stop_priority is not None and stop_priority < priority: continue
             if priority >= SLACK_TRXN_PRIORITY: return
 
+            evidence_priority = report_priority if report_priority is not None else priority
+
             log(f"\nPriority: {priority}")
 
             try:
                 if type(item) is CorePropSchedule:
-                    self.maximize_series(item)
+                    self.maximize_series(item, priority=evidence_priority)
                 elif type(item) is CoreSeqSchedule:
-                    self.calculate_apportionments(item, start_priority, stop_priority)
+                    self.calculate_apportionments(
+                        item,
+                        start_priority,
+                        stop_priority,
+                        report_priority=evidence_priority
+                    )
                 elif type(item) is CoreScheduleVariable:
-                    self._maximize_var(item.var)
+                    self._maximize_var(item.var, priority=evidence_priority)
 
 
-            except Exception:
+            except LPSolverError:
                 print('Solver failed! Adding feasibility slacks...')
 
                 self.feasibility_fallback()
 
                 if type(item) is CorePropSchedule:
-                    self.maximize_series(item)
+                    self.maximize_series(item, priority=evidence_priority)
                 elif type(item) is CoreSeqSchedule:
-                    self.calculate_apportionments(item, start_priority, stop_priority)
+                    self.calculate_apportionments(
+                        item,
+                        start_priority,
+                        stop_priority,
+                        report_priority=evidence_priority
+                    )
                 elif type(item) is CoreScheduleVariable:
-                    self._maximize_var(item.var)
+                    self._maximize_var(item.var, priority=evidence_priority)
 
             log(f"\nCompleted iteration for priority: {priority}")
 
@@ -1229,7 +1263,7 @@ class Apportioner:
         for minus_var, ub in origional_ub.items():
             self.engine.update_variable_bounds(minus_var, ub=ub)
 
-    def _maximize_var(self, var: Trxn | TrxnGroup):
+    def _maximize_var(self, var: Trxn | TrxnGroup, priority: float):
         """My earlier version of this function used _minimize_minus_vars and
         _reset_minus_vars to prevent apportionments from forcing a reservoir
         spill to increase the divertible natural flow."""
@@ -1242,16 +1276,34 @@ class Apportioner:
             return
 
         origional_ub = self._minimize_minus_vars([var])
+        value_before = self.cur_trxn_value.get(target_var, 0.0)
+        solve_group_id = self._next_solve_group_id()
         new_value = self.engine.maximize_and_update_variable(target_var)
         self.cur_trxn_value[target_var] = new_value
 
-        reason = self._determine_reason(var, new_value)
+        solve_step = self._record_solve_step(
+            var=var,
+            target_var=target_var,
+            value_before=value_before,
+            value_after=new_value,
+            objective='MAXIMIZE_TRANSACTION',
+            priority=priority,
+            solve_group_id=solve_group_id
+        )
+        solve_group = self._record_solve_group(
+            solve_group_id=solve_group_id,
+            priority=priority,
+            objective='MAXIMIZE_TRANSACTION',
+            member_steps=[solve_step],
+            limiting_txn_ids=[var.id]
+        )
+        reason = solve_group.reason or "No single limiting constraint identified"
         self.cur_trxn_reasons[var.id] = reason
 
         log(f' - maxed {target_var} to {new_value} (Reason: {reason})')
         self._reset_minus_vars(origional_ub)
 
-    def maximize_series(self, series: CorePropSchedule | CoreSeqSchedule):
+    def maximize_series(self, series: CorePropSchedule | CoreSeqSchedule, priority: float):
         """Maximize the given series of variables (either a sequential or
         proportional series) until all the variables in the series are
         maximized.
@@ -1302,9 +1354,15 @@ class Apportioner:
 
             ## minimize all minus vars
             origional_ub = self._minimize_minus_vars(vars_list)
+            values_before = {
+                var_name: self.cur_trxn_value.get(var_name, 0.0)
+                for var_name in var_names
+            }
 
             # Solve
+            solve_group_id = self._next_solve_group_id()
             var_values = self.engine.maximize_group_by_proportions(var_names, proportion_factors)
+            member_steps = []
 
             # Update the variables. Set only the lb for now, since we might
             # be able to increase this variable further in a future iteration.
@@ -1319,13 +1377,38 @@ class Apportioner:
                 self.cur_trxn_value[var_name] = var_value
 
                 var_obj = next((v for v in vars_list if (self.tm.get_anchor_var(v) == var_name if type(v)==Trxn else v.id == var_name)), None)
-                reason = self._determine_reason(var_obj, var_value) if var_obj else "Proportional Allocation"
                 if var_obj:
-                    self.cur_trxn_reasons[var_obj.id] = reason
-                log(f' - maxed {var_name} to {var_value} (Reason: {reason})')
+                    member_steps.append(self._record_solve_step(
+                        var=var_obj,
+                        target_var=var_name,
+                        value_before=values_before[var_name],
+                        value_after=var_value,
+                        objective='MAXIMIZE_PROPORTIONAL_GROUP',
+                        priority=priority,
+                        proportion_factor=proportion_factors[var_name],
+                        solve_group_id=solve_group_id
+                    ))
+
+            # Identify which member or members actually stopped this proportional
+            # increment. The solve-group reason should be based on those members,
+            # rather than on every transaction that happened to be increased.
+            newly_maxed = self._get_newly_maxed_vars(vars_list)
+            limiting_txn_ids = [v.id for v in newly_maxed]
+
+            solve_group = self._record_solve_group(
+                solve_group_id=solve_group_id,
+                priority=priority,
+                objective='MAXIMIZE_PROPORTIONAL_GROUP',
+                member_steps=member_steps,
+                limiting_txn_ids=limiting_txn_ids
+            )
+            reason = solve_group.reason or "Equal-priority proportional allocation"
+            for solve_step in member_steps:
+                self.cur_trxn_reasons[solve_step.txn_id] = reason
+                log(f' - maxed {solve_step.target_variable} to {solve_step.value_after} (Reason: {reason})')
 
             # Get a list of the variables that are now maximized.
-            maxed_vs.extend(self._get_newly_maxed_vars(vars_list))
+            maxed_vs.extend(newly_maxed)
 
             # This function will check to see if the series can further be
             # maximized, possibly by dropping a constrained variable (in a
@@ -1344,7 +1427,7 @@ class Apportioner:
         # 2. Process the tiny-factor variables sequentially right after the group closes
         for var_obj in deferred_vars:
             log(f"Processing deferred tiny-factor variable sequentially: {var_obj.id}")
-            self._maximize_var(var_obj)
+            self._maximize_var(var_obj, priority=priority)
 
 
     def _get_newly_maxed_vars(self, vars: list[Trxn | TrxnGroup]):
@@ -1360,8 +1443,9 @@ class Apportioner:
         else:
             target_var = var.id
         if not target_var: return True
-        obj_value, _ = self.engine.solve_objective([target_var], maximization=True)
-        return isclose(self.cur_trxn_value.get(target_var, 0), obj_value, abs_tol=SOLVER_TOL)
+        _, solved_values = self.engine.solve_objective([target_var], maximization=True)
+        max_value = solved_values[target_var]
+        return isclose(self.cur_trxn_value.get(target_var, 0), max_value, abs_tol=SOLVER_TOL)
 
     def _get_next_iter(self, schedule: CorePropSchedule | CoreSeqSchedule, maxed_vars: list[Trxn | TrxnGroup]):
         """Returns two lists for the next iteration.
@@ -1420,6 +1504,7 @@ class Apportioner:
                 continue
 
             reason = self.cur_trxn_reasons.get(v.id, "Unsolved / Unconstrained")
+            solve_step_ids = list(self.cur_trxn_solve_step_ids.get(v.id, []))
 
             # Check if this variable is a special single-hop stream-to-stream slack variable
             is_stream_slack = False
@@ -1461,7 +1546,8 @@ class Apportioner:
                         txn_id=v.id + '_CPI',
                         value=(var_value - natural_flow) * v.path[0].factor,
                         is_forward=(var_value > natural_flow),
-                        reason=reason
+                        reason=reason,
+                        solve_step_ids=solve_step_ids
                     ))
             else:
                 for a in v.path:
@@ -1477,54 +1563,273 @@ class Apportioner:
                         txn_id=v.id,
                         value=var_value * a.factor,
                         is_forward=a.factor > 0,
-                        reason=reason
+                        reason=reason,
+                        solve_step_ids=solve_step_ids
                     ))
 
         return vars_output
 
-    def _determine_reason(self, var: Trxn | TrxnGroup, value: float) -> str:
-        """Heuristically determines the limiting factor for a transaction's value."""
-        if var is None:
-            return "Unknown"
+    def _next_solve_group_id(self) -> str:
+        self._solve_group_count += 1
+        return f"{self.dm.cur_date}:SOLVE:{self._solve_group_count}"
 
-        # 2. Check if it hit the Water Right Upper Limit (Rule 2 & 3)
+    def _record_solve_step(self,
+                           var: Trxn | TrxnGroup,
+                           target_var: str,
+                           value_before: float,
+                           value_after: float,
+                           objective: str,
+                           priority: float,
+                           solve_group_id: str,
+                           proportion_factor: float | None = None
+                           ) -> SolverOutputSolveStepEvidence:
+        constraints = []
+        evidence_variable_names = [target_var]
+
+        # A TrxnGroup variable only participates directly in its parent accounting
+        # equality. Include the descendant transaction variables so the solve-group
+        # explanation can reach the physical measurement and natural-flow rows that
+        # actually limited the group allocation.
+        if type(var) == TrxnGroup:
+            def add_descendant_variables(group: TrxnGroup):
+                for child in group.children_trxns:
+                    if type(child) == Trxn:
+                        anchor_var = self.tm.get_anchor_var(child)
+                        if anchor_var:
+                            evidence_variable_names.append(anchor_var)
+                    elif type(child) == TrxnGroup:
+                        add_descendant_variables(child)
+
+            add_descendant_variables(var)
+
+        seen_constraints = set()
+        for evidence_variable_name in evidence_variable_names:
+            for x in self.engine.get_last_solve_constraint_evidence(
+                    evidence_variable_name, SOLVER_TOL):
+                if x['constraint_name'] in seen_constraints:
+                    continue
+                seen_constraints.add(x['constraint_name'])
+                constraints.append(SolverOutputConstraintEvidence(
+                    constraint_name=x['constraint_name'],
+                    constraint_type=self._get_constraint_type(x['constraint_name']),
+                    coefficient=x['coefficient'],
+                    activity=x['activity'],
+                    lower_bound=x['lower_bound'],
+                    upper_bound=x['upper_bound'],
+                    lower_slack=x['lower_slack'],
+                    upper_slack=x['upper_slack'],
+                    is_tight=x['is_tight'],
+                    blocks_direct_increase=x['blocks_direct_increase'],
+                    dual_value=x['dual_value']
+                ))
+
         upper_limit = self.tm.get_transaction_upper_limit(var, self.dm.cur_date)
-        if upper_limit is not None and isclose(value, upper_limit, abs_tol=SOLVER_TOL):
-            return "Water Right Limit"
+        upper_limit_reached = (
+            upper_limit is not None and
+            isclose(value_after, upper_limit, abs_tol=SOLVER_TOL)
+        )
 
-        if type(var) == Trxn:
-            # Check Measurement Constraints against the individual path item variable
-            for path_item in var.path:
-                con_name = PREFIX_MEASURE + path_item.flow_id
-                var_name = f"{var.id}___{path_item.flow_id}"
-                if self.engine.is_constraint_tight(con_name, var_name):
-                    return f"No remaining demand at destination (Measured flow reached at '{path_item.flow_id}')"
+        self._solve_step_count += 1
+        step_id = f"{self.dm.cur_date}:{self._solve_step_count}"
+        solve_step = SolverOutputSolveStepEvidence(
+            step_id=step_id,
+            solve_group_id=solve_group_id,
+            date=self.dm.cur_date,
+            phase=self.solve_phase,
+            priority=priority,
+            txn_id=var.id,
+            target_variable=target_var,
+            objective=objective,
+            value_before=value_before,
+            value_after=value_after,
+            upper_limit=upper_limit,
+            upper_limit_reached=upper_limit_reached,
+            proportion_factor=proportion_factor,
+            reduced_cost=self.engine.get_last_variable_reduced_cost(target_var),
+            constraints=constraints
+        )
 
-            ordered_path = self.tm.ordered_paths.get(var.id, [])
-            if len(ordered_path):
-                first_item = ordered_path[0]
-                anchor_var = f"{var.id}___{first_item.flow_id}"
+        self.solve_steps.append(solve_step)
+        if var.id not in self.cur_trxn_solve_step_ids:
+            self.cur_trxn_solve_step_ids[var.id] = []
+        self.cur_trxn_solve_step_ids[var.id].append(step_id)
 
-                first_flow = self.gm.get_flow_by_id(first_item.flow_id)
-                from_zone = self.gm.get_zone_by_id(first_flow.from_zone)
+        return solve_step
 
-                if first_item.factor < 0:
-                    from_zone = self.gm.get_zone_by_id(first_flow.to_zone)
+    def _record_solve_group(self,
+                            solve_group_id: str,
+                            priority: float,
+                            objective: str,
+                            member_steps: list[SolverOutputSolveStepEvidence],
+                            limiting_txn_ids: list[str]
+                            ) -> SolverOutputSolveGroupEvidence:
+        solve_group = SolverOutputSolveGroupEvidence(
+            solve_group_id=solve_group_id,
+            date=self.dm.cur_date,
+            phase=self.solve_phase,
+            priority=priority,
+            objective=objective,
+            member_step_ids=[x.step_id for x in member_steps],
+            member_txn_ids=[x.txn_id for x in member_steps],
+            reason=self._determine_solve_group_reason(
+                member_steps,
+                limiting_txn_ids
+            )
+        )
+        self.solve_groups.append(solve_group)
+        return solve_group
 
-                if from_zone.type == ZoneTypes.STREAM:
-                    if self.engine.is_constraint_tight(PREFIX_NF_ZONE + from_zone.id, anchor_var):
-                        return f"No remaining divertible Natural Flow at source '{from_zone.id}'"
-                    for f in self.gm.traverse_downstream(from_zone.id):
-                        if self.engine.is_constraint_tight(PREFIX_NF_ZONE + f.to_zone, anchor_var):
-                            return f"No remaining divertible Natural Flow at downstream reach '{f.to_zone}'"
-        return "Other"
+    def _determine_solve_group_reason(
+            self,
+            member_steps: list[SolverOutputSolveStepEvidence],
+            limiting_txn_ids: list[str]
+            ) -> str:
+        if not member_steps:
+            return "No solve members were recorded"
+
+        limiting_ids = set(limiting_txn_ids)
+        limiting_steps = [
+            step for step in member_steps
+            if step.txn_id in limiting_ids
+        ]
+        if not limiting_steps:
+            limiting_steps = member_steps
+
+        reasons = []
+        limit_members = [
+            step.txn_id for step in limiting_steps
+            if step.upper_limit_reached
+        ]
+        if limit_members:
+            if len(limit_members) == len(limiting_steps):
+                reasons.append("All limiting transactions reached their upper limits")
+            else:
+                reasons.append("Upper limit reached by " + ", ".join(limit_members))
+
+        ignored_types = {'PATH_CONTINUITY', 'PROPORTIONAL_ALLOCATION'}
+        selected_blockers = {}
+
+        for step in limiting_steps:
+            var_obj = next(
+                (v for v in self.all_trxns if v.id == step.txn_id),
+                None
+            )
+            own_group_constraint = (
+                PREFIX_PARENT + step.txn_id
+                if type(var_obj) == TrxnGroup
+                else None
+            )
+
+            eligible = [
+                constraint for constraint in step.constraints
+                if constraint.blocks_direct_increase
+                and constraint.constraint_type not in ignored_types
+                and constraint.constraint_name != own_group_constraint
+            ]
+
+            # When a child transaction is limited by an already apportioned
+            # transaction group, that inherited group allocation is the immediate
+            # reason this solve stopped. Measurement and natural-flow constraints
+            # explain the earlier parent-group solve and should not be repeated here.
+            parent_group_blockers = [
+                constraint for constraint in eligible
+                if constraint.constraint_type == 'GROUP_LIMIT'
+            ]
+            if parent_group_blockers:
+                eligible = parent_group_blockers
+
+            dual_supported = [
+                constraint for constraint in eligible
+                if constraint.dual_value is not None
+                and abs(constraint.dual_value) > SOLVER_TOL
+            ]
+            blockers = dual_supported if dual_supported else eligible
+
+            for constraint in blockers:
+                selected_blockers[constraint.constraint_name] = constraint
+
+        descriptions = [
+            self._constraint_reason_text(constraint)
+            for constraint in selected_blockers.values()
+        ]
+        descriptions = list(dict.fromkeys(descriptions))
+        if descriptions:
+            reasons.append(
+                "Group increase was limited by "
+                + "; ".join(descriptions[:3])
+            )
+
+        if reasons:
+            return ". ".join(reasons)
+
+        if member_steps[0].objective == 'MAXIMIZE_PROPORTIONAL_GROUP':
+            return ("Equal-priority proportional increment reached its maximum "
+                    "feasible value; no single physical limiting constraint was identified")
+
+        return "No single limiting constraint was identified"
+
+    def _constraint_reason_text(self,
+                                constraint: SolverOutputConstraintEvidence
+                                ) -> str:
+        if constraint.constraint_type == 'MEASUREMENT':
+            return f"Measured flow constraint '{constraint.constraint_name[len(PREFIX_MEASURE):]}'"
+        if constraint.constraint_type == 'NATURAL_FLOW':
+            return f"Natural flow availability at '{constraint.constraint_name[len(PREFIX_NF_ZONE):]}'"
+        if constraint.constraint_type == 'GROUP_LIMIT':
+            return f"Transaction group limit '{constraint.constraint_name[len(PREFIX_PARENT):]}'"
+        if constraint.constraint_type == 'SPILL_LOCK':
+            return "Locked minimum spill"
+        if constraint.constraint_type == 'FEASIBILITY':
+            return f"Feasibility adjustment '{constraint.constraint_name}'"
+        return f"Constraint '{constraint.constraint_name}'"
+
+    def _get_constraint_type(self, constraint_name: str) -> str:
+        if constraint_name.startswith(PREFIX_MEASURE):
+            return 'MEASUREMENT'
+        if constraint_name.startswith(PREFIX_NF_ZONE):
+            return 'NATURAL_FLOW'
+        if constraint_name.startswith(PREFIX_PARENT):
+            return 'GROUP_LIMIT'
+        if constraint_name.startswith(PREFIX_CONT):
+            return 'PATH_CONTINUITY'
+        if constraint_name.startswith('combined_'):
+            return 'PROPORTIONAL_ALLOCATION'
+        if constraint_name == 'lock-slacks':
+            return 'SPILL_LOCK'
+        if constraint_name.startswith('FEAS_'):
+            return 'FEASIBILITY'
+        return 'OTHER'
 
 
-    def feasibility_fallback(self):
+    def feasibility_fallback(self) -> float:
+        """
+        The intended fallback hierarchy is:
+        1. minimize total constraint violation;
+        2. among solutions with minimum violation, maximize the current transaction.
+        """
 
         self.feasibility_slacks = self.add_feasibility_vars(self.feasibility_slacks)
 
-        self.engine.set_perminant_minus_var('FEAS_SUM')
+        # A previous fallback may already have fixed FEAS_SUM. Release that lock
+        # before finding the minimum feasible violation under the current bounds.
+        self.engine.update_variable_bounds( 'FEAS_SUM', lb=0, ub=float('inf') )
+
+        _, solved_values = self.engine.solve_objective(
+            ['FEAS_SUM'],
+            maximization=False
+        )
+        minimum_feasibility = solved_values['FEAS_SUM']
+
+        # Lock the minimum violation before returning to the requested
+        # transaction objective. This makes the fallback lexicographic:
+        # first minimize constraint violations, then optimize apportionment.
+        self.engine.update_variable_bounds(
+            'FEAS_SUM',
+            lb=minimum_feasibility,
+            ub=minimum_feasibility
+        )
+
+        return minimum_feasibility
 
 
     def add_feasibility_vars(self, feasibility_slacks) -> list[str]:
@@ -1564,6 +1869,126 @@ class Apportioner:
 
 #
 #
+
+def print_solve_steps(results: SolverOutput, constraint_mode: str = 'blocking'):
+    """Print solve evidence grouped by the LP solve that produced it.
+
+    constraint_mode may be 'blocking', 'tight', 'all', or 'none'.
+    """
+    from math import isinf
+
+    valid_modes = {'blocking', 'tight', 'all', 'none'}
+    if constraint_mode not in valid_modes:
+        raise ValueError(f"constraint_mode must be one of {sorted(valid_modes)}")
+
+    def fmt(value, width=11):
+        if value is None:
+            text = '-'
+        elif isinstance(value, float):
+            if isinf(value):
+                text = 'inf' if value > 0 else '-inf'
+            else:
+                text = f'{value:.3f}'
+        else:
+            text = str(value)
+        return f'{text:>{width}}'
+
+    steps_by_id = {x.step_id: x for x in results.solve_steps}
+    if not results.solve_groups:
+        print('No solve-group evidence was recorded.')
+        return
+
+    line = '=' * 134
+    for solve_number, group in enumerate(results.solve_groups, start=1):
+        steps = [steps_by_id[x] for x in group.member_step_ids if x in steps_by_id]
+        solve_type = ('EQUAL-PRIORITY PROPORTIONAL SOLVE'
+                      if group.objective == 'MAXIMIZE_PROPORTIONAL_GROUP'
+                      else 'TRANSACTION SOLVE')
+
+        print()
+        print(line)
+        print(f'Solve:     {solve_number}')
+        print(f'Group ID:  {group.solve_group_id}')
+        print(f'Type:      {solve_type}')
+        print(f'Date:      {group.date}')
+        print(f'Phase:     {group.phase}')
+        print(f'Priority:  {group.priority}')
+        print(f'Objective: {group.objective}')
+        print(f'Reason:    {group.reason or "-"}')
+        if len(steps) > 1:
+            print('Members:   ' + ', '.join(x.txn_id for x in steps))
+
+        print()
+        header = (
+            f"{'Record':22}"
+            f"{'Transaction':25}"
+            f"{'Priority':>12}"
+            f"{'Before':>11}"
+            f"{'After':>11}"
+            f"{'Increase':>11}"
+            f"{'Factor':>11}"
+            f"{'Limit':>11}"
+            f"{'At limit':>10}"
+        )
+        print(header)
+        print('-' * len(header))
+
+        for step in steps:
+            print(
+                f'{step.step_id[:22]:22}'
+                f'{step.txn_id[:25]:25}'
+                f'{fmt(step.priority, 12)}'
+                f'{fmt(step.value_before)}'
+                f'{fmt(step.value_after)}'
+                f'{fmt(step.value_after - step.value_before)}'
+                f'{fmt(step.proportion_factor)}'
+                f'{fmt(step.upper_limit)}'
+                f"{('Y' if step.upper_limit_reached else ''):>10}"
+            )
+
+        if constraint_mode == 'none':
+            continue
+
+        for step in steps:
+            if constraint_mode == 'blocking':
+                constraints = [x for x in step.constraints if x.blocks_direct_increase]
+            elif constraint_mode == 'tight':
+                constraints = [x for x in step.constraints if x.is_tight]
+            else:
+                constraints = list(step.constraints)
+
+            if not constraints:
+                continue
+
+            print()
+            print(f'Constraint evidence for {step.txn_id} ({step.step_id})')
+            constraint_header = (
+                f"{'Type':20}"
+                f"{'Constraint':37}"
+                f"{'Coef':>9}"
+                f"{'Activity':>11}"
+                f"{'LB':>11}"
+                f"{'UB':>11}"
+                f"{'Dual':>11}"
+                f"{'Tight':>8}"
+                f"{'Blocks':>9}"
+            )
+            print(constraint_header)
+            print('-' * len(constraint_header))
+
+            for constraint in constraints:
+                print(
+                    f'{constraint.constraint_type[:20]:20}'
+                    f'{constraint.constraint_name[:37]:37}'
+                    f'{fmt(constraint.coefficient, 9)}'
+                    f'{fmt(constraint.activity)}'
+                    f'{fmt(constraint.lower_bound)}'
+                    f'{fmt(constraint.upper_bound)}'
+                    f'{fmt(constraint.dual_value)}'
+                    f"{('Y' if constraint.is_tight else ''):>8}"
+                    f"{('Y' if constraint.blocks_direct_increase else ''):>9}"
+                )
+
 
 def system_report_str(results:SolverOutput, day_idx:int, date:str, gm:GraphManager, dm:DailyDataManager, tm:TrxnManager) -> str:
 

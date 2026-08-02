@@ -34,6 +34,8 @@ class SolverInput:
 @dataclass
 class SolverOutput:
     apportionments: list['SolverOutputApportionment']
+    solve_steps: list['SolverOutputSolveStepEvidence'] = field(default_factory=list)
+    solve_groups: list['SolverOutputSolveGroupEvidence'] = field(default_factory=list)
 
     def get_result_value(self,
                          date:str|None=None,
@@ -52,6 +54,193 @@ class SolverOutput:
 
 
 
+
+
+    def print_solve_steps(self,
+            constraint_mode: str = 'blocking'
+            ):
+        """Print solve evidence grouped by actual LP invocation.
+
+        constraint_mode:
+            'blocking' - directly blocking member constraints
+            'tight'    - all tight member constraints
+            'all'      - all participating member constraints
+            'none'     - omit constraint details
+        """
+        from math import isinf
+        results = self
+
+        valid_modes = {'blocking', 'tight', 'all', 'none'}
+
+        if constraint_mode not in valid_modes:
+            raise ValueError(
+                f"constraint_mode must be one of "
+                f"{sorted(valid_modes)}"
+            )
+
+        def fmt(value, width=11):
+            if value is None:
+                text = '-'
+            elif isinstance(value, float):
+                if isinf(value):
+                    text = 'inf' if value > 0 else '-inf'
+                else:
+                    text = f'{value:.3f}'
+            else:
+                text = str(value)
+
+            return f'{text:>{width}}'
+
+        steps_by_id = {
+            step.step_id: step
+            for step in results.solve_steps
+        }
+
+        solve_groups = getattr(results, 'solve_groups', [])
+
+        if not solve_groups:
+            print('No solve-group evidence was recorded.')
+            return
+
+        line = '=' * 134
+
+        for solve_number, group in enumerate(
+                solve_groups,
+                start=1):
+
+            steps = [
+                steps_by_id[step_id]
+                for step_id in group.member_step_ids
+                if step_id in steps_by_id
+            ]
+
+            is_proportional = (
+                group.objective
+                == 'MAXIMIZE_PROPORTIONAL_GROUP'
+            )
+
+            solve_type = (
+                'EQUAL-PRIORITY PROPORTIONAL SOLVE'
+                if is_proportional
+                else 'TRANSACTION SOLVE'
+            )
+
+            print()
+            print(line)
+            print(f'Solve:     {solve_number}')
+            print(f'Group ID:  {group.solve_group_id}')
+            print(f'Type:      {solve_type}')
+            print(f'Date:      {group.date}')
+            print(f'Phase:     {group.phase}')
+            print(f'Priority:  {group.priority}')
+            print(f'Objective: {group.objective}')
+            print(f'Reason:    {group.reason or "-"}')
+
+            if len(steps) > 1:
+                print(
+                    'Members:   '
+                    + ', '.join(
+                        step.txn_id
+                        for step in steps
+                    )
+                )
+
+            print()
+
+            header = (
+                f"{'Record':22}"
+                f"{'Transaction':25}"
+                f"{'Priority':>12}"
+                f"{'Before':>11}"
+                f"{'After':>11}"
+                f"{'Increase':>11}"
+                f"{'Factor':>11}"
+                f"{'Limit':>11}"
+                f"{'At limit':>10}"
+            )
+
+            print(header)
+            print('-' * len(header))
+
+            for step in steps:
+                increase = (
+                    step.value_after
+                    - step.value_before
+                )
+
+                print(
+                    f'{step.step_id[:22]:22}'
+                    f'{step.txn_id[:25]:25}'
+                    f'{fmt(step.priority, 12)}'
+                    f'{fmt(step.value_before)}'
+                    f'{fmt(step.value_after)}'
+                    f'{fmt(increase)}'
+                    f'{fmt(step.proportion_factor)}'
+                    f'{fmt(step.upper_limit)}'
+                    f"{('Y' if step.upper_limit_reached else ''):>10}"
+                )
+
+            if constraint_mode == 'none':
+                continue
+
+            for step in steps:
+
+                if constraint_mode == 'blocking':
+                    constraints = [
+                        constraint
+                        for constraint in step.constraints
+                        if constraint.blocks_direct_increase
+                    ]
+
+                elif constraint_mode == 'tight':
+                    constraints = [
+                        constraint
+                        for constraint in step.constraints
+                        if constraint.is_tight
+                    ]
+
+                else:
+                    constraints = list(step.constraints)
+
+                if not constraints:
+                    continue
+
+                print()
+                print(
+                    f'Constraint evidence for '
+                    f'{step.txn_id} ({step.step_id})'
+                )
+
+                constraint_header = (
+                    f"{'Type':20}"
+                    f"{'Constraint':37}"
+                    f"{'Coef':>9}"
+                    f"{'Activity':>11}"
+                    f"{'LB':>11}"
+                    f"{'UB':>11}"
+                    f"{'Dual':>11}"
+                    f"{'Tight':>8}"
+                    f"{'Blocks':>9}"
+                )
+
+                print(constraint_header)
+                print('-' * len(constraint_header))
+
+                for constraint in constraints:
+                    print(
+                        f'{constraint.constraint_type[:20]:20}'
+                        f'{constraint.constraint_name[:37]:37}'
+                        f'{fmt(constraint.coefficient, 9)}'
+                        f'{fmt(constraint.activity)}'
+                        f'{fmt(constraint.lower_bound)}'
+                        f'{fmt(constraint.upper_bound)}'
+                        f'{fmt(constraint.dual_value)}'
+                        f"{('Y' if constraint.is_tight else ''):>8}"
+                        f"{('Y' if constraint.blocks_direct_increase else ''):>9}"
+                    )
+
+
+
 @dataclass
 class SolverOutputApportionment:
     date: str
@@ -60,6 +249,51 @@ class SolverOutputApportionment:
     value: float # A negative value indicates flow in the backward direction - but if it is zero then we need the following:
     is_forward: bool
     reason: str | None = None  # New field to identify the limiting factor
+    solve_step_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SolverOutputConstraintEvidence:
+    constraint_name: str
+    constraint_type: str
+    coefficient: float
+    activity: float
+    lower_bound: float | None
+    upper_bound: float | None
+    lower_slack: float | None
+    upper_slack: float | None
+    is_tight: bool
+    blocks_direct_increase: bool
+    dual_value: float | None = None
+@dataclass
+class SolverOutputSolveStepEvidence:
+    step_id: str
+    solve_group_id: str
+    date: str
+    phase: str
+    priority: float
+    txn_id: str
+    target_variable: str
+    objective: str
+    value_before: float
+    value_after: float
+    upper_limit: float | None
+    upper_limit_reached: bool
+    proportion_factor: float | None = None
+    reduced_cost: float | None = None
+    constraints: list[SolverOutputConstraintEvidence] = field(default_factory=list)
+
+@dataclass
+class SolverOutputSolveGroupEvidence:
+    solve_group_id: str
+    date: str
+    phase: str
+    priority: float
+    objective: str
+    member_step_ids: list[str] = field(default_factory=list)
+    member_txn_ids: list[str] = field(default_factory=list)
+    reason: str | None = None
+
 
 
 

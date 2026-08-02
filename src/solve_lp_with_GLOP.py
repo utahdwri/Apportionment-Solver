@@ -39,16 +39,14 @@ class LPSolver:
 
         #
         self._last_solution_values: dict[str, float] = {}
+        self._last_variable_reduced_costs: dict[str, float | None] = {}
+        self._last_constraint_activities: dict[str, float] = {}
+        self._last_constraint_bounds: dict[str, tuple[float, float]] = {}
+        self._last_constraint_dual_values: dict[str, float | None] = {}
+        self._last_constraint_coefficients: dict[str, dict[str, float]] = {}
 
         # Track which variables go with which constraint.
         self._constraint_vars: dict[str, list[str]] = {}
-
-        # Added 6/13/2026
-        # I was struggling with floating point issues making the system ever so
-        # slightly infeasible. The purpose of this is to define a slack
-        # variable that should always be kept as close to zero as posible, but
-        # if it's not possible we're not going to make a big fuss.
-        self.perminant_minus_var:str|None = None
 
 
     def add_variable(self, name:str, lb:float|None=0, ub:float|None=None) -> None:
@@ -153,13 +151,6 @@ class LPSolver:
             variable = self.vars[variable_name]
             objective.SetCoefficient(variable, weights.get(variable_name, 1.0))
 
-        if self.perminant_minus_var:
-            variable = self.vars[self.perminant_minus_var]
-            if maximization:
-                objective.SetCoefficient(variable, -1000)
-            else:
-                objective.SetCoefficient(variable, 1000)
-
         # Solve the system.
         if LPSolver.PRINT_SOLVER_MESSAGES:
             self.solver.EnableOutput()
@@ -180,6 +171,36 @@ class LPSolver:
                 name: var.solution_value()
                 for name, var in self.vars.items()
             }
+
+            self._last_variable_reduced_costs = {}
+            for name, var in self.vars.items():
+                try:
+                    self._last_variable_reduced_costs[name] = var.reduced_cost()
+                except Exception:
+                    self._last_variable_reduced_costs[name] = None
+
+            self._last_constraint_activities = {}
+            self._last_constraint_bounds = {}
+            self._last_constraint_dual_values = {}
+            self._last_constraint_coefficients = {}
+            for con_name, constraint in self.cons.items():
+                coefficients = {
+                    var_name: constraint.GetCoefficient(self.vars[var_name])
+                    for var_name in self._constraint_vars.get(con_name, [])
+                }
+                activity = sum(
+                    coef * self._last_solution_values.get(var_name, 0.0)
+                    for var_name, coef in coefficients.items()
+                )
+
+                self._last_constraint_activities[con_name] = activity
+                self._last_constraint_bounds[con_name] = (constraint.lb(), constraint.ub())
+                self._last_constraint_coefficients[con_name] = coefficients
+
+                try:
+                    self._last_constraint_dual_values[con_name] = constraint.dual_value()
+                except Exception:
+                    self._last_constraint_dual_values[con_name] = None
 
         # Or if there is no optimal solution, raise the custom exception.
         else:
@@ -203,27 +224,29 @@ class LPSolver:
         maintain the maximized value through subsequent operations."""
 
         # Find its maximum feasible value.
-        objective_value, _ = self.solve_objective([variable_name],
-                                                     maximization=True)
+        _, variable_values = self.solve_objective([variable_name],
+                                                   maximization=True)
+        solved_value = variable_values[variable_name]
 
         # Update its value.
-        self.update_variable_bounds(variable_name, lb=objective_value)
+        self.update_variable_bounds(variable_name, lb=solved_value)
 
-        # Return.
-        return objective_value
+        # Return the variable value, not the possibly penalized objective value.
+        return solved_value
 
     def minimize_and_update_variable(self, variable_name:str) -> float:
         """Minimize the given variable and then update its upper bound."""
 
-        # Find its maximum feasible value.
-        objective_value, _ = self.solve_objective([variable_name],
-                                                     maximization=False)
+        # Find its minimum feasible value.
+        _, variable_values = self.solve_objective([variable_name],
+                                                   maximization=False)
+        solved_value = variable_values[variable_name]
 
         # Update its value.
-        self.update_variable_bounds(variable_name, ub=objective_value)
+        self.update_variable_bounds(variable_name, ub=solved_value)
 
-        # Return.
-        return objective_value
+        # Return the variable value, not the possibly penalized objective value.
+        return solved_value
 
     def update_variable_bounds(self, name:str, lb:float|None=None, ub:float|None=None) -> None:
 
@@ -304,13 +327,14 @@ class LPSolver:
                                                    proportion_factors)
 
         # Solve.
-        objective_value, blah = self.solve_objective([merge_var.name()],
-                                                     maximization=True)
+        _, solved_values = self.solve_objective([merge_var.name()],
+                                                maximization=True)
+        solved_value = solved_values[merge_var.name()]
 
 
         # Now unmerge.
         var_values = self._unmerge(variable_names, proportion_factors,
-                                   merge_var, merge_constraints, objective_value)
+                                   merge_var, merge_constraints, solved_value)
 
         return var_values
 
@@ -388,6 +412,51 @@ class LPSolver:
 
 
 
+    def get_last_variable_reduced_cost(self, variable_name: str) -> float | None:
+        return self._last_variable_reduced_costs.get(variable_name)
+
+
+    def get_last_solve_constraint_evidence(self,
+                                           variable_name: str,
+                                           tolerance: float = 1e-6
+                                           ) -> list[dict]:
+        output = []
+
+        for constraint_name, coefficients in self._last_constraint_coefficients.items():
+            coefficient = coefficients.get(variable_name, 0.0)
+            if coefficient == 0:
+                continue
+
+            activity = self._last_constraint_activities[constraint_name]
+            lower_bound, upper_bound = self._last_constraint_bounds[constraint_name]
+
+            lower_slack = None if lower_bound == -inf else activity - lower_bound
+            upper_slack = None if upper_bound == inf else upper_bound - activity
+
+            lower_is_tight = lower_slack is not None and isclose(lower_slack, 0, abs_tol=tolerance)
+            upper_is_tight = upper_slack is not None and isclose(upper_slack, 0, abs_tol=tolerance)
+
+            blocks_direct_increase = (
+                (coefficient > 0 and upper_is_tight) or
+                (coefficient < 0 and lower_is_tight)
+            )
+
+            output.append({
+                'constraint_name': constraint_name,
+                'coefficient': coefficient,
+                'activity': activity,
+                'lower_bound': None if lower_bound == -inf else lower_bound,
+                'upper_bound': None if upper_bound == inf else upper_bound,
+                'lower_slack': lower_slack,
+                'upper_slack': upper_slack,
+                'is_tight': lower_is_tight or upper_is_tight,
+                'blocks_direct_increase': blocks_direct_increase,
+                'dual_value': self._last_constraint_dual_values.get(constraint_name)
+            })
+
+        return output
+
+
     def is_constraint_tight(self, constraint_name: str, variable_name: str) -> bool:
         """ 4/18/2026 - Gemini:
         Rigorously checks if a specific constraint is 'tight' for a specific variable.
@@ -455,6 +524,3 @@ class LPSolver:
                 return True
 
         return False
-
-    def set_perminant_minus_var(self, minus_var_name:str | None):
-        self.perminant_minus_var = minus_var_name

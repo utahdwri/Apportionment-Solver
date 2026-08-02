@@ -218,7 +218,7 @@ class A_SingleReachProblems(unittest.TestCase):
                 Trxn(id='TRXN_4', priority=4, upper_limit= 4, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[0])]),
             ]
         )
-        solve(input, check_expected_values=True)
+        results = solve(input, check_expected_values=True)
 
     def test_simple_apportionments_2(self):
         """Does the measured diversion get apportioned correctly to its parts
@@ -1338,6 +1338,9 @@ class D_PrioritySeries(unittest.TestCase):
         )
 
         results = solve(input, check_expected_values=True)
+
+        print('\nRESULTS: \n')
+        results.print_solve_steps(constraint_mode='none')
 
 
     def test_Leahs_3_reach_problem2(self):
