@@ -2,12 +2,27 @@ Recommended order of changes:
 - [x] Replace _determine_reason() with structured solve-step evidence.
 - [x] Fix feasibility fallback and never use penalized objective values as variable values.
 - [x] Make the _get_newly_maxed_vars check more efficient
+
+- [ ] Update Trxn data model so the source-account is 'Natural Flow' for diversions from the stream,
+      During the 1st pass:
+        * once all the natural flow for a zone has been used up, don't try to maximize apportionments to any trxns comming from that zone's natural flow
+      During the 2nd pass:
+        * only attempt to maximize transactions that were previously limited by remaining natural flow.
+        * once all the natural flow for a zone has been used up, don't try to maximize apportionments to any trxns comming from that zone's natural flow
+
+- [ ] Implement storage-account and cumulative-volume constraints.
+- [ ] Implement loss curves
 - [ ] Keep natural-flow constraints in the spill pass and explicitly add locked spill as supply.
 - [ ] Exclude TrxnGroup variables from the final minimum-component-flow objective.
 - [ ] Make upper_limit=None semantics explicit rather than substituting 1,000.
 - [ ] Reject malformed transaction paths instead of silently retaining input order.
-- [ ] Implement storage-account and cumulative-volume constraints before reporting storage exhaustion as a possible reason.
-- [ ] Preserve both pass-1 and pass-2 decisions rather than overwriting the transaction’s reason.
+- [done?] Preserve both pass-1 and pass-2 decisions rather than overwriting the transaction’s reason.
+
+
+
+
+
+
 
 1. Missing upper limits are capped at 1,000
 

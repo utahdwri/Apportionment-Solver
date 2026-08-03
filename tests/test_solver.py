@@ -2049,6 +2049,89 @@ class K_Accounting_Graph_Details(unittest.TestCase):
 
 
 
+    def test_unavailable_upstream_natural_flow_is_not_reapportioned_in_spill_pass(self):
+        """
+        Physical streamflow that has already been apportioned upstream should
+        not become available to a new downstream transaction during the spill
+        pass.
+
+        A>B carries 10 cfs, and all 10 cfs is identified as external natural
+        flow. Therefore, it is physical natural flow but available_natural is
+        zero. B>DIV also carries 10 cfs, so the measured flows balance exactly.
+        There are no imports, storage releases, or other spills.
+
+        The first natural-flow-limited pass must leave TRXN_1 at zero. The
+        second pass must not reclassify the measured diversion as TRXN_1 merely
+        because the natural-flow constraints were removed.
+        """
+        input = SolverInput(
+            beg_date='2000-01-01',
+            end_date='2000-01-01',
+            accounting_graph=AccountingGraph(
+                zones=[
+                    Zone(id="REACH-A", type=ZoneTypes.STREAM),
+                    Zone(id="REACH-B", type=ZoneTypes.STREAM),
+                    Zone(id="DIV", type=ZoneTypes.USE),
+                    Zone(id="SYS", type=ZoneTypes.SYSTEM_GAIN_LOSS),
+                ],
+                interzone_flows=[
+                    InterzoneFlow(id="A>B", from_zone="REACH-A", to_zone="REACH-B",
+                        flow_measurements=[FlowMeasurement(measurement_id="A>B")]
+                    ),
+                    InterzoneFlow(id="B>DIV", from_zone="REACH-B", to_zone="DIV",
+                        flow_measurements=[FlowMeasurement(measurement_id="B>DIV")]
+                    ),
+                    InterzoneFlow(id="Flow7", from_zone="SYS", to_zone="REACH-B",
+                        flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True
+                    )
+                ]
+            ),
+            measurement_beg_date='2000-01-01',
+            measurement_end_date='2000-01-01',
+            measurements={
+                "A>B": [10],
+                "B>DIV": [10],
+            },
+            txns=[
+                Trxn(
+                    id='TRXN_1',
+                    priority=1,
+                    upper_limit=10,
+                    path=[
+                        TrxnPathItem(
+                            flow_id='B>DIV',
+                            expected_values=[10]
+                        )
+                    ]
+                )
+            ],
+            external_natural_flows={
+                "A>B": {
+                    "2000-01-01": 100
+                }
+            }
+        )
+
+        results = solve(input, check_expected_values=False)
+
+        trxn_results = results.get_result_value(
+            date='2000-01-01',
+            trxn_id='TRXN_1',
+            flow_id='B>DIV'
+        )
+
+        self.assertEqual(len(trxn_results), 1)
+        self.assertAlmostEqual(
+            trxn_results[0].value,
+            0,
+            delta=1e-4,
+            msg=(
+                "Unavailable upstream natural flow was re-apportioned during "
+                "the spill pass even though there was no import, storage "
+                "release, or other spill."
+            )
+        )
+
 
 class RealProblems(unittest.TestCase):
     """When the solver doesn't work in the wild, copy the inputs and add a

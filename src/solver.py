@@ -24,7 +24,10 @@ from .models import (
     SolverOutputSolveStepEvidence,
     Trxn, TrxnGroup, TrxnPathItem, Zone, ZoneTypes
 )
-from .solve_lp_with_GLOP import LPSolver, LPSolverError
+
+#from .solve_lp_with_GLOP import LPSolver, LPSolverError
+from .solve_lp_with_SCIPY import LPSolver, LPSolverError
+#from .solve_lp_with_HIGHSPY import LPSolver, LPSolverError
 
 # --- Configuration Constants ---
 COALESCE_MISSING_FLOWS_TO_ZERO = True
@@ -94,7 +97,6 @@ def solve(input: SolverInput, check_expected_values: bool = False) -> SolverOutp
         # D. Finalize unconstrained (nonpath) vars
         apportioner.solve_for_nonpath_vars()
 
-        print(apportioner.engine.lp_string())
 
         # Collect results for this day
         apportionment_results.extend(apportioner.get_variables(date))
@@ -2139,12 +2141,13 @@ def assert_apportionments_equal_expected(results: SolverOutput, input: SolverInp
 
                         if expected_value is not None:
                             cnt += 1
-                            msg = ( message +
-                                f'Var "{t.id}": computed ({computed_value}) != ' +
-                                f'expected ({expected_value}) on {date}\n' +
-                                (system_report_str(results, idx, date, gm, dm, tm) if input is not None else '')
-                            )
-                            assert abs(expected_value - computed_value) < SOLVER_TOL, msg
+                            if abs(expected_value - computed_value) >= SOLVER_TOL:
+                                msg = (message +
+                                    f'Var "{t.id}": computed ({computed_value}) != ' +
+                                    f'expected ({expected_value}) on {date}\n' +
+                                    (system_report_str(results, idx, date, gm, dm, tm) if input is not None else '')
+                                )
+                                raise AssertionError(msg)
                         idx += 1
     if cnt == 0:
         raise Exception('No trxn path-items were given an expected_value!')
