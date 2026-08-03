@@ -2112,7 +2112,7 @@ class K_Accounting_Graph_Details(unittest.TestCase):
             }
         )
 
-        results = solve(input, check_expected_values=False)
+        results = solve(input, check_expected_values=True)
 
         trxn_results = results.get_result_value(
             date='2000-01-01',
@@ -2120,17 +2120,6 @@ class K_Accounting_Graph_Details(unittest.TestCase):
             flow_id='B>DIV'
         )
 
-        self.assertEqual(len(trxn_results), 1)
-        self.assertAlmostEqual(
-            trxn_results[0].value,
-            0,
-            delta=1e-4,
-            msg=(
-                "Unavailable upstream natural flow was re-apportioned during "
-                "the spill pass even though there was no import, storage "
-                "release, or other spill."
-            )
-        )
 
 
 class RealProblems(unittest.TestCase):

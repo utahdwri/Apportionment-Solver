@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
-import numpy as np
+from loss_models import LossDefinition
 
 
 DEFAULT_TRXN_PRIORITY = 999999999
@@ -310,47 +310,6 @@ class Zone:
     storage_meas_ids: list[str] = field(default_factory=list)
 
 
-@dataclass
-class LossCurvePoint: #~
-    inflow: float
-    loss: float
-
-@dataclass
-class LossCurve: #~
-    points: list[LossCurvePoint]
-
-    def __post_init__(self):
-        # 1. Sort points by inflow to ensure np.interp works correctly
-        self.points.sort(key=lambda p: p.inflow)
-
-    def get_loss(self, x) -> float:
-        """Given flow just above the loss, return the loss."""
-
-        if len(self.points) > 0:
-
-            # 1. Handle flows below the minimum defined breakpoint (interpolate from (0, 0))
-            if x <= self.points[0].inflow:
-                if self.points[0].inflow == 0:
-                    return self.points[0].loss
-                return self.points[0].loss / self.points[0].inflow * x
-
-            # 2. Handle flows beyond the maximum breakpoint (ceiling)
-            if x >= self.points[-1].inflow:
-                return self.points[-1].loss
-
-            # 3. Interpolate between known points for everything else
-            for i in range(len(self.points) - 1):
-                p1 = self.points[i]
-                p2 = self.points[i + 1]
-
-                if p1.inflow <= x <= p2.inflow:
-                    dx = p2.inflow - p1.inflow
-                    slope = (p2.loss - p1.loss) / dx if dx != 0 else 0
-                    return p1.loss + slope * (x - p1.inflow)
-
-        return 0
-
-
 class ZoneTypes(Enum):
     STREAM = 'stream'
     STORAGE = 'storage'
@@ -391,9 +350,8 @@ class InterzoneFlow:
     # Not implemented yet
     lag_from_zone: float = 0
     lag_to_zone: float = 0
-    loss_from_zone: float = 0 # the fraction of flow lost before the observation (0-1)
-    loss_to_zone: float = 0 # the fraction of flow lost after the observation (0-1)
-    loss_from_zone_curve: LossCurve | None = None
+    loss_from_zone: LossDefinition = 0 # the fraction of flow lost before the observation (0-1)
+    loss_to_zone: LossDefinition = 0 # the fraction of flow lost after the observation (0-1)
 
     # Not implemented yet
     nf_measurements: list['FlowMeasurement'] = field(default_factory=list) # gains/loss flows are natural flows

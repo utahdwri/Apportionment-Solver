@@ -11,13 +11,19 @@ Recommended order of changes:
         * once all the natural flow for a zone has been used up, don't try to maximize apportionments to any trxns comming from that zone's natural flow
 
 - [ ] Implement storage-account and cumulative-volume constraints.
-- [ ] Implement loss curves
+        * Trxn object can reference to and from storage accounts. These are referenced by an account name (str) that should be unique for the source zone and destination zone. (The source zone and destination zone are identified via the path list.)
+        * Trxns can have an annual volume limit. The limit resets at a given day & month. The apportionment to a trxn must be limited to the remaining annual volume limit.
+        * An account can be configured to limit outgoing trxns when the current balance drops below a specified volume.
+        * An account can be configured to limit incoming trxns when the current balance hits a specified ceiling.
+
+- [ ] Allow for specified natural flow.
+
+- [ ] Implement piece-wise linear loss curves - See proposed plan document in root.
+
 - [ ] Keep natural-flow constraints in the spill pass and explicitly add locked spill as supply.
 - [ ] Exclude TrxnGroup variables from the final minimum-component-flow objective.
 - [ ] Make upper_limit=None semantics explicit rather than substituting 1,000.
 - [ ] Reject malformed transaction paths instead of silently retaining input order.
-- [done?] Preserve both pass-1 and pass-2 decisions rather than overwriting the transaction’s reason.
-
 
 
 
