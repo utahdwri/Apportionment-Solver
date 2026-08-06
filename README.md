@@ -1,9 +1,5 @@
 # Utah Water Right Apportionment Solver
 
-```bash
-pip install ut-water-apportionment
-```
-
 ![test status](https://github.com/utahdwri/Apportionment-Solver/actions/workflows/python-app.yml/badge.svg)
 
 [Apportionment Solver Documentation](https://github.com/utahdwri/Apportionment-Solver/blob/main/General%20Apportionment%20Solver%20Documentation.pdf)
