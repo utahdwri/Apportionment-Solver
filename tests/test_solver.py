@@ -226,7 +226,7 @@ class A_SingleReachProblems(unittest.TestCase):
                 Trxn(id='TRXN_4', priority=4, upper_limit= 4, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[0])]),
             ]
         )
-        results = solve(input, check_expected_values=True, solver_backend='highspy')
+        results = solve(input, check_expected_values=True)
 
     def test_simple_apportionments_2(self):
         """Does the measured diversion get apportioned correctly to its parts
