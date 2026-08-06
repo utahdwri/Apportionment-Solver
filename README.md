@@ -1,9 +1,95 @@
-# Apportionment-Solver
-Calculate after-the-fact water right apportionments based on flow measurements and water rights linked to the so-called WR Network
+# Utah Water Right Apportionment Solver
+
+```bash
+pip install ut-water-apportionment
+```
 
 ![test status](https://github.com/utahdwri/Apportionment-Solver/actions/workflows/python-app.yml/badge.svg)
 
 [Apportionment Solver Documentation](https://github.com/utahdwri/Apportionment-Solver/blob/main/General%20Apportionment%20Solver%20Documentation.pdf)
+
+
+## 1. After-the-fact distribution accounting
+In Utah, water is distributed by priority in accordance with water rights. Many water users have a portfolio of several water rights and storage water contracts. Distribution accounting subdivides the water actually diverted by each user into the components representing water diverted under each authorization. This accounting is used to verify that water is being distributed in accordance with priority or to identify water users who may have taken water out of turn. These results may also provide insights into the historical actual supply that a water right has recieved which may be much lower than the paper entitlement in river systems with variable supplies.
+
+This tool performs after-the-fact accounting, calculating apportionments by water right or other authorizations for measured diversions. This accounting depends on:
+- A stream network graph defining the known flows between zones
+- Measurements of diversions, imports, streamflow, and storage volumes
+- Transaction schedule that defines the priority ordering and limits of the water authorizations
+
+Example:
+```
+from ut_water_apportionment import (
+    SolverInput, AccountingGraph, Zone, ZoneTypes, InterzoneFlow, Trxn, TrxnPathItem
+)
+
+graph = AccountingGraph(
+    zones=[
+        Zone(id="RIVER", type=ZoneTypes.STREAM),
+        Zone(id="SYS", type=ZoneTypes.SYSTEM_GAIN_LOSS),
+        Zone(id="USER", type=ZoneTypes.USE),
+    ],
+    interzone_flows=[
+        InterzoneFlow(
+            id="RIVER>USER",
+            from_zone="RIVER",
+            to_zone="USER",
+            flow_measurements=[FlowMeasurement(measurement_id="1")]),
+        InterzoneFlow(
+            id="SYS>RIVER",
+            from_zone="SYS",
+            to_zone="RIVER",
+            flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE,
+            bidirectional=True
+        ),
+    ]
+)
+
+measurements = {
+    "1": [12]
+}
+
+schedule = [
+    Trxn(
+        id='TRXN_1',
+        priority=1,
+        upper_limit=3,
+        path=[TrxnPathItem(flow_id='RIVER>USER')]),
+    Trxn(
+        id='TRXN_2',
+        priority=2,
+        upper_limit=6,
+        path=[TrxnPathItem(flow_id='RIVER>USER')]
+    ),
+    Trxn(
+        id='TRXN_3',
+        priority=3,
+        upper_limit=12,
+        path=[TrxnPathItem(flow_id='RIVER>USER')]
+    ),
+    Trxn(
+        id='TRXN_4',
+        priority=4,
+        upper_limit=4,
+        path=[TrxnPathItem(flow_id='RIVER>USER')]
+    )
+]
+
+input = SolverInput(
+    beg_date='2000-01-01',
+    end_date='2000-01-01',
+    accounting_graph=graph,
+    measurement_beg_date='2000-01-01',
+    measurement_end_date='2000-01-01',
+    measurements=measurements,
+    txns=schedule
+)
+
+```
+
+## 2. Example
+
+
 
 
 

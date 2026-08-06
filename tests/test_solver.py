@@ -1,8 +1,6 @@
 import unittest
-from src.solver import (
-    solve
-)
-from src.models import (
+from ut_water_apportionment import (
+    solve,
     AccountingGraph,
     AccountingLimit,
     AccountingLimitInterval,
@@ -16,6 +14,16 @@ from src.models import (
     TrxnPathItem,
     Zone,
     ZoneTypes
+)
+from ut_water_apportionment.loss_models import LossDefinition
+
+# In case I want to see messages in the console:
+import logging
+import sys
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout,
+    force=True,
 )
 
 
@@ -172,11 +180,11 @@ class HelperUtilitiesTests(unittest.TestCase):
         """Test that the function that helps loop through days works as
         expected."""
 
-        from src.solver import (
-            loop_through_date_range
+        from ut_water_apportionment.solver import (
+            _loop_through_date_range
         )
 
-        results = [d for d in loop_through_date_range('2026-01-01',
+        results = [d for d in _loop_through_date_range('2026-01-01',
                                                       '2026-01-05')]
         self.assertEqual(len(results), 5)
         self.assertEqual(results[0], '2026-01-01')
@@ -218,7 +226,7 @@ class A_SingleReachProblems(unittest.TestCase):
                 Trxn(id='TRXN_4', priority=4, upper_limit= 4, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[0])]),
             ]
         )
-        results = solve(input, check_expected_values=True)
+        results = solve(input, check_expected_values=True, solver_backend='highspy')
 
     def test_simple_apportionments_2(self):
         """Does the measured diversion get apportioned correctly to its parts
@@ -1340,7 +1348,7 @@ class D_PrioritySeries(unittest.TestCase):
         results = solve(input, check_expected_values=True)
 
         print('\nRESULTS: \n')
-        results.print_solve_steps(constraint_mode='none')
+        results.print_solve_steps()
 
 
     def test_Leahs_3_reach_problem2(self):
@@ -1605,62 +1613,6 @@ class G_DocumentationExamples(unittest.TestCase):
 
 class H_(unittest.TestCase):
 
-    def test_temp(self):
-        from src.solver import (
-            GraphManager,
-            DailyDataManager
-        )
-
-        input = SolverInput(
-            beg_date='2000-01-02',
-            end_date='2000-01-02',
-            accounting_graph=AccountingGraph(
-                zones=[
-                    Zone(id="RIVER", type=ZoneTypes.STREAM),
-                    Zone(id="SYS", type=ZoneTypes.SYSTEM_GAIN_LOSS),
-                    Zone(id="STORAGE", type=ZoneTypes.STORAGE, storage_meas_ids=["STORAGE"]),
-                    Zone(id="A", type=ZoneTypes.USE),
-                    Zone(id="B", type=ZoneTypes.USE),
-                    Zone(id="B2", type=ZoneTypes.USE),
-                ],
-                interzone_flows=[
-                    InterzoneFlow(id="SYS>RIVER", from_zone="SYS", to_zone="RIVER",
-                                  flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True, residual_for_losses=True, residual_for_gains=True),
-                    InterzoneFlow(id="RIVER>STORAGE", from_zone="RIVER", to_zone="STORAGE", bidirectional=True,
-                                  flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, residual_for_losses=True, residual_for_gains=True),
-                    InterzoneFlow(id="RIVER>A", from_zone="RIVER", to_zone="A",
-                                  flow_measurements=[FlowMeasurement(measurement_id="A")]),
-                    InterzoneFlow(id="RIVER>B", from_zone="RIVER", to_zone="B",
-                                  flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, residual_for_losses=False, residual_for_gains=True),
-                    InterzoneFlow(id="B>B2", from_zone="B", to_zone="B2",
-                                  flow_measurements=[FlowMeasurement(measurement_id="B2")]),
-                ]
-            ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "STORAGE": [0, 0],
-                "A":  [0, 10],
-                "B2": [0, 3],
-            },
-            txns=[]
-        )
-
-        gm = GraphManager(input.accounting_graph)
-        dm = DailyDataManager(gm, input.measurements, input.measurement_beg_date, input.measurement_end_date)
-
-        # Note: adjust this method name if it changed in the general_solver2 Apportioner class
-        order = dm._determine_residual_calc_order()
-        orderNames = [x[0] for x in order]
-        print(orderNames)
-
-        idx_STORAGE = orderNames.index('STORAGE')
-        idx_B = orderNames.index('B')
-        idx_RIVER = orderNames.index('RIVER')
-
-        self.assertGreater(idx_RIVER, idx_B)
-        self.assertGreater(idx_RIVER, idx_STORAGE)
-
 
     def test_specified_residual_calc(self):
         input = SolverInput(
@@ -1843,7 +1795,8 @@ class J_Losses(unittest.TestCase):
                 ],
                 interzone_flows=[
                     InterzoneFlow(id="A>B", from_zone="REACH-A", to_zone="REACH-B", flow_measurements=[FlowMeasurement(measurement_id="A>B")],
-                                  loss_from_zone=0.2, loss_to_zone=0.2),
+                                  loss_from_zone=LossDefinition.linear(0.2),
+                                  loss_to_zone=LossDefinition.linear(0.2)),
                     InterzoneFlow(id="A>STOR", from_zone="REACH-A", to_zone="STOR", bidirectional=True),
                     InterzoneFlow(id="B>DIV", from_zone="REACH-B", to_zone="DIV", flow_measurements=[FlowMeasurement(measurement_id="B>DIV")]),
                     InterzoneFlow(id="SYS>A", from_zone="SYS", to_zone="REACH-A", bidirectional=True),
@@ -2131,8 +2084,10 @@ class RealProblems(unittest.TestCase):
 
         """
         import json
+        from pathlib import Path
 
-        with open(r'tests\test_files\lakefork_input.json', 'r') as file:
+        filepath = Path("tests") / "test_files" / "lakefork_input.json"
+        with open(filepath, 'r') as file:
             input_dict = json.load(file)
         input = parse_solver_input_from_dict(input_dict)
         solve(input)
@@ -2142,8 +2097,10 @@ class RealProblems(unittest.TestCase):
 
         """
         import json
+        from pathlib import Path
 
-        with open(r'tests\test_files\lakefork_input_20240328.json', 'r') as file:
+        filepath = Path("tests") / "test_files" / "lakefork_input_20240328.json"
+        with open(filepath, 'r') as file:
             input_dict = json.load(file)
         input = parse_solver_input_from_dict(input_dict)
         solve(input)

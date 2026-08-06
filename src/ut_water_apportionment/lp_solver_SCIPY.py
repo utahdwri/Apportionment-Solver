@@ -1,7 +1,7 @@
 """LP solver wrapper backed by SciPy's HiGHS interface.
 
 This mirrors the public API used by ``solve_lp_with_GLOP.LPSolver`` closely
-so the accounting solver can switch backends with only an import change.
+and is loaded through the central LP backend registry.
 
 Important implementation difference: ``scipy.optimize.linprog`` is not a
 persistent model API. The sparse matrices are rebuilt for each solve. For an
@@ -12,6 +12,8 @@ it exposes a persistent model and basis operations directly.
 
 from __future__ import annotations
 
+from .lp_solver import LPSolverError
+
 from dataclasses import dataclass, field
 from math import inf, isclose, isnan
 from typing import Iterable
@@ -20,9 +22,6 @@ import numpy as np
 from scipy.optimize import linprog
 from scipy.sparse import csr_matrix
 
-
-class LPSolverError(Exception):
-    """The requested LP was infeasible, unbounded, or otherwise unsolved."""
 
 
 @dataclass
@@ -169,7 +168,7 @@ class LPSolver:
         variable = self.vars[name]
         return variable.lb(), variable.ub()
 
-    def add_constriant(
+    def add_constraint(
         self,
         name: str,
         lb: float | None = None,
@@ -189,7 +188,7 @@ class LPSolver:
         self.cons[name] = _Constraint(name, lb_value, ub_value)
         self._constraint_vars[name] = []
 
-    def set_coeficient(
+    def set_coefficient(
         self,
         constraint_name: str,
         variable_name: str,
@@ -544,13 +543,13 @@ class LPSolver:
 
             constraint_name = "combined_" + variable_name
             if constraint_name not in self.cons:
-                self.add_constriant(constraint_name)
+                self.add_constraint(constraint_name)
             constraint = self.cons[constraint_name]
             constraint.Clear()
             self._constraint_vars[constraint_name] = []
             constraint.SetBounds(self.vars[variable_name].lb(), inf)
-            self.set_coeficient(constraint_name, variable_name, 1.0)
-            self.set_coeficient(constraint_name, merge_variable_name, -factor)
+            self.set_coefficient(constraint_name, variable_name, 1.0)
+            self.set_coefficient(constraint_name, merge_variable_name, -factor)
             merge_constraint_names.append(constraint_name)
 
         _, solved_values = self.solve_objective(
@@ -654,3 +653,7 @@ class LPSolver:
 
     def set_perminant_minus_var(self, minus_var_name: str | None):
         self.perminant_minus_var = minus_var_name
+
+    def has_variable(self, name: str) -> bool:
+        """Return whether a variable has been added to the model."""
+        return name in self.vars

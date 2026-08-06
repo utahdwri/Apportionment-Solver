@@ -1,7 +1,14 @@
-Recommended order of changes:
-- [x] Replace _determine_reason() with structured solve-step evidence.
-- [x] Fix feasibility fallback and never use penalized objective values as variable values.
-- [x] Make the _get_newly_maxed_vars check more efficient
+To complete this iteration:
+- Scale back audit-tracing. It's too much.
+- reconcile database with new model.
+
+For later:
+- Update documentation
+- Add time-lags
+- Track storage balances, and allow paths to be limited by them.
+
+- _add_slack_trxns mutation - store slack info in TrxnManager
+- DailyDataManager currently does too much, particularly the nf stuff does not belong.
 
 - [ ] Update Trxn data model so the source-account is 'Natural Flow' for diversions from the stream,
       During the 1st pass:
@@ -16,13 +23,10 @@ Recommended order of changes:
         * An account can be configured to limit outgoing trxns when the current balance drops below a specified volume.
         * An account can be configured to limit incoming trxns when the current balance hits a specified ceiling.
 
-- [ ] Allow for specified natural flow.
-
-- [ ] Implement piece-wise linear loss curves - See proposed plan document in root.
+- [ ] Implement piece-wise linear loss curves - See proposed plan in documentation.
 
 - [ ] Keep natural-flow constraints in the spill pass and explicitly add locked spill as supply.
 - [ ] Exclude TrxnGroup variables from the final minimum-component-flow objective.
-- [ ] Make upper_limit=None semantics explicit rather than substituting 1,000.
 - [ ] Reject malformed transaction paths instead of silently retaining input order.
 
 

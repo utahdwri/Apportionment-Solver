@@ -2,11 +2,16 @@
     "python.testing.unittestArgs": [
         "-v",
         "-s",
-        "./tests",
+        "tests",
+        "-t",
+        ".",
         "-p",
         "test_*.py"
     ],
     "python.testing.pytestEnabled": false,
     "python.testing.unittestEnabled": true,
-    "python.testing.cwd": "C:/Technical Services/My Programs/Apportionment-Solver"
+    "python.testing.cwd": "${workspaceFolder}",
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/src"
+    ]
 }

@@ -1,8 +1,7 @@
 """Persistent LP solver wrapper backed by native HiGHS Python bindings.
 
 The public backend is the free ``highspy`` package.  The wrapper mirrors the
-API used by ``solve_lp_with_GLOP.LPSolver`` so the accounting solver can switch
-backends with a one-line import change.
+common LP interface and is loaded through the central backend registry.
 
 Unlike ``scipy.optimize.linprog``, this wrapper keeps one native HiGHS model
 alive.  Objective coefficients, variable bounds, row bounds, and matrix
@@ -10,14 +9,14 @@ coefficients are changed in place.  HiGHS can therefore retain and repair the
 simplex basis between the many lexicographic re-solves performed by the water
 accounting solver.
 
-For test environments where the standalone package is unavailable, the module
-can use SciPy's bundled private HiGHS bindings.  Production deployments should
-install ``highspy`` directly::
+Install the public ``highspy`` package to use this backend::
 
     pip install highspy
 """
 
 from __future__ import annotations
+
+from .lp_solver import LPSolverError
 
 from dataclasses import dataclass, field
 from math import inf, isclose, isnan
@@ -25,34 +24,14 @@ from typing import Any
 
 import numpy as np
 
-try:  # Preferred, public package.
-    import highspy as _highs_module
+import highspy as _highs_module
 
-    _HighsClass = _highs_module.Highs
-    _ObjSense = _highs_module.ObjSense
-    _HighsModelStatus = _highs_module.HighsModelStatus
-    _HighsStatus = _highs_module.HighsStatus
-    _kHighsInf = _highs_module.kHighsInf
-    HIGHS_BINDING_SOURCE = "highspy"
-except ImportError:  # pragma: no cover - used in this execution environment.
-    try:
-        from scipy.optimize._highspy import _core as _highs_module
-
-        _HighsClass = _highs_module._Highs
-        _ObjSense = _highs_module.ObjSense
-        _HighsModelStatus = _highs_module.HighsModelStatus
-        _HighsStatus = _highs_module.HighsStatus
-        _kHighsInf = _highs_module.kHighsInf
-        HIGHS_BINDING_SOURCE = "scipy.optimize._highspy (private fallback)"
-    except ImportError as exc:  # pragma: no cover
-        raise ImportError(
-            "The native HiGHS backend requires `highspy`. Install it with "
-            "`pip install highspy`."
-        ) from exc
-
-
-class LPSolverError(Exception):
-    """The requested LP was infeasible, unbounded, or otherwise unsolved."""
+_HighsClass = _highs_module.Highs
+_ObjSense = _highs_module.ObjSense
+_HighsModelStatus = _highs_module.HighsModelStatus
+_HighsStatus = _highs_module.HighsStatus
+_kHighsInf = _highs_module.kHighsInf
+HIGHS_BINDING_SOURCE = "highspy"
 
 
 @dataclass
@@ -254,7 +233,7 @@ class LPSolver:
         variable = self.vars[name]
         return variable.lb(), variable.ub()
 
-    def add_constriant(
+    def add_constraint(
         self,
         name: str,
         lb: float | None = None,
@@ -322,7 +301,7 @@ class LPSolver:
             if constraint._name not in constraint_names:
                 constraint_names.append(constraint._name)
 
-    def set_coeficient(
+    def set_coefficient(
         self,
         constraint_name: str,
         variable_name: str,
@@ -629,7 +608,7 @@ class LPSolver:
 
             constraint_name = "combined_" + variable_name
             if constraint_name not in self.cons:
-                self.add_constriant(constraint_name)
+                self.add_constraint(constraint_name)
             constraint = self.cons[constraint_name]
             constraint.Clear()
             constraint.SetBounds(self.vars[variable_name].lb(), inf)
@@ -743,3 +722,7 @@ class LPSolver:
 
     def set_perminant_minus_var(self, minus_var_name: str | None):
         self.perminant_minus_var = minus_var_name
+
+    def has_variable(self, name: str) -> bool:
+        """Return whether a variable has been added to the model."""
+        return name in self.vars

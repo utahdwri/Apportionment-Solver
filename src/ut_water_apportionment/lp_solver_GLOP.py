@@ -1,13 +1,9 @@
+from .lp_solver import LPSolverError
+
 
 from ortools.linear_solver import pywraplp
 from math import inf, isnan, isclose
 
-
-class LPSolverError(Exception):
-    """An exception indicating the solver cannot solve a requested problem,
-    perhaps because the problem is infeasible, unbounded, or not properly
-    defined."""
-    pass
 
 
 class LPSolver:
@@ -81,7 +77,7 @@ class LPSolver:
         return (variable.lb(), variable.ub())
 
 
-    def add_constriant(self, name:str, lb:float|None=None, ub:float|None=None) -> None:
+    def add_constraint(self, name:str, lb:float|None=None, ub:float|None=None) -> None:
         "Add a constraint to the system of equations."
 
         # Allow None to be used to indicate there is no lb or ub.
@@ -108,7 +104,7 @@ class LPSolver:
         self.cons[name] = con
 
 
-    def set_coeficient(self, constraint_name:str, variable_name:str, coef:float|None) -> None:
+    def set_coefficient(self, constraint_name:str, variable_name:str, coef:float|None) -> None:
 
         if coef is None:
             raise Exception(f'New coef for constraint {constraint_name} is None!')
@@ -133,10 +129,12 @@ class LPSolver:
     def solve_objective(self,
                         variable_names:list[str],
                         maximization:bool=True,
-                        weights: dict[str, float] = {}
+                        weights: dict[str, float] | None = None
                         ) -> tuple[float, dict[str,float]]:
         """Return a solution to the max/minimization problem,
         or raise a SolverError exception."""
+
+        weights = weights or {}
 
         # Prepare the objective.
         objective = self.solver.Objective()
@@ -359,7 +357,7 @@ class LPSolver:
             # Create or Reuse the constraint
             con_name = 'combined_' + variable_name
             if con_name not in self.cons:
-                self.add_constriant(con_name, lb=-inf, ub=inf)
+                self.add_constraint(con_name, lb=-inf, ub=inf)
 
             # Set an inequality constraint that relates the merged
             # variable to this path variable:
@@ -494,3 +492,8 @@ class LPSolver:
             return lb != float('-inf') and isclose(activity, lb, abs_tol=1e-4)
 
         return False
+
+    def has_variable(self, name: str) -> bool:
+        """Return whether a variable has been added to the model."""
+        return name in self.vars
+
