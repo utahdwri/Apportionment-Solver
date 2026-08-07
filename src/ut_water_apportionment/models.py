@@ -263,7 +263,7 @@ class Trxn:
     id: str
     path: list['TrxnPathItem']
     upper_limit: 'float | AccountingLimit | None'
-    priority: float = -1
+    priority: float = DEFAULT_TRXN_PRIORITY
     max_acft: float | None = None
     from_account: ZoneAccount | None = None
     to_account: ZoneAccount | None = None
@@ -279,9 +279,19 @@ class Trxn:
 
 
     def __post_init__(self):
+        """Validates the data."""
+
+        if isinstance(self.upper_limit, (int, float)) and self.upper_limit < 0:
+            raise ValueError(
+                f'Accounting limit cannot be negative: '
+                f'{self.upper_limit} '
+            )
 
         if self.priority < 0 or self.priority > DEFAULT_TRXN_PRIORITY:
-            self.priority = DEFAULT_TRXN_PRIORITY
+            raise ValueError(
+                f'priority must be >= 0 and <= {DEFAULT_TRXN_PRIORITY}:'
+                f'{self.priority} '
+            )
 
         if self.is_slack:
             self.priority = SLACK_TRXN_PRIORITY
@@ -326,6 +336,14 @@ class AccountingLimitInterval:
     end_date: str
     value: float
 
+    def __post_init__(self):
+        """Validates the data."""
+        if self.value < 0:
+            raise ValueError(
+                f'Accounting limit cannot be negative: '
+                f'{self.value} '
+                f'({self.beg_date} to {self.end_date})'
+            )
 
 
 @dataclass
@@ -335,8 +353,8 @@ class TrxnGroup:
     id: str
     children_trxns: list['Trxn | TrxnGroup']
     wrnum: str | None
-    priority: float | None
-    upper_limit: 'float | AccountingLimit | None'
+    priority: float = DEFAULT_TRXN_PRIORITY
+    upper_limit: 'float | AccountingLimit | None' = None
     lower_limit: float = 0
     max_acft: float | None = None
     comment: str | None = None
@@ -344,7 +362,19 @@ class TrxnGroup:
     end_date: str | None = None
 
 
+    def __post_init__(self):
+        """Validates the data."""
+        if isinstance(self.upper_limit, (int, float)) and self.upper_limit < 0:
+            raise ValueError(
+                f'Accounting limit cannot be negative: '
+                f'{self.upper_limit} '
+            )
 
+        if self.priority < 0 or self.priority > DEFAULT_TRXN_PRIORITY:
+            raise ValueError(
+                f'priority must be >= 0 and <= {DEFAULT_TRXN_PRIORITY}:'
+                f'{self.priority} '
+            )
 
 #
 # Classes used for purposes internal to the solver.

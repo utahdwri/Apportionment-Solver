@@ -40,6 +40,16 @@ class TrxnSchedule:
 
         self.lookup_flow_trxns = self._build_flow_trxns_lookup()
 
+
+    @staticmethod
+    def traverse_vars(vars: list[Trxn | TrxnGroup]) -> Iterator[Trxn | TrxnGroup]:
+        """Recursively yields all transactions, including nested children."""
+        for v in vars:
+            yield v
+            if isinstance(v, TrxnGroup):
+                yield from TrxnSchedule.traverse_vars(v.children_trxns)
+
+
     @staticmethod
     def _validate(trxns:list[Trxn | TrxnGroup], gm:GraphManager) -> None:
         """Raises a ValueError if:
@@ -47,15 +57,17 @@ class TrxnSchedule:
          - interzone-flow references are not valid
         """
 
+        all_trxns = list(TrxnSchedule.traverse_vars(trxns))
+
         # Transaction IDs must be unique.
         seen = set()
-        for trxn in trxns:
+        for trxn in all_trxns:
             if trxn.id in seen:
                 raise ValueError(f"Duplicate transaction id: {trxn.id!r}")
             seen.add(trxn.id)
 
         # Interzone-flow references must exist.
-        for trxn in trxns:
+        for trxn in all_trxns:
             if isinstance(trxn, Trxn):
                 for item in trxn.path:
                     try:
@@ -65,14 +77,6 @@ class TrxnSchedule:
                             f"Transaction {trxn.id!r} references "
                             f"unknown interzone-flow {item.flow_id!r}."
                         )
-
-
-    def traverse_vars(self, vars: list[Trxn | TrxnGroup]) -> Iterator[Trxn | TrxnGroup]:
-        """Recursively yields all transactions, including nested children."""
-        for v in vars:
-            yield v
-            if type(v) == TrxnGroup:
-                yield from self.traverse_vars(v.children_trxns)
 
 
     def _process_input_trxns(self, input_txns: list['Trxn | TrxnGroup']):
