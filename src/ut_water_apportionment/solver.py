@@ -38,8 +38,6 @@ def solve(
     graph_manager = GraphManager(input.accounting_graph)
     graph_manager.set_implied_calculated_flow_boundaries()
 
-    # Add slack transactions to the input
-    _add_slack_trxns(input, graph_manager)
 
     # 2. Initialize daily data and natural-flow services.
     natural_flow_calculator = NaturalFlowCalculator(graph_manager)
@@ -175,35 +173,6 @@ def _loop_through_date_range(beg_date: str, end_date: str) -> Generator[str, Non
         yield yyyy_mm_dd
         current_date += timedelta(days=1)
 
-
-
-def _add_slack_trxns(input: SolverInput, gm: 'GraphManager'):
-    """Adds slack transactions to ensure the problem is feasible. This will
-    add an extra transaction for each interzone flow (or two if it's
-    bidirectional). These slack variables represent things like unauthorized
-    diversions to a user from a stream, water spilled from a reservoir or an
-    import to the natural system, etc."""
-    for f in gm.graph.interzone_flows:
-        from_z = gm.get_zone_by_id(f.from_zone)
-
-        flow_var_name = f'SLACK_{f.from_zone}_TO_{f.to_zone}_{f.id}'
-        slackvar = Trxn(
-            id=flow_var_name,
-            path=[TrxnPathItem(flow_id=f.id, factor=1)],
-            upper_limit=None,
-            is_slack=True
-        )
-        input.txns.append(slackvar)
-
-        if f.bidirectional:
-            flow_var_name2 = f'SLACK_{f.to_zone}_TO_{f.from_zone}_{f.id}'
-            slackvar2 = Trxn(
-                id=flow_var_name2,
-                path=[TrxnPathItem(flow_id=f.id, factor=-1)],
-                upper_limit=None,
-                is_slack=True
-            )
-            input.txns.append(slackvar2)
 
 
 def system_report_str(

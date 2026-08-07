@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from copy import deepcopy
 from .models import (
     AccountingLimit, CorePropSchedule, CorePropScheduleItem,
     CoreScheduleVariable, CoreSeqSchedule, CoreSeqScheduleItem,
@@ -23,8 +24,8 @@ class TrxnSchedule:
 
     def __init__(self, gm: GraphManager, txns:list[Trxn | TrxnGroup]):
         self.gm = gm
-        self._ensure_children_after_parent(txns)
-        self.all_trxns = list(self.traverse_vars(txns))
+        p_trxns = self._process_input_trxns(txns)
+        self.all_trxns = list(self.traverse_vars(p_trxns))
 
         self.ordered_paths: dict[str, list[TrxnPathItem]] = {}
         for t in self.all_trxns:
@@ -42,6 +43,51 @@ class TrxnSchedule:
             yield v
             if type(v) == TrxnGroup:
                 yield from self.traverse_vars(v.children_trxns)
+
+
+    def _process_input_trxns(self, input_txns: list['Trxn | TrxnGroup']):
+        """Given the input txns list, do some neccessary checks and make needed
+        modifications. Returns a seperate list, not modifying the origional
+        list."""
+
+        trxns = deepcopy(input_txns)
+
+        self._ensure_children_after_parent(trxns)
+
+        self._ensure_slack_trxns_exist(trxns)
+
+        return trxns
+
+
+    def _ensure_slack_trxns_exist(self, txns: list['Trxn | TrxnGroup']):
+        """Adds slack transactions to ensure the problem is feasible. This will
+        add an extra transaction for each interzone flow (or two if it's
+        bidirectional). These slack variables represent things like unauthorized
+        diversions to a user from a stream, water spilled from a reservoir or an
+        import to the natural system, etc."""
+
+        gm = self.gm
+
+        for f in gm.graph.interzone_flows:
+
+            flow_var_name = f'SLACK_{f.from_zone}_TO_{f.to_zone}_{f.id}'
+            slackvar = Trxn(
+                id=flow_var_name,
+                path=[TrxnPathItem(flow_id=f.id, factor=1)],
+                upper_limit=None,
+                is_slack=True
+            )
+            txns.append(slackvar)
+
+            if f.bidirectional:
+                flow_var_name2 = f'SLACK_{f.to_zone}_TO_{f.from_zone}_{f.id}'
+                slackvar2 = Trxn(
+                    id=flow_var_name2,
+                    path=[TrxnPathItem(flow_id=f.id, factor=-1)],
+                    upper_limit=None,
+                    is_slack=True
+                )
+                txns.append(slackvar2)
 
 
     def _ensure_children_after_parent(self, txns: list['Trxn | TrxnGroup'], parent_priority: float | None = None):
