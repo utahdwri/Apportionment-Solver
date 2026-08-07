@@ -142,43 +142,47 @@ class TrxnSchedule:
         if not trxn.path:
             return []
 
-        # Ignore loss branches for building the primary mathematical sequence
-        main_path = []
+        next_by_zone: dict[str, tuple[str, TrxnPathItem]] = {}
         for x in trxn.path:
             flow = self.gm.get_flow_by_id(x.flow_id)
-            to_z = self.gm.get_zone_by_id(flow.to_zone)
-            if to_z.type != ZoneTypes.SYSTEM_GAIN_LOSS:
-                main_path.append(x)
-
-        if len(main_path) <= 1:
-            return main_path
-
-        lookup_next = {}
-        for x in main_path:
-            flow = self.gm.get_flow_by_id(x.flow_id)
             if x.factor >= 0:
-                lookup_next[flow.from_zone] = (flow.to_zone, x)
+                from_zone = flow.from_zone
+                to_zone = flow.to_zone
             else:
-                lookup_next[flow.to_zone] = (flow.from_zone, x)
+                from_zone = flow.to_zone
+                to_zone = flow.from_zone
 
-        starts = set(lookup_next.keys())
-        ends = set(v[0] for v in lookup_next.values())
-        root_candidates = list(starts - ends)
+            # A transaction path should not branch.
+            if from_zone in next_by_zone:
+                raise ValueError(
+                    f"Transaction {trxn.id!r} branches at zone "
+                    f"{from_zone!r}."
+                )
 
-        if len(root_candidates) != 1:
-            return main_path
+            next_by_zone[from_zone] = (to_zone, x)
 
-        sorted_list = []
-        current_key = root_candidates[0]
-        while len(sorted_list) < len(main_path):
-            if current_key not in lookup_next: break
-            next_zone, path_item = lookup_next[current_key]
-            sorted_list.append(path_item)
-            current_key = next_zone
+        starts = set(next_by_zone.keys())
+        ends = set(v[0] for v in next_by_zone.values())
+        roots = starts - ends
 
-        if len(sorted_list) != len(main_path):
-            return main_path
-        return sorted_list
+        if len(roots) != 1:
+            raise ValueError(
+                f"Transaction {trxn.id!r} does not form one continuous path."
+            )
+
+        ordered = []
+        zone = next(iter(roots))
+
+        while zone in next_by_zone:
+            zone, item = next_by_zone[zone]
+            ordered.append(item)
+
+        if len(ordered) != len(trxn.path):
+            raise ValueError(
+                f"Transaction {trxn.id!r} does not form one continuous path."
+            )
+
+        return ordered
 
     def get_anchor_var(self, trxn: Trxn) -> str | None:
         path = self.ordered_paths.get(trxn.id, [])
@@ -226,7 +230,8 @@ class TrxnSchedule:
     def get_minus_vars(self, vars: list[Trxn | TrxnGroup]) -> list[Trxn]:
 
         def get_from(v: Trxn) -> tuple[Zone, InterzoneFlow]:
-            first_item = v.path[0]
+            path = self.ordered_paths[v.id]
+            first_item = path[0]
 
             f0 = self.gm.get_flow_by_id(first_item.flow_id)
             if first_item.factor >= 0:
@@ -236,7 +241,8 @@ class TrxnSchedule:
             return from_zone, f0
 
         def get_to(v:Trxn) -> tuple[Zone, InterzoneFlow]:
-            last_item = v.path[-1]
+            path = self.ordered_paths[v.id]
+            last_item = path[-1]
 
             fl = self.gm.get_flow_by_id(last_item.flow_id)
             if last_item.factor < 0:

@@ -4,7 +4,7 @@ from math import isclose, isfinite
 from collections.abc import Iterator
 
 from .models import (
-    FlowComponentsTypes, InterzoneFlow, NaturalFlowMode, Zone, ZoneTypes
+    FlowComponentsTypes, InterzoneFlow, MeasurementCollection, NaturalFlowMode, Zone, ZoneTypes
 )
 from .graph_manager import GraphManager
 from .natural_flow_calculator import CurFlowInfo, NaturalFlowCalculator
@@ -19,16 +19,14 @@ class DailyDataManager:
     def __init__(
         self,
         gm: GraphManager,
-        measurements,
-        measurement_beg_date: str,
-        measurement_end_date: str,
+        measurements: MeasurementCollection,
         natural_flow_calculator: NaturalFlowCalculator,
         external_natural_flows: dict | None = None,
     ):
+        self._validate_measurement_references(gm, measurements)
+
         self.gm = gm
         self.measurements = measurements
-        self.measurement_beg_date = measurement_beg_date
-        self.measurement_end_date = measurement_end_date # NOTE: stored but never used
         self.cur_date: str | None = None
         self.cur_flows_by_id: dict[str, CurFlowInfo] = {}
         self.cur_storage_chg_by_id: dict[str, CurFlowInfo] = {}
@@ -36,6 +34,41 @@ class DailyDataManager:
         self._flow_lags = self._get_lag_by_flowline_id()
         self.external_natural_flows = external_natural_flows or {}
         self.natural_flow_calculator = natural_flow_calculator
+
+    @staticmethod
+    def _validate_measurement_references(
+        gm: GraphManager,
+        measurements: MeasurementCollection,
+    ) -> None:
+
+        available_ids = {x.id for x in measurements.series}
+
+        for flow in gm.graph.interzone_flows:
+
+            if flow.flow_type == FlowComponentsTypes.OBSERVATION:
+                for measurement in flow.flow_measurements:
+                    if str(measurement.measurement_id) not in available_ids:
+                        raise ValueError(
+                            f"Interzone flow {flow.id!r} references missing "
+                            f"measurement {measurement.measurement_id!r}."
+                        )
+
+            if flow.natural_flow_mode == NaturalFlowMode.SPECIFIED:
+                for measurement in flow.nf_measurements:
+                    if str(measurement.measurement_id) not in available_ids:
+                        raise ValueError(
+                            f"Natural flow for {flow.id!r} references missing "
+                            f"measurement {measurement.measurement_id!r}."
+                        )
+
+        for zone in gm.graph.zones:
+            for measurement_id in zone.storage_meas_ids:
+                if str(measurement_id) not in available_ids:
+                    raise ValueError(
+                        f"Zone {zone.id!r} references missing storage "
+                        f"measurement {measurement_id!r}."
+                    )
+
 
     def set_day(self, date: str):
         self.cur_date = date
@@ -60,9 +93,7 @@ class DailyDataManager:
             value = 0.0
             lag = int(self._flow_lags[flow.id])
             for measurement in flow.nf_measurements:
-                measured = self._get_flow_from_meas(
-                    measurement.measurement_id, date, lag
-                )
+                measured = self.measurements.get(measurement.measurement_id, date, lag)
                 if measured is None:
                     if COALESCE_MISSING_FLOWS_TO_ZERO:
                         measured = 0.0
@@ -183,7 +214,7 @@ class DailyDataManager:
 
             if f.flow_type == FlowComponentsTypes.OBSERVATION:
                 for fm in f.flow_measurements:
-                    val = self._get_flow_from_meas(fm.measurement_id, date, int(lag))
+                    val = self.measurements.get(fm.measurement_id, date, int(lag))
                     if val is None:
                         if COALESCE_MISSING_FLOWS_TO_ZERO:
                             val = 0
@@ -284,7 +315,7 @@ class DailyDataManager:
         storage_chg = None
         if z.type in (ZoneTypes.STREAM, ZoneTypes.STORAGE):
             for mid in z.storage_meas_ids:
-                storage_chg = self._get_storage_change_from_meas(mid, date)
+                storage_chg = self.measurements.get_change(mid, date)
                 if storage_chg is not None:
                     break
 
@@ -297,46 +328,5 @@ class DailyDataManager:
             storage_chg = 0
         return storage_chg
 
-    def _get_flow_from_meas(self, meas_id: str, date: str, lag: int = 0):
-        from datetime import datetime
-        measurements = self.measurements[str(meas_id)]
 
-        # Convert the date to the list index.
-        beg_date = datetime.strptime(self.measurement_beg_date, "%Y-%m-%d").date()
-        this_date = datetime.strptime(date, "%Y-%m-%d").date()
-        day_idx = (this_date - beg_date).days
-
-        # Retrieve the value.
-        idx = day_idx - lag
-        if 0 <= idx < len(measurements):
-            return measurements[idx]
-        return None
-
-    def _get_storage_change_from_meas(self, meas_id: str | None, date: str, lag: int = 0):
-        """
-        storage_change for today = [todays storage] - [yesterdays storage]
-        The assumption is that these are end-of-day storage volumes.
-        """
-        from datetime import datetime
-        measurements = self.measurements[str(meas_id)]
-
-        # Convert the date to the list index.
-        beg_date = datetime.strptime(self.measurement_beg_date, "%Y-%m-%d").date()
-        this_date = datetime.strptime(date, "%Y-%m-%d").date()
-        day_idx = (this_date - beg_date).days
-
-        if meas_id is not None:
-            idx_yesterday = day_idx - 1 - lag
-            idx_today = day_idx - lag
-
-            if idx_yesterday >= 0 and idx_today < len(measurements):
-                # Retrieve the values and calculate the change.
-                storage_a = measurements[idx_yesterday]
-                storage_b = measurements[idx_today]
-                if storage_a is not None and storage_b is not None:
-                    # Note that units should have already been converted from
-                    # ac-ft/day to cfs
-                    return storage_b - storage_a
-
-        return None
 

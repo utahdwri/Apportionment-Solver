@@ -7,6 +7,8 @@ from ut_water_apportionment import (
     FlowMeasurement,
     FlowComponentsTypes,
     InterzoneFlow,
+    MeasurementCollection,
+    MeasurementSeries,
     SolverInput,
     SolverOutput,
     Trxn,
@@ -165,11 +167,16 @@ def parse_solver_input_from_dict(data: dict, results_dict: dict|None = None) -> 
     return SolverInput(
         accounting_graph=graph,
         txns=txns,
-        measurements=data.get('measurements', {}),
         beg_date=data.get('beg_date'), # type: ignore
         end_date=data.get('end_date'), # type: ignore
-        measurement_beg_date=data.get('measurement_beg_date'), # type: ignore
-        measurement_end_date=data.get('measurement_end_date') # type: ignore
+        measurements=MeasurementCollection(
+            beg_date=data['measurements']['beg_date'],
+            end_date=data['measurements']['end_date'],
+            series=[
+                MeasurementSeries(id=x['id'], values=x['values'])
+                for x in data['measurements']['series']
+            ]
+        )
     )
 
 class HelperUtilitiesTests(unittest.TestCase):
@@ -214,9 +221,9 @@ class A_SingleReachProblems(unittest.TestCase):
                     InterzoneFlow(id="SYS>RIVER", from_zone="SYS", to_zone="RIVER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={"1": [12]},
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id='1', values=[12])
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1, upper_limit= 3, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[3])]),
                 Trxn(id='TRXN_2', priority=2, upper_limit= 6, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[6])]),
@@ -245,9 +252,9 @@ class A_SingleReachProblems(unittest.TestCase):
                     InterzoneFlow(id="SYS>RIVER", from_zone="SYS", to_zone="RIVER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={"1": [100]},
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id='1', values=[100])
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1, upper_limit= 3, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[ 3])]),
                 Trxn(id='TRXN_2', priority=2, upper_limit= 6, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[ 6])]),
@@ -276,13 +283,11 @@ class A_SingleReachProblems(unittest.TestCase):
                     InterzoneFlow(id="SYS>RIVER", from_zone="SYS", to_zone="RIVER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={
-                "A": [10],
-                "B": [5],
-                "C": [6]
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id='A', values=[10]),
+                MeasurementSeries(id='B', values=[5]),
+                MeasurementSeries(id='C', values=[6]),
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1, upper_limit=1, path=[TrxnPathItem(flow_id='RIVER>A', expected_values=[1])]), #limited by water right
                 Trxn(id='TRXN_2', priority=1, upper_limit=6, path=[TrxnPathItem(flow_id='RIVER>B', expected_values=[5])]), #limited by measured diversion
@@ -315,9 +320,11 @@ class A_SingleReachProblems(unittest.TestCase):
                     InterzoneFlow(id="SYS>RIVER", from_zone="SYS", to_zone="RIVER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={"A": [0], "B": [0], "C": [0]},
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id='A', values=[0]),
+                MeasurementSeries(id='B', values=[0]),
+                MeasurementSeries(id='C', values=[0]),
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1, upper_limit=0, path=[TrxnPathItem(flow_id='RIVER>A', expected_values=[0])]), #limited by water right
                 Trxn(id='TRXN_2', priority=1, upper_limit=0, path=[TrxnPathItem(flow_id='RIVER>B', expected_values=[0])]), #limited by measured diversion
@@ -342,12 +349,10 @@ class A_SingleReachProblems(unittest.TestCase):
                     InterzoneFlow(id="SYS>RIVER", from_zone="SYS", to_zone="RIVER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "A": [10, 10],
-                "dS": [10, 0],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                MeasurementSeries(id='A', values=[10,10]),
+                MeasurementSeries(id='dS', values=[10,0]),
+            ]),
             txns=[]
         )
 
@@ -370,12 +375,10 @@ class A_SingleReachProblems(unittest.TestCase):
                     InterzoneFlow(id="SYS>RIVER", from_zone="SYS", to_zone="RIVER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "A": [10, 10],
-                "dS": [10, 12],  # This means the reach soaked up some of the water
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                MeasurementSeries(id='A', values=[10,10]),
+                MeasurementSeries(id='dS', values=[10,12]),
+            ]),
             txns=[]
         )
 
@@ -402,9 +405,11 @@ class A_SingleReachProblems(unittest.TestCase):
                     InterzoneFlow(id="SYS>RIVER", from_zone="SYS", to_zone="RIVER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={"A": [10], "B": [5], "C": [6]},
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id='A', values=[10]),
+                MeasurementSeries(id='B', values=[5]),
+                MeasurementSeries(id='C', values=[6]),
+            ]),
             txns=[]
         )
 
@@ -470,17 +475,15 @@ class B_Reservoirs(unittest.TestCase):
                     InterzoneFlow(id="Flow5", from_zone="SYS", to_zone="REACH-C", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "dS":  [0, stor_chg+stor_loss],
-                "A>B": [0, Q_AB],
-                "B>C": [0, Q_BC],
-                "C>D": [0, Q_CD],
-                "B>1": [0, Q_DIV1],
-                "C>2": [0, Q_DIV2],
-                "C>3": [0, Q_DIV3]
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                 MeasurementSeries(id='dS',  values=[0, stor_chg+stor_loss]),
+                 MeasurementSeries(id='A>B', values=[0, Q_AB]),
+                 MeasurementSeries(id='B>C', values=[0, Q_BC]),
+                 MeasurementSeries(id='C>D', values=[0, Q_CD]),
+                 MeasurementSeries(id='B>1', values=[0, Q_DIV1]),
+                 MeasurementSeries(id='C>2', values=[0, Q_DIV2]),
+                 MeasurementSeries(id='C>3', values=[0, Q_DIV3])
+            ]),
             txns=[]
         )
 
@@ -505,13 +508,11 @@ class B_Reservoirs(unittest.TestCase):
                     InterzoneFlow(id="RIVER>B", from_zone="RIVER", to_zone="B", flow_measurements=[FlowMeasurement(measurement_id="B")]),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "STORAGE": [0, 0],
-                "A": [0, 10],
-                "B": [0, 10],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                 MeasurementSeries(id='STORAGE', values=[0, 0]),
+                 MeasurementSeries(id='A', values=[0, 10]),
+                 MeasurementSeries(id='B', values=[0, 10])
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='RIVER>A')]),
                 Trxn(id='TRXN_2', priority=1, upper_limit=4, path=[TrxnPathItem(flow_id='RIVER>B')]),
@@ -547,14 +548,12 @@ class B_Reservoirs(unittest.TestCase):
                     InterzoneFlow(id="DOWNSTREAM>B", from_zone="DOWNSTREAM", to_zone="B", flow_measurements=[FlowMeasurement(measurement_id="B")]),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "STORAGE": [0, 0],
-                "A": [0, 10],
-                "B": [0, 10],
-                "Q": [0, 2],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                 MeasurementSeries(id='STORAGE', values=[0, 0]),
+                 MeasurementSeries(id='A', values=[0, 10]),
+                 MeasurementSeries(id='B', values=[0, 10]),
+                 MeasurementSeries(id='Q', values=[0, 2])
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='DOWNSTREAM>A')]),
                 Trxn(id='TRXN_2', priority=1, upper_limit=4, path=[TrxnPathItem(flow_id='DOWNSTREAM>B')]),
@@ -754,13 +753,11 @@ class B_Reservoirs(unittest.TestCase):
                     InterzoneFlow(id="S>OUT", from_zone="S", to_zone="OUT", flow_measurements=[FlowMeasurement(measurement_id="OUTFLOW")]),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "dS": [0, -5],
-                "A":  [0, 5],
-                "OUTFLOW": [0,0]
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                 MeasurementSeries(id='dS', values=[0, -5]),
+                 MeasurementSeries(id='A', values=[0, 5]),
+                 MeasurementSeries(id='OUTFLOW', values=[0, 0]),
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1900, upper_limit=5, path=[TrxnPathItem(flow_id='S>A', expected_values=[0])]),
                 Trxn(id='TRXN_2', priority=1950, upper_limit=100, path=[TrxnPathItem(flow_id='S>R', expected_values=[0])]),
@@ -788,13 +785,11 @@ class B_Reservoirs(unittest.TestCase):
                     InterzoneFlow(id="SYS>S", from_zone="SYS", to_zone="S", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "dS": [0, -5],
-                "A":  [0, 5],
-                "OUT":  [0, 5],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                 MeasurementSeries(id='dS', values=[0, -5]),
+                 MeasurementSeries(id='A', values=[0, 5]),
+                 MeasurementSeries(id='OUT', values=[0, 5]),
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1900, upper_limit=5, path=[TrxnPathItem(flow_id='S>A', expected_values=[5])]),
                 Trxn(id='TRXN_2', priority=1950, upper_limit=100, path=[TrxnPathItem(flow_id='S>R', expected_values=[0])]),
@@ -851,13 +846,11 @@ class B_Reservoirs(unittest.TestCase):
                     InterzoneFlow(id="SYS>R2", from_zone="SYS", to_zone="R2", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "dS1": [0, 0],
-                "dS2": [0, 0],
-                "R1-R2":  [0, 5],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                 MeasurementSeries(id='dS1', values=[0, 0]),
+                 MeasurementSeries(id='dS2', values=[0, 0]),
+                 MeasurementSeries(id='R1-R2', values=[0, 5]),
+            ]),
             txns=[
 
                 # Move from S1 to S2
@@ -916,14 +909,12 @@ class B_Reservoirs(unittest.TestCase):
                     InterzoneFlow(id="SYS>R3", from_zone="SYS", to_zone="R3", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "dS": [0, 0],
-                "R1-R2":  [0, 5],
-                "R2-R3":  [0, 5],
-                "R2-A":  [0, 5],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                 MeasurementSeries(id='dS', values=[0, 0]),
+                 MeasurementSeries(id='R1-R2', values=[0, 5]),
+                 MeasurementSeries(id='R2-R3', values=[0, 5]),
+                 MeasurementSeries(id='R2-A', values=[0, 5]),
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1, upper_limit=5, path=[TrxnPathItem(flow_id='R2>S', factor=-1), TrxnPathItem(flow_id='R2>R3', expected_values=[5])]),
                 Trxn(id='TRXN_2', priority=2, upper_limit=5, path=[TrxnPathItem(flow_id='R1>R2', expected_values=[5]), TrxnPathItem(flow_id='R2>A', expected_values=[5])]),
@@ -957,13 +948,11 @@ class B_Imports(unittest.TestCase):
                     InterzoneFlow(id="S>OUT", from_zone="S", to_zone="OUT", flow_measurements=[FlowMeasurement(measurement_id="OUT")]),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={
-                "IMP": [5],
-                "DIV": [5],
-                "OUT": [0]
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                 MeasurementSeries(id='IMP', values=[5]),
+                 MeasurementSeries(id='DIV', values=[5]),
+                 MeasurementSeries(id='OUT', values=[0]),
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=10, upper_limit=5, path=[TrxnPathItem(flow_id='IMP>S'), TrxnPathItem(flow_id='S>DIV', expected_values=[5])]),
                 Trxn(id='TRXN_2', priority=2, upper_limit=5, path=[TrxnPathItem(flow_id='S>DIV', expected_values=[0])]),
@@ -1004,12 +993,10 @@ class B_Imports(unittest.TestCase):
                     InterzoneFlow(id="SYS>LOWER", from_zone="SYS", to_zone="LOWER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={
-                "Q": [5],
-                "A": [8],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                 MeasurementSeries(id='Q', values=[5]),
+                 MeasurementSeries(id='A', values=[8]),
+            ]),
             txns=[
                 # TRXN_1 should be limited to the gains in the lower reach
                 Trxn(id='TRXN_1', priority=1, upper_limit=10, path=[TrxnPathItem(flow_id='SYS>LOWER'), TrxnPathItem(flow_id='Lower>A', expected_values=[3])]),
@@ -1042,11 +1029,9 @@ class D_PrioritySeries(unittest.TestCase):
                     InterzoneFlow(id="SYS>RIVER", from_zone="SYS", to_zone="RIVER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={
-                "1": [12]
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                 MeasurementSeries(id='1', values=[12]),
+            ]),
             txns=[
                 TrxnGroup(
                     id='TRXN_1',
@@ -1096,12 +1081,10 @@ class D_PrioritySeries(unittest.TestCase):
                     InterzoneFlow(id="SYS>RIVER", from_zone="SYS", to_zone="RIVER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={
-                "A": [6],
-                "B": [4],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                 MeasurementSeries(id='A', values=[6]),
+                 MeasurementSeries(id='B', values=[4]),
+            ]),
             txns=[
                 TrxnGroup(
                     id='TRXN_1',
@@ -1157,15 +1140,13 @@ class D_PrioritySeries(unittest.TestCase):
                     InterzoneFlow(id="Flow3", from_zone="SYS", to_zone="LOWER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "UPPER>LOWER":  [0, 2],
-                "dS": [0, 10],
-                "A": [0, 2],
-                "B": [0, 8],
-                "C": [0, 5]
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                 MeasurementSeries(id='UPPER>LOWER', values=[0,2]),
+                 MeasurementSeries(id='dS', values=[0,10]),
+                 MeasurementSeries(id='A', values=[0,2]),
+                 MeasurementSeries(id='B', values=[0,8]),
+                 MeasurementSeries(id='C', values=[0,5]),
+            ]),
             txns=[
                 TrxnGroup(
                     id='TRXN_2',
@@ -1234,15 +1215,13 @@ class D_PrioritySeries(unittest.TestCase):
                     InterzoneFlow(id="Flow3", from_zone="SYS", to_zone="LOWER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "UPPER>LOWER":  [0, 2],
-                "dS": [0, 3],
-                "A": [0, 2],
-                "B": [0, 8],
-                "C": [0, 5]
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                 MeasurementSeries(id='UPPER>LOWER', values=[0,2]),
+                 MeasurementSeries(id='dS', values=[0,3]),
+                 MeasurementSeries(id='A', values=[0,2]),
+                 MeasurementSeries(id='B', values=[0,8]),
+                 MeasurementSeries(id='C', values=[0,5]),
+            ]),
             txns=[
                 TrxnGroup(
                     id='TRXN_2',
@@ -1313,17 +1292,15 @@ class D_PrioritySeries(unittest.TestCase):
                     InterzoneFlow(id="Flow7", from_zone="SYS", to_zone="Downstream", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={
-                "Imports>R1": [40],
-                "R1>R2": [10],
-                "R2>R3": [30],
-                "R3>": [5],
-                "R1>A": [50],
-                "R2>B": [30],
-                "R3>C": [20],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                 MeasurementSeries(id="Imports>R1", values=[40]),
+                 MeasurementSeries(id="R1>R2", values=[10]),
+                 MeasurementSeries(id="R2>R3", values=[30]),
+                 MeasurementSeries(id="R3>", values=[5]),
+                 MeasurementSeries(id="R1>A", values=[50]),
+                 MeasurementSeries(id="R2>B", values=[30]),
+                 MeasurementSeries(id="R3>C", values=[20]),
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1, upper_limit=30, path=[TrxnPathItem(flow_id='R1>A', expected_values=[20])]),
                 Trxn(id='TRXN_2', priority=1, upper_limit=20, path=[TrxnPathItem(flow_id='R2>B', expected_values=[20])]),
@@ -1370,17 +1347,15 @@ class D_PrioritySeries(unittest.TestCase):
                     InterzoneFlow(id="Flow7", from_zone="SYS", to_zone="Downstream", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={
-                "Imports>R1": [100],
-                "R1>R2":  [10],
-                "R2>R3": [30],
-                "R3>": [5],
-                "R1>A": [50],
-                "R2>B": [30],
-                "R3>C": [20],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                 MeasurementSeries(id="Imports>R1", values=[100]),
+                 MeasurementSeries(id="R1>R2", values=[10]),
+                 MeasurementSeries(id="R2>R3", values=[30]),
+                 MeasurementSeries(id="R3>", values=[5]),
+                 MeasurementSeries(id="R1>A", values=[50]),
+                 MeasurementSeries(id="R2>B", values=[30]),
+                 MeasurementSeries(id="R3>C", values=[20]),
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1, upper_limit=30, path=[TrxnPathItem(flow_id='R1>A', expected_values=[0])]),
                 Trxn(id='TRXN_2', priority=1, upper_limit=20, path=[TrxnPathItem(flow_id='R2>B', expected_values=[20])]),
@@ -1418,12 +1393,10 @@ class E_SharedTrxnLimits(unittest.TestCase):
                     InterzoneFlow(id="SYS>RIVER", from_zone="SYS", to_zone="RIVER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={
-                "A": [10],
-                "B": [10]
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id="A", values=[10]),
+                MeasurementSeries(id="B", values=[10]),
+            ]),
             txns=[
                 TrxnGroup(
                     id='TRXN_GRP',
@@ -1467,13 +1440,11 @@ class E_SharedTrxnLimits(unittest.TestCase):
                     InterzoneFlow(id="A>B", from_zone="REACH-A", to_zone="REACH-B", flow_measurements=[FlowMeasurement(measurement_id="A>B")])
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={
-                "A>1": [20],
-                "A>2": [20],
-                "A>B": [0],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id="A>1", values=[20]),
+                MeasurementSeries(id="A>2", values=[20]),
+                MeasurementSeries(id="A>B", values=[0]),
+            ]),
             txns=[
                 Trxn(id='WR_123', priority=1, upper_limit=10, path=[TrxnPathItem(flow_id='A>1', expected_values=[8.888888889])]),
                 Trxn(id='WR_234', priority=1, upper_limit=20, path=[TrxnPathItem(flow_id='A>2', expected_values=[17.77777778])]),
@@ -1525,16 +1496,14 @@ class G_DocumentationExamples(unittest.TestCase):
                     InterzoneFlow(id="B>C", from_zone="REACH-B", to_zone="REACH-C", flow_measurements=[FlowMeasurement(measurement_id="B>C")]),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "A>B": [0, 90],
-                "dS": [0, -35],
-                "evap-loss": [0, 5],
-                "B>1": [0, 50],
-                "B>2": [0, 50],
-                "B>C": [0, 0],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                MeasurementSeries(id="A>B", values=[0, 90]),
+                MeasurementSeries(id="dS" , values=[0, -35]),
+                MeasurementSeries(id="evap-loss", values=[0, 5]),
+                MeasurementSeries(id="B>1", values=[0, 50]),
+                MeasurementSeries(id="B>2", values=[0, 50]),
+                MeasurementSeries(id="B>C", values=[0, 0]),
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1880, upper_limit=40, path=[TrxnPathItem(flow_id='B>1', expected_values=[40])]),
                 Trxn(id='TRXN_2', priority=1890, upper_limit=20, path=[TrxnPathItem(flow_id='B>1', expected_values=[10])]),
@@ -1549,51 +1518,6 @@ class G_DocumentationExamples(unittest.TestCase):
         )
 
         results = solve(input, check_expected_values=True)
-
-
-
-
-class H_(unittest.TestCase):
-
-
-    def test_specified_residual_calc(self):
-        input = SolverInput(
-            beg_date='2000-01-02',
-            end_date='2000-01-02',
-            accounting_graph=AccountingGraph(
-                zones=[
-                    Zone(id="RIVER", type=ZoneTypes.STREAM),
-                    Zone(id="SYS", type=ZoneTypes.SYSTEM_GAIN_LOSS),
-                    Zone(id="STORAGE", type=ZoneTypes.STORAGE, storage_meas_ids=["STORAGE"]),
-                    Zone(id="A", type=ZoneTypes.USE),
-                    Zone(id="B", type=ZoneTypes.USE),
-                    Zone(id="B2", type=ZoneTypes.USE),
-                ],
-                interzone_flows=[
-                    InterzoneFlow(id="GAINS_TO:RIVER", from_zone="SYS", to_zone="RIVER",
-                                  flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True, residual_for_losses=True, residual_for_gains=True),
-                    InterzoneFlow(id="RIVER>STORAGE", from_zone="RIVER", to_zone="STORAGE", bidirectional=True,
-                                  flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, residual_for_losses=True, residual_for_gains=True),
-                    InterzoneFlow(id="RIVER>A", from_zone="RIVER", to_zone="A",
-                                  flow_measurements=[FlowMeasurement(measurement_id="A")]),
-                    InterzoneFlow(id="RIVER>B", from_zone="RIVER", to_zone="B",
-                                  flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, residual_for_losses=False, residual_for_gains=True),
-                    InterzoneFlow(id="B>B2", from_zone="B", to_zone="B2",
-                                  flow_measurements=[FlowMeasurement(measurement_id="B2")]),
-                ]
-            ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "STORAGE": [0, 0],
-                "A":  [0, 10],
-                "B2": [0, 3],
-            },
-            txns=[]
-        )
-
-        results = solve(input)
-        self.assertAlmostEqual(results.get_result_value(date='2000-01-02', flow_id='RIVER>B')[0].value, 3, delta=1e-4)
 
 
 
@@ -1624,14 +1548,12 @@ class I_TimeLags(unittest.TestCase):
                     InterzoneFlow(id="SYS>REACH-B", from_zone="SYS", to_zone="REACH-B", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-05',
-            measurements={
-                "A>1": [0, 1, 2, 3, 4], # takes 2 days
-                "A>2": [0, 2, 5, 4, 5], # takes 1 day
-                "A>B": [10, 10, 10, 10, 10], # same day impact
-                "B>3": [10, 10, 10, 10, 10], # same day impact
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-05',series=[
+                MeasurementSeries(id="A>1", values=[0, 1, 2, 3, 4]), # takes 2 days
+                MeasurementSeries(id="A>2", values=[0, 2, 5, 4, 5]), # takes 1 day
+                MeasurementSeries(id="A>B", values=[10, 10, 10, 10, 10]), # same day impact
+                MeasurementSeries(id="B>3", values=[10, 10, 10, 10, 10]), # same day impact
+            ]),
             txns=[]
         )
 
@@ -1679,13 +1601,11 @@ class J_Losses(unittest.TestCase):
                     InterzoneFlow(id="Flow5", from_zone="SYS", to_zone="REACH-B", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "dS":  [0, -10],
-                "A>B": [0, 15],
-                "B>DIV": [0, 10]
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                MeasurementSeries(id="dS",    values=[0, -10]),
+                MeasurementSeries(id="A>B",   values=[0, 15]),
+                MeasurementSeries(id="B>DIV", values=[0, 10]),
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1, upper_limit=None, path=[
                     TrxnPathItem(flow_id='A>STOR', factor=-1, expected_values=[-10]),
@@ -1745,13 +1665,11 @@ class J_Losses(unittest.TestCase):
                     InterzoneFlow(id="SYS>B", from_zone="SYS", to_zone="REACH-B", bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "dS":  [0, -10],
-                "A>B": [0, 15],
-                "B>DIV": [0, 10]
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                MeasurementSeries(id="dS",    values=[0, -10]),
+                MeasurementSeries(id="A>B",   values=[0, 15]),
+                MeasurementSeries(id="B>DIV", values=[0, 10]),
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1, upper_limit=None, path=[
                                     TrxnPathItem(flow_id='B>DIV', expected_values=[3.6]) # All the natural flow avaialbe to zone B
@@ -1861,13 +1779,11 @@ class K_Accounting_Graph_Details(unittest.TestCase):
                     InterzoneFlow(id="Flow7", from_zone="SYS", to_zone="REACH-C", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={
-                "A>B": [10],
-                "B>DIV": [20],
-                "B>C": [0],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id="A>B",   values=[10]),
+                MeasurementSeries(id="B>DIV", values=[20]),
+                MeasurementSeries(id="B>C",   values=[ 0]),
+            ]),
             txns=[],
             external_natural_flows={
                 "A>B":{
@@ -1916,14 +1832,12 @@ class K_Accounting_Graph_Details(unittest.TestCase):
                     InterzoneFlow(id="Flow7", from_zone="SYS", to_zone="REACH-C", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={
-                "A>B": [10],
-                "IMPORT>B": [100],
-                "B>DIV": [120],
-                "B>C": [0],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id="A>B",      values=[ 10]),
+                MeasurementSeries(id="IMPORT>B", values=[100]),
+                MeasurementSeries(id="B>DIV",    values=[120]),
+                MeasurementSeries(id="B>C",      values=[  0]),
+            ]),
             txns=[
                 Trxn(id='TRXN_1', priority=1, upper_limit=None, path=[
                     TrxnPathItem(flow_id='B>DIV', expected_values=[20]) # This should be limited to the remaining natural flow
@@ -1981,12 +1895,10 @@ class K_Accounting_Graph_Details(unittest.TestCase):
                     )
                 ]
             ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-01',
-            measurements={
-                "A>B": [10],
-                "B>DIV": [10],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id="A>B",      values=[10]),
+                MeasurementSeries(id="B>DIV",    values=[10]),
+            ]),
             txns=[
                 Trxn(
                     id='TRXN_1',

@@ -1,5 +1,4 @@
 To complete this iteration:
-- Scale back audit-tracing. It's too much.
 - reconcile database with new model.
 
 For later:
@@ -7,7 +6,6 @@ For later:
 - Add time-lags
 - Track storage balances, and allow paths to be limited by them.
 
-- _add_slack_trxns mutation - store slack info in TrxnManager
 - DailyDataManager currently does too much, particularly the nf stuff does not belong.
 
 - [ ] Update Trxn data model so the source-account is 'Natural Flow' for diversions from the stream,
@@ -33,12 +31,6 @@ For later:
 
 
 
-
-1. Missing upper limits are capped at 1,000
-
-
-2. Well-defined paths are not enforced
-The active path-ordering code attempts to construct a chain, but if it finds multiple roots, a broken chain, a cycle, or otherwise cannot order every item, it simply returns the original path list rather than rejecting the transaction. This should fail validation before building the LP. A transaction should have: exactly one starting zone; exactly one ending zone; connected consecutive arcs; no branch; no cycle; no repeated flow component unless explicitly supported.
 
 3. Storage-source exhaustion is not implemented
 The models define max_acft, from_account, to_account, and limit_by_remaining_account_balance, but there is no corresponding constraints or balance updates in the solver.

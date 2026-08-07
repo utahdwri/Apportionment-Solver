@@ -21,6 +21,8 @@ from ut_water_apportionment import (
     TrxnPathItem,
     Zone,
     ZoneTypes,
+    MeasurementSeries,
+    MeasurementCollection
 )
 
 
@@ -90,8 +92,6 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
         solver_input = SolverInput(
             beg_date="2000-01-01",
             end_date="2000-01-01",
-            measurement_beg_date="2000-01-01",
-            measurement_end_date="2000-01-01",
             accounting_graph=AccountingGraph(
                 zones=[
                     Zone("IMPORT", ZoneTypes.IMPORT),
@@ -112,11 +112,11 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
                     _residual_gain_loss("SYS-C>C", "SYS-C", "C"),
                 ],
             ),
-            measurements={
-                "IMPORT>B": [5.0],
-                "IMPORT-NF": [5.0],
-                "B>C": [5.0],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id="IMPORT>B",  values=[5]),
+                MeasurementSeries(id="IMPORT-NF", values=[5]),
+                MeasurementSeries(id="B>C",       values=[5]),
+            ]),
             txns=[],
         )
 
@@ -144,8 +144,6 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
         solver_input = SolverInput(
             beg_date="2000-01-01",
             end_date="2000-01-01",
-            measurement_beg_date="2000-01-01",
-            measurement_end_date="2000-01-01",
             accounting_graph=AccountingGraph(
                 zones=[
                     Zone("IMPORT", ZoneTypes.IMPORT),
@@ -164,11 +162,11 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
                     _residual_gain_loss("SYS-B>B", "SYS-B", "B"),
                 ],
             ),
-            measurements={
-                "IMPORT>B": [5.0],
-                "IMPORT-NF": [5.0],
-                "B>DIV": [5.0],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id="IMPORT>B",  values=[5]),
+                MeasurementSeries(id="IMPORT-NF", values=[5]),
+                MeasurementSeries(id="B>DIV",     values=[5]),
+            ]),
             txns=[
                 Trxn(
                     id="TRXN_DIV",
@@ -216,8 +214,6 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
         solver_input = SolverInput(
             beg_date="2000-01-01",
             end_date="2000-01-02",
-            measurement_beg_date="2000-01-01",
-            measurement_end_date="2000-01-02",
             accounting_graph=AccountingGraph(
                 zones=[
                     Zone("SYS-A", ZoneTypes.SYSTEM_GAIN_LOSS),
@@ -243,13 +239,13 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
                     _residual_gain_loss("SYS-B>B", "SYS-B", "B"),
                 ],
             ),
-            measurements={
-                "GAIN": [10.0, 10.0],
-                "DIV": [2.0, 4.0],
-                "DIV-NF-A": [1.0, 2.0],
-                "DIV-NF-B": [2.0, 4.0],
-                "A>B": [8.0, 6.0],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-02',series=[
+                MeasurementSeries(id="GAIN",    values=[10.0, 10.0]),
+                MeasurementSeries(id="DIV",     values=[2.0, 4.0]),
+                MeasurementSeries(id="DIV-NF-A",values=[1.0, 2.0]),
+                MeasurementSeries(id="DIV-NF-B",values=[2.0, 4.0]),
+                MeasurementSeries(id="A>B",     values=[8.0, 6.0]),
+            ]),
             txns=[],
         )
 
@@ -281,8 +277,6 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
         solver_input = SolverInput(
             beg_date="2000-01-01",
             end_date="2000-01-01",
-            measurement_beg_date="2000-01-01",
-            measurement_end_date="2000-01-01",
             accounting_graph=AccountingGraph(
                 zones=[
                     Zone("SYS-A", ZoneTypes.SYSTEM_GAIN_LOSS),
@@ -301,7 +295,10 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
                     _residual_gain_loss("SYS-B>B", "SYS-B", "B"),
                 ],
             ),
-            measurements={"GAIN": [10.0], "A>B": [10.0]},
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id="GAIN",    values=[10.0]),
+                MeasurementSeries(id="A>B",     values=[10]),
+            ]),
             txns=[],
         )
 
@@ -330,8 +327,6 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
         solver_input = SolverInput(
             beg_date="2000-01-01",
             end_date="2000-01-01",
-            measurement_beg_date="2000-01-01",
-            measurement_end_date="2000-01-01",
             accounting_graph=AccountingGraph(
                 zones=[
                     Zone("A", ZoneTypes.STREAM),
@@ -343,7 +338,10 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
                     _residual_gain_loss("SYS-A>A", "SYS-A", "A"),
                 ],
             ),
-            measurements={"A>DIV": [0.0], "A>DIV-NF": [-1.0]},
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id="A>DIV",    values=[0.0]),
+                MeasurementSeries(id="A>DIV-NF", values=[-1]),
+            ]),
             txns=[],
         )
 
@@ -371,8 +369,6 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
         solver_input = SolverInput(
             beg_date="2000-01-01",
             end_date="2000-01-01",
-            measurement_beg_date="2000-01-01",
-            measurement_end_date="2000-01-01",
             accounting_graph=AccountingGraph(
                 zones=[
                     Zone("A", ZoneTypes.STREAM),
@@ -395,7 +391,11 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
                     _residual_gain_loss("SYS-C>C", "SYS-C", "C"),
                 ],
             ),
-            measurements={"A>B": [0.0], "A>B-NF": [-4.0], "A>C": [0.0]},
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id="A>B",    values=[0.0]),
+                MeasurementSeries(id="A>B-NF", values=[-4]),
+                MeasurementSeries(id="A>C",    values=[0.0]),
+            ]),
             txns=[],
         )
 
@@ -423,8 +423,6 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
         solver_input = SolverInput(
             beg_date="2000-01-01",
             end_date="2000-01-01",
-            measurement_beg_date="2000-01-01",
-            measurement_end_date="2000-01-01",
             accounting_graph=AccountingGraph(
                 zones=[
                     Zone("IMPORT", ZoneTypes.IMPORT),
@@ -445,11 +443,11 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
                     _residual_gain_loss("SYS-C>C", "SYS-C", "C"),
                 ],
             ),
-            measurements={
-                "IMPORT>B": [5.0],
-                "IMPORT-NF": [10.0],
-                "B>C": [5.0],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id="IMPORT>B",    values=[5.0]),
+                MeasurementSeries(id="IMPORT-NF", values=[10]),
+                MeasurementSeries(id="B>C",    values=[5.0]),
+            ]),
             txns=[],
         )
 
@@ -479,8 +477,6 @@ class SpecifiedNaturalFlowLossCompatibilityTests(unittest.TestCase):
         solver_input = SolverInput(
             beg_date="2000-01-01",
             end_date="2000-01-01",
-            measurement_beg_date="2000-01-01",
-            measurement_end_date="2000-01-01",
             accounting_graph=AccountingGraph(
                 zones=[
                     Zone("IMPORT", ZoneTypes.IMPORT),
@@ -501,11 +497,11 @@ class SpecifiedNaturalFlowLossCompatibilityTests(unittest.TestCase):
                     _residual_gain_loss("SYS-C>C", "SYS-C", "C"),
                 ],
             ),
-            measurements={
-                "IMPORT>B": [10.0],
-                "IMPORT-NF": [10.0],
-                "B>C": [8.0],
-            },
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id="IMPORT>B",    values=[10.0]),
+                MeasurementSeries(id="IMPORT-NF", values=[10]),
+                MeasurementSeries(id="B>C",    values=[8.0]),
+            ]),
             txns=[],
         )
 

@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Generator
 import logging
 from .models import (
@@ -36,8 +37,7 @@ def solve(
     apportionments_audit = []
 
     # 1. Initialize Network Topology
-    graph_manager = GraphManager(input.accounting_graph)
-    graph_manager.set_implied_calculated_flow_boundaries()
+    graph_manager = GraphManager(deepcopy(input.accounting_graph))
 
 
     # 2. Initialize daily data and natural-flow services.
@@ -45,8 +45,6 @@ def solve(
     data_manager = DailyDataManager(
         graph_manager,
         input.measurements,
-        input.measurement_beg_date,
-        input.measurement_end_date,
         natural_flow_calculator,
         input.external_natural_flows,
     )

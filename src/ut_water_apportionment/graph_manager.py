@@ -6,6 +6,7 @@ from .models import (
 
 class GraphManager:
     """Manages the static structure and traversal of the accounting graph."""
+
     def __init__(self, graph: AccountingGraph):
         self._validate(graph)
 
@@ -26,6 +27,9 @@ class GraphManager:
                 from_type = self.get_zone_by_id(f.from_zone).type
                 to_type = self.get_zone_by_id(f.to_zone).type
                 f.set_default_natural_flow_mode(from_type, to_type)
+
+        self.set_implied_calculated_flow_boundaries()
+        self.validate_residual_routes() # This has to wait until set_implied_calculated_flow_boundaries runs.
 
     @staticmethod
     def _validate(graph: AccountingGraph) -> None:
@@ -149,3 +153,54 @@ class GraphManager:
                         f.flow_type = FlowComponentsTypes.FLOW_BALANCE_OF_SOURCE_ZONE
                         f.residual_for_gains = (f.bidirectional)
                         f.residual_for_losses = True
+
+
+    def validate_residual_routes(self) -> None:
+        """Require one gain route and one loss route for each residual zone."""
+
+        # 1. Populate a dictionary
+        residual_flows_by_zone: dict[str, list[InterzoneFlow]] = {}
+
+        for flow in self.graph.interzone_flows:
+
+            if (
+                flow.flow_type
+                == FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE
+            ):
+                zone_id = flow.to_zone
+
+            elif (
+                flow.flow_type
+                == FlowComponentsTypes.FLOW_BALANCE_OF_SOURCE_ZONE
+            ):
+                zone_id = flow.from_zone
+
+            else:
+                continue
+
+            residual_flows_by_zone.setdefault(zone_id, []).append(flow)
+
+        # 2. Check that each zone only has one residual flow.
+        for zone_id, flows in residual_flows_by_zone.items():
+
+            gain_routes = [
+                flow for flow in flows
+                if flow.residual_for_gains
+            ]
+
+            loss_routes = [
+                flow for flow in flows
+                if flow.residual_for_losses
+            ]
+
+            if len(gain_routes) != 1:
+                raise ValueError(
+                    f"Zone {zone_id!r} must have exactly one residual "
+                    f"gain route; found {[f.id for f in gain_routes]}."
+                )
+
+            if len(loss_routes) != 1:
+                raise ValueError(
+                    f"Zone {zone_id!r} must have exactly one residual "
+                    f"loss route; found {[f.id for f in loss_routes]}."
+                )
