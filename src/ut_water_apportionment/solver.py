@@ -20,6 +20,7 @@ def solve(
     check_expected_values: bool = False,
     *,
     solver_backend: SolverBackend | str = SolverBackend.AUTO,
+    max_daily_apportionment: float | None = None,
 ) -> SolverOutput:
     """Build and solve the apportionment model.
 
@@ -51,7 +52,7 @@ def solve(
     )
 
     # 3.
-    trxn_manager = TrxnSchedule(graph_manager, input.txns)
+    trxn_manager = TrxnSchedule(graph_manager, input.txns, max_daily_apportionment)
 
     # 4. Run for each day.
     for date in _loop_through_date_range(input.beg_date, input.end_date):

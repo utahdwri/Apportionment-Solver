@@ -9,10 +9,6 @@ from .models import (
 from .graph_manager import GraphManager
 
 
-
-DEFAULT_TRXN_LIMIT = 1e3
-
-
 # Set up logging.
 import logging
 logger = logging.getLogger(__name__)
@@ -22,13 +18,14 @@ logger = logging.getLogger(__name__)
 class TrxnSchedule:
     """Manage a collection of transactions."""
 
-    def __init__(self, gm: GraphManager, txns:list[Trxn | TrxnGroup]):
+    def __init__(self, gm: GraphManager, txns:list[Trxn | TrxnGroup], max_daily_apportionment:float|None=None):
 
         self._validate(txns, gm)
 
         self.gm = gm
         p_trxns = self._process_input_trxns(txns)
         self.all_trxns = list(self.traverse_vars(p_trxns))
+        self._max_daily_apportionment = max_daily_apportionment
 
         self.ordered_paths: dict[str, list[TrxnPathItem]] = {}
         for t in self.all_trxns:
@@ -221,7 +218,7 @@ class TrxnSchedule:
             raise ValueError('upper_limit must be an AccountingLimit, int, float, or None!')
 
         if upper_limit is None:
-            upper_limit = DEFAULT_TRXN_LIMIT
+            upper_limit = self._max_daily_apportionment
 
         #log(f"TRXN UPPER LIMIT: {t.id} = {upper_limit}")
         return upper_limit

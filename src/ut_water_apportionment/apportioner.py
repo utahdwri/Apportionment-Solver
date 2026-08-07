@@ -81,12 +81,12 @@ class Apportioner:
         # Add Variables
         for trxn in self.all_trxns:
             if type(trxn) == Trxn:
-                lb = None if trxn.lower_limit < 0 else 0
+                lb = 0
                 for x in trxn.path:
                     var_name = f"{trxn.id}___{x.flow_id}"
                     engine.add_variable(name=var_name, lb=lb, ub=None)
             elif type(trxn) == TrxnGroup:
-                lb = None if trxn.lower_limit < 0 else 0
+                lb = 0
                 engine.add_variable(name=trxn.id, lb=lb, ub=None)
 
         # Add Interzone Flow Measurements
@@ -196,17 +196,16 @@ class Apportioner:
                 anchor_var = self.tm.get_anchor_var(trxn)
                 if anchor_var:
                     # Apply upper_limit strictly to the anchor variable
-                    self.engine.update_variable_bounds(anchor_var, lb=trxn.lower_limit, ub=upper_limit)
+                    self.engine.update_variable_bounds(anchor_var, lb=0, ub=upper_limit)
 
                 # Loop through all paths (including mathematically derived loss branches)
                 for path_item in trxn.path:
                     var_name = f"{trxn.id}___{path_item.flow_id}"
                     if var_name != anchor_var:
-                        dlb = None if getattr(trxn, 'lower_limit', 0) < 0 else 0
-                        self.engine.update_variable_bounds(var_name, lb=dlb, ub=None)
+                        self.engine.update_variable_bounds(var_name, lb=0, ub=None)
 
             elif type(trxn) == TrxnGroup:
-                self.engine.update_variable_bounds(trxn.id, lb=trxn.lower_limit, ub=upper_limit)
+                self.engine.update_variable_bounds(trxn.id, lb=0, ub=upper_limit)
 
         # Update Measurement Constraints
         for f in self.gm.graph.interzone_flows:

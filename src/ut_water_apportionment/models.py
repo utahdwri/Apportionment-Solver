@@ -269,7 +269,6 @@ class Trxn:
     to_account: ZoneAccount | None = None
     beg_date: str | None = None
     end_date: str | None = None
-    lower_limit: float = 0
     is_slack: bool = False
 
     limit_by_remaining_account_balance: bool = False #~
@@ -355,7 +354,6 @@ class TrxnGroup:
     wrnum: str | None
     priority: float = DEFAULT_TRXN_PRIORITY
     upper_limit: 'float | AccountingLimit | None' = None
-    lower_limit: float = 0
     max_acft: float | None = None
     comment: str | None = None
     beg_date: str | None = None

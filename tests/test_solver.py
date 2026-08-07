@@ -121,7 +121,6 @@ def parse_solver_input_from_dict(data: dict, results_dict: dict|None = None) -> 
                 wrnum=t.get('wrnum'),
                 priority=priority,
                 upper_limit=parse_limit(t.get('upper_limit')),
-                lower_limit=t.get('lower_limit', 0),
                 max_acft=t.get('max_acft'),
                 comment=t.get('comment'),
                 beg_date=t.get('beg_date'),
@@ -157,7 +156,6 @@ def parse_solver_input_from_dict(data: dict, results_dict: dict|None = None) -> 
                 to_account=t.get('to_account'),
                 beg_date=t.get('beg_date'),
                 end_date=t.get('end_date'),
-                lower_limit=t.get('lower_limit', 0),
                 is_slack=t.get('is_slack', False)
             )
 
@@ -1055,7 +1053,6 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=7,
-                    lower_limit=0,
                     max_acft=None,
                     children_trxns=[
                         Trxn(id='TRXN_2', priority=2, upper_limit=6, path=[TrxnPathItem(flow_id='Diversion', expected_values=[6])]),
@@ -1111,7 +1108,6 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=10,
-                    lower_limit=0,
                     max_acft=None,
                     children_trxns=[
                         Trxn(id='TRXN_2', priority=10, upper_limit=4, path=[TrxnPathItem(flow_id='DiversionA', expected_values=[3])]),
@@ -1123,7 +1119,6 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=10,
-                    lower_limit=0,
                     max_acft=None,
                     children_trxns=[
                         Trxn(id='TRXN_5', priority=10, upper_limit=6, path=[TrxnPathItem(flow_id='DiversionA', expected_values=[3])]),
@@ -1177,7 +1172,6 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=4,
-                    lower_limit=0,
                     max_acft=None,
                     children_trxns=[
                         Trxn(id='TRXN_20', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>A', expected_values=[2])]),
@@ -1189,7 +1183,6 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=8,
-                    lower_limit=0,
                     max_acft=None,
                     children_trxns=[
                         Trxn(id='TRXN_30', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>B', expected_values=[8])]),
@@ -1201,7 +1194,6 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=9,
-                    lower_limit=0,
                     max_acft=None,
                     children_trxns=[
                         Trxn(id='TRXN_40', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>C', expected_values=[5])]),
@@ -1257,7 +1249,6 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=4,
-                    lower_limit=0,
                     max_acft=None,
                     children_trxns=[
                         Trxn(id='TRXN_20', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>A', expected_values=[2])]),
@@ -1269,7 +1260,6 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=8,
-                    lower_limit=0,
                     max_acft=None,
                     children_trxns=[
                         Trxn(id='TRXN_30', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>B', expected_values=[8])]),
@@ -1281,7 +1271,6 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=9,
-                    lower_limit=0,
                     max_acft=None,
                     children_trxns=[
                         Trxn(id='TRXN_40', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>C', expected_values=[5])]),
@@ -1441,7 +1430,6 @@ class E_SharedTrxnLimits(unittest.TestCase):
                     wrnum=None,
                     priority=0,
                     upper_limit=15,
-                    lower_limit=0,
                     max_acft=None,
                     children_trxns=[
                         Trxn(id='TRXN_1', priority=1, upper_limit=None, path=[TrxnPathItem(flow_id='>A', expected_values=[10])]),
@@ -1494,7 +1482,6 @@ class E_SharedTrxnLimits(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=15,
-                    lower_limit=0,
                     max_acft=None,
                     children_trxns=[
                         Trxn(id='WR_345_1', priority=2, upper_limit=None, path=[TrxnPathItem(flow_id='A>1', expected_values=[11.11111111])]),
@@ -1505,51 +1492,6 @@ class E_SharedTrxnLimits(unittest.TestCase):
         )
 
         results = solve(input, check_expected_values=True)
-
-
-class F_TransactionsThatMayBeNegative(unittest.TestCase):
-
-    def test_1(self):
-        """
-        """
-        input = SolverInput(
-            beg_date='2000-01-02',
-            end_date='2000-01-02',
-            accounting_graph=AccountingGraph(
-                zones=[
-                    Zone(id="RIVER", type=ZoneTypes.STREAM),
-                    Zone(id="SYS", type=ZoneTypes.SYSTEM_GAIN_LOSS),
-                    Zone(id="RESV-A", type=ZoneTypes.STORAGE, storage_meas_ids=["A"]),
-                    Zone(id="RESV-B", type=ZoneTypes.STORAGE, storage_meas_ids=["B"]),
-                ],
-                interzone_flows=[
-                    InterzoneFlow(id="River>A", from_zone="RIVER", to_zone="RESV-A", bidirectional=True),
-                    InterzoneFlow(id="River>B", from_zone="RIVER", to_zone="RESV-B", bidirectional=True),
-                    InterzoneFlow(id="SYS>RIVER", from_zone="SYS", to_zone="RIVER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
-                ]
-            ),
-            measurement_beg_date='2000-01-01',
-            measurement_end_date='2000-01-02',
-            measurements={
-                "A": [0, 10],
-                "B": [0, -10]
-            },
-            txns=[
-                Trxn(
-                    id='TRXN_1',
-                    priority=1,
-                    upper_limit=15,
-                    lower_limit=-15,
-                    path=[
-                        TrxnPathItem(flow_id='River>A', factor=-1),
-                        TrxnPathItem(flow_id='River>B', expected_values=[-10])
-                    ]
-                )
-            ]
-        )
-
-        results = solve(input, check_expected_values=True)
-
 
 
 
