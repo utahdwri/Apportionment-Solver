@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from copy import deepcopy
 from .models import (
-    AccountingLimit, CorePropSchedule, CorePropScheduleItem,
+    AccountingGraph, AccountingLimit, CorePropSchedule, CorePropScheduleItem,
     CoreScheduleVariable, CoreSeqSchedule, CoreSeqScheduleItem,
     InterzoneFlow,
     Trxn, TrxnGroup, TrxnPathItem, Zone, ZoneTypes
@@ -23,6 +23,9 @@ class TrxnSchedule:
     """Manage a collection of transactions."""
 
     def __init__(self, gm: GraphManager, txns:list[Trxn | TrxnGroup]):
+
+        self._validate(txns, gm)
+
         self.gm = gm
         p_trxns = self._process_input_trxns(txns)
         self.all_trxns = list(self.traverse_vars(p_trxns))
@@ -36,6 +39,33 @@ class TrxnSchedule:
                     self.ordered_paths[t.id] = []
 
         self.lookup_flow_trxns = self._build_flow_trxns_lookup()
+
+    @staticmethod
+    def _validate(trxns:list[Trxn | TrxnGroup], gm:GraphManager) -> None:
+        """Raises a ValueError if:
+         - trxn ids are not unique
+         - interzone-flow references are not valid
+        """
+
+        # Transaction IDs must be unique.
+        seen = set()
+        for trxn in trxns:
+            if trxn.id in seen:
+                raise ValueError(f"Duplicate transaction id: {trxn.id!r}")
+            seen.add(trxn.id)
+
+        # Interzone-flow references must exist.
+        for trxn in trxns:
+            if isinstance(trxn, Trxn):
+                for item in trxn.path:
+                    try:
+                        gm.get_flow_by_id(item.flow_id)
+                    except ValueError:
+                        raise ValueError(
+                            f"Transaction {trxn.id!r} references "
+                            f"unknown interzone-flow {item.flow_id!r}."
+                        )
+
 
     def traverse_vars(self, vars: list[Trxn | TrxnGroup]) -> Iterator[Trxn | TrxnGroup]:
         """Recursively yields all transactions, including nested children."""

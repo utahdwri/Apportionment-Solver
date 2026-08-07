@@ -7,6 +7,8 @@ from .models import (
 class GraphManager:
     """Manages the static structure and traversal of the accounting graph."""
     def __init__(self, graph: AccountingGraph):
+        self._validate(graph)
+
         self.graph = graph
         self.lookup_zones_by_id = {z.id: z for z in graph.zones}
         self.lookup_flows_by_id = {f.id: f for f in graph.interzone_flows}
@@ -24,6 +26,37 @@ class GraphManager:
                 from_type = self.get_zone_by_id(f.from_zone).type
                 to_type = self.get_zone_by_id(f.to_zone).type
                 f.set_default_natural_flow_mode(from_type, to_type)
+
+    @staticmethod
+    def _validate(graph: AccountingGraph) -> None:
+        """Raises a ValueError if:
+         - zone or interzone-flow ids are not unique
+         - from_zone or to_zone references are not valid
+        """
+
+        zone_ids = [z.id for z in graph.zones]
+        flow_ids = [f.id for f in graph.interzone_flows]
+
+        if len(zone_ids) != len(set(zone_ids)):
+            raise ValueError("Accounting graph contains duplicate zone IDs.")
+
+        if len(flow_ids) != len(set(flow_ids)):
+            raise ValueError("Accounting graph contains duplicate interzone-flow IDs.")
+
+        valid_zones = set(zone_ids)
+
+        for flow in graph.interzone_flows:
+            if flow.from_zone not in valid_zones:
+                raise ValueError(
+                    f"Flow {flow.id!r} references unknown "
+                    f"from_zone {flow.from_zone!r}."
+                )
+
+            if flow.to_zone not in valid_zones:
+                raise ValueError(
+                    f"Flow {flow.id!r} references unknown "
+                    f"to_zone {flow.to_zone!r}."
+                )
 
     def get_zone_by_id(self, zone_id: str) -> Zone:
         if zone_id not in self.lookup_zones_by_id:
