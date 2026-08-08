@@ -85,9 +85,6 @@ class SolverOutput:
         return output
 
 
-
-
-
     def print_solve_steps(self, date: str | None = None) -> None:
         """Print one audit-table row for every variable changed by a solve.
 
@@ -158,6 +155,93 @@ class SolverOutput:
         for row in rows:
             print(render(row))
 
+
+    def print_apportionments(
+        self,
+        date: str | None = None,
+        flow_id: str | None = None,
+        txn_id: str | None = None,
+    ) -> None:
+        """Print final apportionment results in table format."""
+
+        results = [
+            result
+            for result in self.apportionments
+            if (
+                (date is None or result.date == date)
+                and (
+                    flow_id is None
+                    or result.interzone_flow_id == flow_id
+                )
+                and (
+                    txn_id is None
+                    or result.txn_id == txn_id
+                )
+            )
+        ]
+
+        results.sort(
+            key=lambda result: (
+                result.date,
+                result.interzone_flow_id,
+                result.txn_id,
+            )
+        )
+
+        if not results:
+            print("No apportionment results found.")
+            return
+
+        rows = []
+
+        for result in results:
+            rows.append([
+                result.date,
+                result.interzone_flow_id,
+                result.txn_id,
+                f"{result.value:.3f}",
+                "Forward" if result.is_forward else "Reverse",
+                result.reason or "",
+            ])
+
+        headers = [
+            "Date",
+            "Flow",
+            "Transaction",
+            "Value",
+            "Direction",
+            "Reason",
+        ]
+
+        widths = [
+            max(
+                len(headers[index]),
+                *(len(row[index]) for row in rows),
+            )
+            for index in range(len(headers))
+        ]
+
+        def render(row: list[str]) -> str:
+            cells = []
+
+            for index, value in enumerate(row):
+                if index == 3:
+                    cells.append(value.rjust(widths[index]))
+                else:
+                    cells.append(value.ljust(widths[index]))
+
+            return " | ".join(cells)
+
+        print(render(headers))
+        print(
+            "-+-".join(
+                "-" * width
+                for width in widths
+            )
+        )
+
+        for row in rows:
+            print(render(row))
 
 
 @dataclass

@@ -10,6 +10,7 @@ from .timeseries_manager import DailyDataManager
 from .trxn_schedule import TrxnSchedule
 from .apportioner import Apportioner
 from .lp_solver import SolverBackend, resolve_solver_backend
+from .lag_utils import unlag_apportionments
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,8 @@ logger = logging.getLogger(__name__)
 # --- Public API ---
 def solve(
     input: SolverInput,
-    check_expected_values: bool = False,
     *,
+    check_expected_values: bool = False,
     solver_backend: SolverBackend | str = SolverBackend.AUTO,
     max_daily_apportionment: float | None = None,
 ) -> SolverOutput:
@@ -98,8 +99,20 @@ def solve(
 
         #logger.info( apportioner.engine.lp_string() )
 
-    results = SolverOutput(
+    '''# These result values all use the adjusted/lagged time.
+    lagged_results = SolverOutput(
         apportionments=apportionment_results,
+        apportionments_audit=apportionments_audit,
+        solver_backend=resolved_backend.name.value,
+    )'''
+
+    unlagged_apportionments = unlag_apportionments(
+        apportionment_results,
+        data_manager.flow_lags,
+    )
+
+    results = SolverOutput(
+        apportionments=unlagged_apportionments,
         apportionments_audit=apportionments_audit,
         solver_backend=resolved_backend.name.value,
     )

@@ -5,10 +5,12 @@ To complete this iteration:
 
 For later:
 - Update documentation
+    - Document lags
+    - Document losses
+    - Document specified natural flow
 - Add time-lags
-    - Make integer lags work
-    - Ensure storage/zones works with lags
     - Centralize lag application in MeasurementCollection
+    - make expected values check the final unlagged results
 
 - Track storage balances, and allow paths to be limited by them.
 

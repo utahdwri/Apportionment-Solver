@@ -31,9 +31,17 @@ class DailyDataManager:
         self.cur_flows_by_id: dict[str, CurFlowInfo] = {}
         self.cur_storage_chg_by_id: dict[str, CurFlowInfo] = {}
 
-        self._flow_lags = self._get_lag_by_flowline_id()
+        self._zone_lags = {}
+        self._flow_lags = {}
+        self._set_lag_by_traversal()
+
         self.external_natural_flows = external_natural_flows or {}
         self.natural_flow_calculator = natural_flow_calculator
+
+    # TODO - this is needed only once -- consider redesign...
+    @property
+    def flow_lags(self) -> dict[str, float]:
+        return dict(self._flow_lags)
 
     @staticmethod
     def _validate_measurement_references(
@@ -152,12 +160,13 @@ class DailyDataManager:
         )
 
 
-    def _get_lag_by_flowline_id(self) -> dict[str, float]:
+    def _set_lag_by_traversal(self) -> None:
         """Traverse the graph to set the absolute lag (time offset) for each
         interzone-flow."""
 
         # The thing to populate, figure out.
         flow_lags = {}
+        zone_lags = {}
 
         def set_flow_lag(f: InterzoneFlow, lag: float):
             if f.id in flow_lags:
@@ -206,9 +215,11 @@ class DailyDataManager:
 
         def iter_over_zone(zone_id: str, lag: float):
             """Iterate through each flow to and from the given zone."""
-            z = self.gm.get_zone_by_id(zone_id)
+
             if not _zone_synchronizes_time(zone_id):
                 return
+
+            zone_lags[zone_id] = lag
 
             for flow in self.gm.get_zone_inflows(zone_id):
                 set_flow_lag(flow, lag + flow.lag_to_zone)
@@ -220,12 +231,14 @@ class DailyDataManager:
             if f.id not in flow_lags:
                 set_flow_lag(f, 0)
 
-        # Normalize so there are no negative zone lags. (Adjust reference so
-        # the downstream zone has a lag of zero.)
-        min_lag = min(flow_lags.values()) if flow_lags else 0
-        flow_lags = {f_id: lag - min_lag for f_id, lag in flow_lags.items()}
+        # Normalize so there are no negative zone lags.
 
-        return flow_lags
+        # Adjust reference so the downstream zone has a lag of zero.
+        min_lag = min(
+            list(flow_lags.values()) + list(zone_lags.values())
+            ) if flow_lags else 0
+        self._zone_lags = {zid: lag - min_lag for zid, lag in zone_lags.items()}
+        self._flow_lags = {fid: lag - min_lag for fid, lag in flow_lags.items()}
 
     def _get_interzone_flow_values(self, date: str) -> dict[str, float]:
         """Given the class input, determine the total flow values for each
@@ -344,8 +357,9 @@ class DailyDataManager:
     def _get_storage_change(self, z: Zone, date: str):
         storage_chg = None
         if z.type in (ZoneTypes.STREAM, ZoneTypes.STORAGE):
+            lag = self._zone_lags[z.id]
             for mid in z.storage_meas_ids:
-                storage_chg = self.measurements.get_change(mid, date)
+                storage_chg = self.measurements.get_change(mid, date, lag)
                 if storage_chg is not None:
                     break
 

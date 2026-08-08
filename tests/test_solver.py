@@ -1525,10 +1525,27 @@ class I_TimeLags(unittest.TestCase):
 
     def test_gain_calc_for_one_reach_with_integer_day_lags(self):
         """
+        --[+2,0]--> DIV 1
+
+        --[+1,0]--> DIV 2
+
+        |
+        |[0,1]
+        |
+        v
+
+        --[0,0]--> DIV 3
+
+        |
+        |[0,0]  D1(+3) + D2(+2) + D3(+0)
+        |
+        v
+
+
         """
         input = SolverInput(
             beg_date='2000-01-03',
-            end_date='2000-01-04',
+            end_date='2000-01-05',
             accounting_graph=AccountingGraph(
                 zones=[
                     Zone(id="REACH-A", type=ZoneTypes.STREAM),
@@ -1550,8 +1567,8 @@ class I_TimeLags(unittest.TestCase):
                 ]
             ),
             measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-05',series=[
-                MeasurementSeries(id="A>1", values=[ 0,  1,  2,  3,  4]), # takes 2 days
-                MeasurementSeries(id="A>2", values=[ 0,  2,  5,  4,  5]), # takes 1 day
+                MeasurementSeries(id="A>1", values=[ 0,  1,  2,  3,  4]), # takes 3 days
+                MeasurementSeries(id="A>2", values=[ 0,  2,  5,  4,  5]), # takes 2 day
                 MeasurementSeries(id="A>B", values=[10, 10, 10, 10, 10]), # same day impact
                 MeasurementSeries(id="B>3", values=[10, 10, 10, 10, 10]), # same day impact
                 MeasurementSeries(id="B>C", values=[ 0,  0,  0,  0,  0]), # same day impact
@@ -1563,27 +1580,120 @@ class I_TimeLags(unittest.TestCase):
 
         results = solve(input)
 
-        for result in results.get_result_value(flow_id="B>C", date='2000-01-03'):
+        for result in results.get_result_value(flow_id="B>C", date='2000-01-04'):
+            print(result)
             if result.txn_id.endswith('_NF'):
                 self.assertEqual(result.value, 0+2+10)
-        for result in results.get_result_value(flow_id="B>C", date='2000-01-04'):
-            if result.txn_id.endswith('_NF'):
-                self.assertEqual(result.value, 1+5+10)
         for result in results.get_result_value(flow_id="B>C", date='2000-01-05'):
             if result.txn_id.endswith('_NF'):
-                self.assertEqual(result.value, 2+4+10)
+                self.assertEqual(result.value, 1+5+10)
 
 
-        print(results.apportionments)
+    def test_gain_calc_for_one_reach_with_fraction_day_lags(self):
+        """
+        Similar to previous but with non-integers
+        """
+        input = SolverInput(
+            beg_date='2000-01-03',
+            end_date='2000-01-05',
+            accounting_graph=AccountingGraph(
+                zones=[
+                    Zone(id="REACH-A", type=ZoneTypes.STREAM),
+                    Zone(id="SYS", type=ZoneTypes.SYSTEM_GAIN_LOSS),
+                    Zone(id="DIV-1", type=ZoneTypes.USE),
+                    Zone(id="DIV-2", type=ZoneTypes.USE),
+                    Zone(id="DIV-3", type=ZoneTypes.USE),
+                    Zone(id="REACH-B", type=ZoneTypes.STREAM),
+                    Zone(id="REACH-C", type=ZoneTypes.STREAM),
+                ],
+                interzone_flows=[
+                    InterzoneFlow(id="A>1", from_zone="REACH-A", to_zone="DIV-1", lag_from_zone=1.8, flow_measurements=[FlowMeasurement(measurement_id="A>1")]),
+                    InterzoneFlow(id="A>2", from_zone="REACH-A", to_zone="DIV-2", lag_from_zone=1.2, flow_measurements=[FlowMeasurement(measurement_id="A>2")]),
+                    InterzoneFlow(id="A>B", from_zone="REACH-A", to_zone="REACH-B", lag_to_zone=1, flow_measurements=[FlowMeasurement(measurement_id="A>B")]),
+                    InterzoneFlow(id="B>3", from_zone="REACH-B", to_zone="DIV-3", lag_from_zone=0, flow_measurements=[FlowMeasurement(measurement_id="B>3")]),
+                    InterzoneFlow(id="B>C", from_zone="REACH-B", to_zone="REACH-C", lag_to_zone=0, flow_measurements=[FlowMeasurement(measurement_id="B>C")]),
+                    InterzoneFlow(id="SYS>REACH-A", from_zone="SYS", to_zone="REACH-A", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
+                    InterzoneFlow(id="SYS>REACH-B", from_zone="SYS", to_zone="REACH-B", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
+                ]
+            ),
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-05',series=[
+                MeasurementSeries(id="A>1", values=[ 0,  1,  2,  3,  4]), # takes 2.8 days
+                MeasurementSeries(id="A>2", values=[ 0,  2,  5,  4,  5]), # takes 2.2 day
+                MeasurementSeries(id="A>B", values=[10, 10, 10, 10, 10]), # same day impact
+                MeasurementSeries(id="B>3", values=[10, 10, 10, 10, 10]), # same day impact
+                MeasurementSeries(id="B>C", values=[ 0,  0,  0,  0,  0]), # same day impact
+            ]),
+            txns=[]
+        )
 
-        '''
-        system = gas.build_single_day_solver("2000-01-04")
-        results = input.solve()
-        input.get_var('FLOW_REACH-A_GAINS_TO_REACH-A').expected_value = 12
-        results = input.solve()
-        assert_apportionments_equal_expected(results, input)
-        '''
+        # Expected natural flow at B>C: [?, ?, 0+2+10, 1+5+10, 2+4+10]
 
+        results = solve(input)
+
+        for result in results.get_result_value(flow_id="B>C", date='2000-01-04'):
+            print(result)
+            if result.txn_id.endswith('_NF'):
+                self.assertEqual(result.value, 1*(0.2)+0*(0.8) + 2*(0.8)+0*(0.2) + 10 )
+
+
+    def test_apportionments_with_fraction_day_lags(self):
+        """
+        Similar to previous but with trxn apportionments
+        """
+        input = SolverInput(
+            beg_date='2000-01-05',
+            end_date='2000-01-05',
+            accounting_graph=AccountingGraph(
+                zones=[
+                    Zone(id="REACH-A", type=ZoneTypes.STREAM),
+                    Zone(id="SYS", type=ZoneTypes.SYSTEM_GAIN_LOSS),
+                    Zone(id="DIV-1", type=ZoneTypes.USE),
+                    Zone(id="DIV-2", type=ZoneTypes.USE),
+                    Zone(id="DIV-3", type=ZoneTypes.USE),
+                    Zone(id="REACH-B", type=ZoneTypes.STREAM),
+                    Zone(id="REACH-C", type=ZoneTypes.STREAM),
+                ],
+                interzone_flows=[
+                    InterzoneFlow(id="A>1", from_zone="REACH-A", to_zone="DIV-1", lag_from_zone=1.8, flow_measurements=[FlowMeasurement(measurement_id="A>1")]),
+                    InterzoneFlow(id="A>2", from_zone="REACH-A", to_zone="DIV-2", lag_from_zone=1.2, flow_measurements=[FlowMeasurement(measurement_id="A>2")]),
+                    InterzoneFlow(id="A>B", from_zone="REACH-A", to_zone="REACH-B", lag_to_zone=1, flow_measurements=[FlowMeasurement(measurement_id="A>B")]),
+                    InterzoneFlow(id="B>3", from_zone="REACH-B", to_zone="DIV-3", lag_from_zone=0, flow_measurements=[FlowMeasurement(measurement_id="B>3")]),
+                    InterzoneFlow(id="B>C", from_zone="REACH-B", to_zone="REACH-C", lag_to_zone=0, flow_measurements=[FlowMeasurement(measurement_id="B>C")]),
+                    InterzoneFlow(id="SYS>REACH-A", from_zone="SYS", to_zone="REACH-A", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
+                    InterzoneFlow(id="SYS>REACH-B", from_zone="SYS", to_zone="REACH-B", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
+                ]
+            ),
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-05',series=[
+                MeasurementSeries(id="A>1", values=[ 0,  1,  2,  3,  4]), # takes 2.8 days
+                MeasurementSeries(id="A>2", values=[ 0,  2,  5,  4,  5]), # takes 2.2 day
+                MeasurementSeries(id="A>B", values=[10, 10, 10, 10, 10]), # same day impact
+                MeasurementSeries(id="B>3", values=[10, 10, 10, 10, 10]), # same day impact
+                MeasurementSeries(id="B>C", values=[ 0,  0,  0,  0,  0]), # same day impact
+            ]),
+            txns=[
+                Trxn(id='02-1', priority=1, upper_limit=10, path=[
+                    TrxnPathItem(flow_id='A>1', factor=1, expected_values=[2,  3,  4]),
+                ]),
+                Trxn(id='02-2', priority=2, upper_limit=10, path=[
+                    TrxnPathItem(flow_id='A>2', factor=1, expected_values=[ 5,  4,  5]),
+                ]),
+                Trxn(id='02-3', priority=3, upper_limit=10, path=[
+                    TrxnPathItem(flow_id='A>B', factor=1, expected_values=[10,10,10]),
+                    TrxnPathItem(flow_id='B>3', factor=1, expected_values=[10,10,10]),
+                ]),
+
+            ]
+        )
+        results = solve(input, check_expected_values=False)
+
+        results.print_solve_steps()
+        results.print_apportionments(txn_id='02-1')
+
+        #self.assertAlmostEqual(0.2, results.get_result_value(date='2000-01-01', trxn_id='02-1', flow_id='A>1')[0].value, delta=1e-4)
+        self.assertAlmostEqual(1.2, results.get_result_value(date='2000-01-02', trxn_id='02-1', flow_id='A>1')[0].value, delta=1e-4)
+
+
+        raise NotImplemented()
 
 class J_Losses(unittest.TestCase):
 
