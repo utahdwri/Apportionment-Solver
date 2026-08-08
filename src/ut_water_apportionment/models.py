@@ -29,7 +29,37 @@ class SolverInput:
     # 2026-07-17: Maps flow_id -> list of daily natural flow values matching the date range
     external_natural_flows: dict[str, dict[str, float]] = field(default_factory=dict)
 
+    def __post_init__(self):
+        try:
+            beg = date.fromisoformat(self.beg_date)
+            end = date.fromisoformat(self.end_date)
+        except ValueError as exc:
+            raise ValueError(
+                "Solver dates must use YYYY-MM-DD format: "
+                f"{self.beg_date!r} to {self.end_date!r}"
+            ) from exc
 
+        if end < beg:
+            raise ValueError(
+                f"Solver end_date {self.end_date} "
+                f"is before beg_date {self.beg_date}."
+            )
+
+        measurement_beg = date.fromisoformat(
+            self.measurements.beg_date
+        )
+        measurement_end = date.fromisoformat(
+            self.measurements.end_date
+        )
+
+        if beg < measurement_beg or end > measurement_end:
+            raise ValueError(
+                "Solver date range must be contained within the "
+                "measurement date range: "
+                f"solver={self.beg_date} to {self.end_date}, "
+                f"measurements={self.measurements.beg_date} "
+                f"to {self.measurements.end_date}."
+            )
 
 @dataclass
 class SolverOutput:

@@ -22,7 +22,8 @@ keywords = [
     "hydrology"
 ]
 dependencies = [
-    "ortools>=9.10,<10",
+    "numpy>=1.26",
+    "scipy>=1.13",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -34,9 +35,8 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-scipy = [
-    "numpy>=1.26",
-    "scipy>=1.13",
+ortools = [
+    "ortools>=9.10,<10",
 ]
 highs = [
     "numpy>=1.26",

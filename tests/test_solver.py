@@ -1521,7 +1521,6 @@ class G_DocumentationExamples(unittest.TestCase):
 
 
 
-@unittest.skip('tests not complete yet')
 class I_TimeLags(unittest.TestCase):
 
     def test_gain_calc_for_one_reach_with_integer_day_lags(self):
