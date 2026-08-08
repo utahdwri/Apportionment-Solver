@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum
-from math import isfinite
+from math import floor, isclose, isfinite
 from .loss_models import LossDefinition
 
 
@@ -264,9 +264,13 @@ class InterzoneFlow:
         for name in ('lag_from_zone', 'lag_to_zone'):
             lag = getattr(self, name)
 
-            if not isinstance(lag, int) or isinstance(lag, bool):
+            if (
+                isinstance(lag, bool)
+                or not isinstance(lag, (int, float))
+                or not isfinite(lag)
+            ):
                 raise ValueError(
-                    f'{name} must be a whole number of days: {lag!r}'
+                    f"{name} must be a finite number of days: {lag!r}"
                 )
 
             if lag < 0:
@@ -516,9 +520,41 @@ class MeasurementCollection:
         self,
         measurement_id: str,
         date_string: str,
-        lag: int = 0,
+        lag: float = 0,
     ) -> float | None:
 
+        whole = floor(lag)
+        fraction = lag - whole
+
+        newer = self._get_value(
+            measurement_id,
+            date_string,
+            whole,
+        )
+
+        if isclose(fraction, 0):
+            return newer
+
+        older = self._get_value(
+            measurement_id,
+            date_string,
+            whole + 1,
+        )
+
+        if newer is None or older is None:
+            return None
+
+        return (
+            newer * (1 - fraction)
+            + older * fraction
+        )
+
+    def _get_value(
+        self,
+        measurement_id: str,
+        date_string: str,
+        lag: int = 0,
+    ):
         try:
             series = self._series_by_id[str(measurement_id)]
         except KeyError:
@@ -540,7 +576,7 @@ class MeasurementCollection:
         self,
         measurement_id: str,
         date_string: str,
-        lag: int = 0,
+        lag: float = 0,
     ) -> float | None:
 
         today = self.get(

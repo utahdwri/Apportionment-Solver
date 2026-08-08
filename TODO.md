@@ -1,9 +1,15 @@
 To complete this iteration:
 - reconcile database with new model.
+- fully implement for interzone-flows:
+    beg_date:, end_date
 
 For later:
 - Update documentation
 - Add time-lags
+    - Make integer lags work
+    - Ensure storage/zones works with lags
+    - Centralize lag application in MeasurementCollection
+
 - Track storage balances, and allow paths to be limited by them.
 
 - DailyDataManager currently does too much, particularly the nf stuff does not belong.

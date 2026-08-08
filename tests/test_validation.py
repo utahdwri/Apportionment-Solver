@@ -199,15 +199,6 @@ class AccountingLimitValidationTests(unittest.TestCase):
 
 class InterzoneFlowValidationTests(unittest.TestCase):
 
-    def test_fractional_lag_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "whole number of days"):
-            InterzoneFlow(
-                id="A>B",
-                from_zone="A",
-                to_zone="B",
-                lag_to_zone=1.5,
-            )
-
     def test_negative_lag_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "cannot be negative"):
             InterzoneFlow(
@@ -218,7 +209,7 @@ class InterzoneFlowValidationTests(unittest.TestCase):
             )
 
     def test_boolean_lag_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "whole number of days"):
+        with self.assertRaisesRegex(ValueError, "finite number of days"):
             InterzoneFlow(
                 id="A>B",
                 from_zone="A",

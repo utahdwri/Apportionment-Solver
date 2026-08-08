@@ -91,7 +91,7 @@ class DailyDataManager:
                 continue
 
             value = 0.0
-            lag = int(self._flow_lags[flow.id])
+            lag = self._flow_lags[flow.id]
             for measurement in flow.nf_measurements:
                 measured = self.measurements.get(measurement.measurement_id, date, lag)
                 if measured is None:
@@ -161,9 +161,11 @@ class DailyDataManager:
 
         def set_flow_lag(f: InterzoneFlow, lag: float):
             if f.id in flow_lags:
-                if flow_lags[f.id] != lag:
-                    raise ValueError(f'Computed absolute lag times of {lag} ' +
-                        f'for interzone-flow id: "{f.id}" is inconsistent '+
+                if not isclose(
+                    flow_lags[f.id], lag, abs_tol=1e-9,
+                ):
+                    raise ValueError(f'Computed absolute lag times of {lag} '
+                        f'for interzone-flow id: "{f.id}" is inconsistent '
                         f'with existing value of {flow_lags[f.id]}!')
             else:
                 # Set the lag for this interzone-flow.
@@ -174,11 +176,39 @@ class DailyDataManager:
                 iter_over_zone(f.to_zone, lag - f.lag_to_zone)
                 iter_over_zone(f.from_zone, lag - f.lag_from_zone)
 
+        def _zone_synchronizes_time(zone_id: str) -> bool:
+            """Return true if the given zone needs """
+
+            """ TODO
+            The most general definition isn't actually:
+                STREAM and STORAGE zones synchronize time.
+
+            It is:
+                Two flow endpoints must share a time frame if the solver
+                places their quantities together in a constraint.
+
+            That suggests a future LagManager could build a temporal
+            constraint graph from:
+                - Stream/storage physical balance relationships.
+                - Residual-flow calculations.
+                - Natural-flow propagation.
+                - Consecutive transaction path items.
+                - Any future storage-account or other cross-flow constraints.
+
+            Then calculate connected components in that graph.
+            """
+
+            zone = self.gm.get_zone_by_id(zone_id)
+            return zone.type in {
+                ZoneTypes.STREAM,
+                ZoneTypes.STORAGE,
+            }
+
         def iter_over_zone(zone_id: str, lag: float):
             """Iterate through each flow to and from the given zone."""
             z = self.gm.get_zone_by_id(zone_id)
-            #if z.external:                                                    # TODO - this was active in the origional code. May require more work ...
-            #    return
+            if not _zone_synchronizes_time(zone_id):
+                return
 
             for flow in self.gm.get_zone_inflows(zone_id):
                 set_flow_lag(flow, lag + flow.lag_to_zone)
@@ -214,7 +244,7 @@ class DailyDataManager:
 
             if f.flow_type == FlowComponentsTypes.OBSERVATION:
                 for fm in f.flow_measurements:
-                    val = self.measurements.get(fm.measurement_id, date, int(lag))
+                    val = self.measurements.get(fm.measurement_id, date, lag)
                     if val is None:
                         if COALESCE_MISSING_FLOWS_TO_ZERO:
                             val = 0

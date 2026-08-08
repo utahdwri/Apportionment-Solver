@@ -1527,7 +1527,7 @@ class I_TimeLags(unittest.TestCase):
         """
         """
         input = SolverInput(
-            beg_date='2000-01-01',
+            beg_date='2000-01-03',
             end_date='2000-01-04',
             accounting_graph=AccountingGraph(
                 zones=[
@@ -1537,29 +1537,44 @@ class I_TimeLags(unittest.TestCase):
                     Zone(id="DIV-2", type=ZoneTypes.USE),
                     Zone(id="DIV-3", type=ZoneTypes.USE),
                     Zone(id="REACH-B", type=ZoneTypes.STREAM),
+                    Zone(id="REACH-C", type=ZoneTypes.STREAM),
                 ],
                 interzone_flows=[
                     InterzoneFlow(id="A>1", from_zone="REACH-A", to_zone="DIV-1", lag_from_zone=2, flow_measurements=[FlowMeasurement(measurement_id="A>1")]),
                     InterzoneFlow(id="A>2", from_zone="REACH-A", to_zone="DIV-2", lag_from_zone=1, flow_measurements=[FlowMeasurement(measurement_id="A>2")]),
                     InterzoneFlow(id="A>B", from_zone="REACH-A", to_zone="REACH-B", lag_to_zone=1, flow_measurements=[FlowMeasurement(measurement_id="A>B")]),
                     InterzoneFlow(id="B>3", from_zone="REACH-B", to_zone="DIV-3", lag_from_zone=0, flow_measurements=[FlowMeasurement(measurement_id="B>3")]),
+                    InterzoneFlow(id="B>C", from_zone="REACH-B", to_zone="REACH-C", lag_to_zone=0, flow_measurements=[FlowMeasurement(measurement_id="B>C")]),
                     InterzoneFlow(id="SYS>REACH-A", from_zone="SYS", to_zone="REACH-A", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                     InterzoneFlow(id="SYS>REACH-B", from_zone="SYS", to_zone="REACH-B", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                 ]
             ),
             measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-05',series=[
-                MeasurementSeries(id="A>1", values=[0, 1, 2, 3, 4]), # takes 2 days
-                MeasurementSeries(id="A>2", values=[0, 2, 5, 4, 5]), # takes 1 day
+                MeasurementSeries(id="A>1", values=[ 0,  1,  2,  3,  4]), # takes 2 days
+                MeasurementSeries(id="A>2", values=[ 0,  2,  5,  4,  5]), # takes 1 day
                 MeasurementSeries(id="A>B", values=[10, 10, 10, 10, 10]), # same day impact
                 MeasurementSeries(id="B>3", values=[10, 10, 10, 10, 10]), # same day impact
+                MeasurementSeries(id="B>C", values=[ 0,  0,  0,  0,  0]), # same day impact
             ]),
             txns=[]
         )
 
-        output = solve(input)
+        # Expected natural flow at B>C: [?, ?, 0+2+10, 1+5+10, 2+4+10]
 
-        print('')
-        print(output)
+        results = solve(input)
+
+        for result in results.get_result_value(flow_id="B>C", date='2000-01-03'):
+            if result.txn_id.endswith('_NF'):
+                self.assertEqual(result.value, 0+2+10)
+        for result in results.get_result_value(flow_id="B>C", date='2000-01-04'):
+            if result.txn_id.endswith('_NF'):
+                self.assertEqual(result.value, 1+5+10)
+        for result in results.get_result_value(flow_id="B>C", date='2000-01-05'):
+            if result.txn_id.endswith('_NF'):
+                self.assertEqual(result.value, 2+4+10)
+
+
+        print(results.apportionments)
 
         '''
         system = gas.build_single_day_solver("2000-01-04")
