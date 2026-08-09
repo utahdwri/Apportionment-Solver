@@ -338,8 +338,7 @@ class AccountingGraphValidationTests(unittest.TestCase):
                     to_zone="A",
                     flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE,
                     flow_measurements=[FlowMeasurement("dummy-1")],
-                    residual_for_gains=True,
-                    residual_for_losses=True,
+                    bidirectional=True,
                 ),
                 InterzoneFlow(
                     id="SYS2>A",
@@ -347,8 +346,6 @@ class AccountingGraphValidationTests(unittest.TestCase):
                     to_zone="A",
                     flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE,
                     flow_measurements=[FlowMeasurement("dummy-2")],
-                    residual_for_gains=True,
-                    residual_for_losses=False,
                 ),
             ],
         )
@@ -369,8 +366,6 @@ class AccountingGraphValidationTests(unittest.TestCase):
                     to_zone="A",
                     flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE,
                     flow_measurements=[FlowMeasurement("dummy")],
-                    residual_for_gains=True,
-                    residual_for_losses=False,
                 ),
             ],
         )

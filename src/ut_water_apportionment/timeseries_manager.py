@@ -299,13 +299,11 @@ class DailyDataManager:
 
         # 3. Checks
         for f in self.gm.graph.interzone_flows:
-            #continue
+
             if total_flow_by_id[f.id] < 0 and not f.bidirectional:
 
-                # TODO - This code may be related to the failing test - if I add the following condition then that test passes, but others fail.
                 if f.flow_type != FlowComponentsTypes.OBSERVATION:
                     continue
-
 
                 if COALESCE_NEGATIVE_FLOWS_TO_ZERO:
                     total_flow_by_id[f.id] = 0

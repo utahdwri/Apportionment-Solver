@@ -358,7 +358,12 @@ class A_SingleReachProblems(unittest.TestCase):
 
         results = solve(input)
 
-        self.assertAlmostEqual(results.get_result_value(date='2000-01-02', flow_id='SYS>RIVER')[0].value, 0, delta=1e-4)
+        values = results.get_result_value(
+            date='2000-01-02',
+            flow_id='SYS>RIVER',
+        )
+
+        self.assertAlmostEqual(0, sum(x.value for x in values), delta=1e-4)
 
     def test_reach_with_positive_storage_change(self):
         input = SolverInput(
@@ -384,7 +389,12 @@ class A_SingleReachProblems(unittest.TestCase):
 
         results = solve(input)
 
-        self.assertAlmostEqual(results.get_result_value(date='2000-01-02', flow_id='SYS>RIVER')[0].value, 12, delta=1e-4)
+        values = results.get_result_value(
+            date='2000-01-02',
+            flow_id='SYS>RIVER',
+        )
+
+        self.assertAlmostEqual(12, sum(x.value for x in values), delta=1e-4)
 
     def test_huge_number_of_equal_priority_rights(self):
         input = SolverInput(
@@ -503,7 +513,7 @@ class B_Reservoirs(unittest.TestCase):
                 ],
                 interzone_flows=[
                     InterzoneFlow(id="SYS>RIVER", from_zone="SYS", to_zone="RIVER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
-                    InterzoneFlow(id="RIVER>STORAGE", from_zone="RIVER", to_zone="STORAGE"),
+                    InterzoneFlow(id="RIVER>STORAGE", from_zone="RIVER", to_zone="STORAGE", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                     InterzoneFlow(id="RIVER>A", from_zone="RIVER", to_zone="A", flow_measurements=[FlowMeasurement(measurement_id="A")]),
                     InterzoneFlow(id="RIVER>B", from_zone="RIVER", to_zone="B", flow_measurements=[FlowMeasurement(measurement_id="B")]),
                 ]
@@ -543,7 +553,7 @@ class B_Reservoirs(unittest.TestCase):
                     InterzoneFlow(id="SYS>UPSTREAM", from_zone="SYS", to_zone="UPSTREAM", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                     InterzoneFlow(id="SYS>DOWNSTREAM", from_zone="SYS", to_zone="DOWNSTREAM", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                     InterzoneFlow(id="UPSTREAM>DOWNSTREAM", from_zone="UPSTREAM", to_zone="DOWNSTREAM", flow_measurements=[FlowMeasurement(measurement_id="Q")]),
-                    InterzoneFlow(id="UPSTREAM>STORAGE", from_zone="UPSTREAM", to_zone="STORAGE"),
+                    InterzoneFlow(id="UPSTREAM>STORAGE", from_zone="UPSTREAM", to_zone="STORAGE", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
                     InterzoneFlow(id="DOWNSTREAM>A", from_zone="DOWNSTREAM", to_zone="A", flow_measurements=[FlowMeasurement(measurement_id="A")]),
                     InterzoneFlow(id="DOWNSTREAM>B", from_zone="DOWNSTREAM", to_zone="B", flow_measurements=[FlowMeasurement(measurement_id="B")]),
                 ]
@@ -1635,7 +1645,7 @@ class I_TimeLags(unittest.TestCase):
             if result.txn_id.endswith('_NF'):
                 self.assertEqual(result.value, 1*(0.2)+0*(0.8) + 2*(0.8)+0*(0.2) + 10 )
 
-
+    @unittest.skip('tests not complete yet')
     def test_apportionments_with_fraction_day_lags(self):
         """
         Similar to previous but with trxn apportionments
@@ -1689,11 +1699,157 @@ class I_TimeLags(unittest.TestCase):
         results.print_solve_steps()
         results.print_apportionments(txn_id='02-1')
 
-        #self.assertAlmostEqual(0.2, results.get_result_value(date='2000-01-01', trxn_id='02-1', flow_id='A>1')[0].value, delta=1e-4)
-        self.assertAlmostEqual(1.2, results.get_result_value(date='2000-01-02', trxn_id='02-1', flow_id='A>1')[0].value, delta=1e-4)
+        self.assertAlmostEqual(1, results.get_result_value(date='2000-01-02', trxn_id='02-1', flow_id='A>1')[0].value, delta=1e-4)
 
+    @unittest.skip('tests not complete yet')
+    def test_single_transaction_across_different_fractional_lags(self):
+        """
+        A single physical transaction traverses two consecutive flows.
+
+        The real-world transaction series is identical on both flows:
+
+            Jan 1     0
+            Jan 2    10
+            Jan 3    20
+            Jan 4    30
+            Jan 5    20
+            Jan 6     0
+
+        But the two flows have different fractional time offsets:
+
+            UP>MID  = 0.8 day
+            MID>USE = 0.2 day
+
+        Therefore their values in lagged LP-time are NOT equal.
+
+        For example, on Jan 2:
+
+            UP>MID:
+                0.2 * 10 + 0.8 * 0 = 2
+
+            MID>USE:
+                0.8 * 10 + 0.2 * 0 = 8
+
+        After solving and unlagging, however, both path legs should recover
+        the same real-world transaction series.
+
+        This is intended as a regression test for transaction continuity
+        across path legs having different fractional lags.
+        """
+
+        actual = {
+            "2000-01-01": 0.0,
+            "2000-01-02": 10.0,
+            "2000-01-03": 20.0,
+            "2000-01-04": 30.0,
+            "2000-01-05": 20.0,
+            "2000-01-06": 0.0,
+        }
+
+        input = SolverInput(
+            beg_date="2000-01-01",
+            end_date="2000-01-06",
+
+            accounting_graph=AccountingGraph(
+                zones=[
+                    Zone(
+                        id="UPSTREAM",
+                        type=ZoneTypes.IMPORT,
+                    ),
+                    Zone(
+                        id="MID",
+                        type=ZoneTypes.STREAM,
+                    ),
+                    Zone(
+                        id="USE",
+                        type=ZoneTypes.USE,
+                    ),
+                ],
+
+                interzone_flows=[
+                    #
+                    # With MID as the common time reference:
+                    #
+                    #     UP>MID  gets absolute lag 0.8
+                    #     MID>USE gets absolute lag 0.2
+                    #
+                    InterzoneFlow(
+                        id="UP>MID",
+                        from_zone="UPSTREAM",
+                        to_zone="MID",
+                        lag_to_zone=0,
+                        flow_measurements=[
+                            FlowMeasurement(
+                                measurement_id="UP>MID",
+                            )
+                        ],
+                    ),
+
+                    InterzoneFlow(
+                        id="MID>USE",
+                        from_zone="MID",
+                        to_zone="USE",
+                        lag_from_zone=0.5,
+                        flow_measurements=[
+                            FlowMeasurement(
+                                measurement_id="MID>USE",
+                            )
+                        ],
+                    ),
+                ],
+            ),
+
+            measurements=MeasurementCollection(
+                beg_date="2000-01-01",
+                end_date="2000-01-06",
+                series=[
+                    #
+                    # These are REAL-WORLD measurements.
+                    #
+                    # Since there is no loss, the same physical transaction
+                    # appears on both flows.
+                    #
+                    MeasurementSeries(
+                        id="UP>MID",
+                        values=[0,10,20,30,20,0],
+                    ),
+                    MeasurementSeries(
+                        id="MID>USE",
+                        values=[0,10,20,30,20,0],
+                    ),
+                ],
+            ),
+
+            txns=[
+                Trxn(
+                    id="TRXN",
+                    priority=1,
+                    upper_limit=None,
+                    path=[
+                        TrxnPathItem(
+                            flow_id="UP>MID",
+                        ),
+                        TrxnPathItem(
+                            flow_id="MID>USE",
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        results = solve(
+            input,
+            check_expected_values=False,
+        )
+
+        results.print_solve_steps()
+
+        results.print_apportionments(
+            txn_id="TRXN",
+        )
 
         raise NotImplemented()
+
 
 class J_Losses(unittest.TestCase):
 

@@ -321,15 +321,9 @@ class InterzoneFlow:
     to_zone: str
     bidirectional: bool = False
 
-    #
-    # New stuff:
-    #
-    residual_for_gains: bool = False  # This replaced the gain_factor 0/1 value
-    residual_for_losses: bool = False # This replaced the loss_factor 0/1 value
     flow_type: FlowComponentsTypes = FlowComponentsTypes.OBSERVATION
     flow_measurements: list[FlowMeasurement]= field(default_factory=list)
 
-    # Not implemented yet
     lag_from_zone: float = 0
     lag_to_zone: float = 0
     loss_from_zone: LossDefinition = field(default_factory=LossDefinition)
@@ -343,6 +337,23 @@ class InterzoneFlow:
     # Not implemented yet - An InterzoneFlow may not neccessaraly be active for the entire run period.
     beg_date: str = '1000-01-01'
     end_date: str = '9999-12-31'
+
+    @property
+    def residual_for_gains(self) -> bool:
+        if self.flow_type == FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE:
+            return True
+        if self.flow_type == FlowComponentsTypes.FLOW_BALANCE_OF_SOURCE_ZONE:
+            return self.bidirectional
+        return False
+
+    @property
+    def residual_for_losses(self) -> bool:
+        if self.flow_type == FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE:
+            return self.bidirectional
+        if self.flow_type == FlowComponentsTypes.FLOW_BALANCE_OF_SOURCE_ZONE:
+            return True
+        return False
+
 
     def __post_init__(self):
         for name in ('lag_from_zone', 'lag_to_zone'):

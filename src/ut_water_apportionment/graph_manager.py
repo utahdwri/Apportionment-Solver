@@ -130,12 +130,6 @@ class GraphManager:
                 for f in self.get_zone_inflows(z.id):
                     if len(f.flow_measurements) == 0:
                         f.flow_type = FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE
-                        f.residual_for_gains = True
-                        f.residual_for_losses = True
-                    if f.flow_type == FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE:
-                        f.residual_for_gains = True
-                        f.residual_for_losses = True
-
 
             # 2. Stream zones connected to a gain or loss zone.
             elif z.type == ZoneTypes.STREAM:
@@ -144,15 +138,11 @@ class GraphManager:
                     is_gain = from_z.type == ZoneTypes.SYSTEM_GAIN_LOSS
                     if is_gain and len(f.flow_measurements)==0:
                         f.flow_type = FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE
-                        f.residual_for_gains = True
-                        f.residual_for_losses = (f.bidirectional)
                 for f in self.get_zone_outflows(z.id):
                     to_z = self.get_zone_by_id(f.to_zone)
                     is_loss = to_z.type == ZoneTypes.SYSTEM_GAIN_LOSS
                     if is_loss and len(f.flow_measurements)==0:
                         f.flow_type = FlowComponentsTypes.FLOW_BALANCE_OF_SOURCE_ZONE
-                        f.residual_for_gains = (f.bidirectional)
-                        f.residual_for_losses = True
 
 
     def validate_residual_routes(self) -> None:
