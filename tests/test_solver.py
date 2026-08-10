@@ -1645,7 +1645,7 @@ class I_TimeLags(unittest.TestCase):
             if result.txn_id.endswith('_NF'):
                 self.assertEqual(result.value, 1*(0.2)+0*(0.8) + 2*(0.8)+0*(0.2) + 10 )
 
-    @unittest.skip('tests not complete yet')
+    #@unittest.skip('tests not complete yet')
     def test_apportionments_with_fraction_day_lags(self):
         """
         Similar to previous but with trxn apportionments
@@ -1701,7 +1701,7 @@ class I_TimeLags(unittest.TestCase):
 
         self.assertAlmostEqual(1, results.get_result_value(date='2000-01-02', trxn_id='02-1', flow_id='A>1')[0].value, delta=1e-4)
 
-    @unittest.skip('tests not complete yet')
+    #@unittest.skip('tests not complete yet')
     def test_single_transaction_across_different_fractional_lags(self):
         """
         A single physical transaction traverses two consecutive flows.
