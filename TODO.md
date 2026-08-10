@@ -1,20 +1,8 @@
-To complete this iteration:
-- reconcile database with new model.
-- fully implement for interzone-flows:
+
+- [ ] fully implement for interzone-flows:
     beg_date:, end_date
 
-For later:
-- Update documentation
-    - Document lags
-    - Document losses
-    - Document specified natural flow
-- Add time-lags
-    - Centralize lag application in MeasurementCollection
-    - make expected values check the final unlagged results
-
-- Track storage balances, and allow paths to be limited by them.
-
-- DailyDataManager currently does too much, particularly the nf stuff does not belong.
+- [ ] DailyDataManager currently does too much, particularly the nf stuff does not belong.
 
 - [ ] Update Trxn data model so the source-account is 'Natural Flow' for diversions from the stream,
       During the 1st pass:
@@ -28,6 +16,8 @@ For later:
         * Trxns can have an annual volume limit. The limit resets at a given day & month. The apportionment to a trxn must be limited to the remaining annual volume limit.
         * An account can be configured to limit outgoing trxns when the current balance drops below a specified volume.
         * An account can be configured to limit incoming trxns when the current balance hits a specified ceiling.
+
+- [ ] Implement non-integer time-lags - solve multi-day period with one matrix, perhaps using entire period, perhaps using rolling window.
 
 - [ ] Implement piece-wise linear loss curves - See proposed plan in documentation.
 
