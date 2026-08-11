@@ -171,3 +171,18 @@ Optimization priorities (highest to lowest):
 subject to:
 - Observed interzone flows
 - Transaction limits
+
+
+## Logging
+
+To show messages to the console:
+
+```
+import logging
+import sys
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout,
+    force=True,
+)
+```

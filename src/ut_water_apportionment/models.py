@@ -1,7 +1,9 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import date
 from enum import Enum
 from math import floor, isclose, isfinite
+import json
+from pathlib import Path
 from .loss_models import LossDefinition
 
 
@@ -60,6 +62,68 @@ class SolverInput:
                 f"measurements={self.measurements.beg_date} "
                 f"to {self.measurements.end_date}."
             )
+
+    def to_dict(self) -> dict:
+        """Return a JSON-serializable representation of this SolverInput."""
+
+        def serialize(value):
+            # Dataclasses: only save constructor fields.
+            # This intentionally skips fields such as
+            # MeasurementCollection._series_by_id.
+            if is_dataclass(value):
+                return {
+                    f.name: serialize(getattr(value, f.name))
+                    for f in fields(value)
+                    if f.init
+                }
+
+            # Store enum values rather than Python enum representations.
+            if isinstance(value, Enum):
+                return value.value
+
+            if isinstance(value, dict):
+                return {
+                    str(key): serialize(item)
+                    for key, item in value.items()
+                }
+
+            if isinstance(value, (list, tuple)):
+                return [serialize(item) for item in value]
+
+            if isinstance(value, date):
+                return value.isoformat()
+
+            if value is None or isinstance(
+                value,
+                (str, int, float, bool),
+            ):
+                return value
+
+            raise TypeError(
+                f"Cannot serialize object of type "
+                f"{type(value).__name__}: {value!r}"
+            )
+
+        return serialize(self) # type: ignore
+
+    def export_json(
+        self,
+        *,
+        indent: int = 2,
+    ) -> str:
+        """
+        Get this SolverInput as human-readable JSON.
+        """
+
+        text = json.dumps(
+            self.to_dict(),
+            indent=indent,
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+
+        return text
+
 
 @dataclass
 class SolverOutput:
@@ -430,7 +494,7 @@ class Trxn:
         if self.priority < 0 or self.priority > DEFAULT_TRXN_PRIORITY:
             raise ValueError(
                 f'priority must be >= 0 and <= {DEFAULT_TRXN_PRIORITY}:'
-                f'{self.priority} '
+                f'{self.priority} for Trxn {self.id}'
             )
 
         if self.is_slack:
@@ -559,7 +623,7 @@ class TrxnGroup:
         if self.priority < 0 or self.priority > DEFAULT_TRXN_PRIORITY:
             raise ValueError(
                 f'priority must be >= 0 and <= {DEFAULT_TRXN_PRIORITY}:'
-                f'{self.priority} '
+                f'{self.priority} for TrxnGroup {self.id}'
             )
 
 

@@ -257,9 +257,16 @@ class Apportioner:
         # Minimize the spill vars.
         anchor_spill_vars:list[str] = [self.tm.get_anchor_var(t) for t in spill_vars if self.tm.get_anchor_var(t)] # type: ignore
         if anchor_spill_vars:
-            obj_value, solved_values = self.engine.solve_objective(anchor_spill_vars, maximization=False)
 
-        # Lock the spill vars to their min value.
+            obj_value, solved_values = self._with_feasibility_fallback(
+                'solve for lock spills',
+                lambda: self.engine.solve_objective(
+                    anchor_spill_vars,
+                    maximization=False
+                )
+            )
+
+            # Lock the spill vars to their min value.
             con_name = 'lock-slacks'
             self.engine.add_constraint(name=con_name, lb=0, ub=obj_value)
             for var_name in anchor_spill_vars:
@@ -282,36 +289,18 @@ class Apportioner:
 
             logger.debug(f"\nPriority: {priority}")
 
-            try:
-                if type(item) is CorePropSchedule:
-                    self.maximize_series(item)
-                elif type(item) is CoreSeqSchedule:
-                    self.calculate_apportionments(
-                        item,
-                        start_priority,
-                        stop_priority
-                    )
-                elif type(item) is CoreScheduleVariable:
-                    self._maximize_var(item.var)
+            if type(item) is CorePropSchedule:
+                self.maximize_series(item)
+            elif type(item) is CoreSeqSchedule:
+                self.calculate_apportionments(
+                    item,
+                    start_priority,
+                    stop_priority
+                )
+            elif type(item) is CoreScheduleVariable:
+                self._maximize_var(item.var)
 
-
-            except LPSolverError:
-                logger.warning('Solver failed! Adding feasibility slacks...')
-
-                self.feasibility_fallback()
-
-                if type(item) is CorePropSchedule:
-                    self.maximize_series(item)
-                elif type(item) is CoreSeqSchedule:
-                    self.calculate_apportionments(
-                        item,
-                        start_priority,
-                        stop_priority
-                    )
-                elif type(item) is CoreScheduleVariable:
-                    self._maximize_var(item.var)
-
-            logger.info(f"\nCompleted iteration for priority: {priority}")
+            logger.info(f"Completed iteration for priority: {priority}")
 
     def solve_for_nonpath_vars(self):
         # NOTE: I get away with not bothering to seperate the non-path variables
@@ -326,7 +315,14 @@ class Apportioner:
             elif type(trxn) == TrxnGroup:
                 target_variables.append(trxn.id)
 
-        _, variable_values = self.engine.solve_objective(target_variables, maximization=False)
+        _, variable_values = self._with_feasibility_fallback(
+            'solve for nonpath vars',
+            lambda: self.engine.solve_objective(
+                target_variables,
+                maximization=False
+            )
+        )
+
         for var_name, solved_value in variable_values.items():
             self.cur_trxn_value[var_name] = solved_value
             logger.debug(f' - maxed {var_name} to {solved_value}')
@@ -348,7 +344,13 @@ class Apportioner:
 
         if var_names:
             # Minimize ALL dump slacks simultaneously
-            _, solved_values = self.engine.solve_objective(var_names, maximization=False)
+            _, solved_values = self._with_feasibility_fallback(
+                'solve for minimizing minus vars',
+                lambda: self.engine.solve_objective(
+                    var_names,
+                    maximization=False
+                )
+            )
 
             # Lock their upper bounds to the newly found minimums
             for v_name in var_names:
@@ -380,7 +382,12 @@ class Apportioner:
 
         origional_ub = self._minimize_minus_vars([var])
         value_before = self.cur_trxn_value.get(target_var, 0.0)
-        new_value = self.engine.maximize_and_update_variable(target_var)
+        new_value = self._with_feasibility_fallback(
+            'solve to maximize var ' + var.id,
+            lambda: self.engine.maximize_and_update_variable(
+                target_var
+            )
+        )
         self.cur_trxn_value[target_var] = new_value
 
         solve_step, audit_context = self._snapshot_audit_step(
@@ -462,9 +469,12 @@ class Apportioner:
             }
 
             # Solve
-            var_values = self.engine.maximize_group_by_proportions(
-                var_names,
-                proportion_factors
+            var_values = self._with_feasibility_fallback(
+                'solve to maximize series',
+                lambda: self.engine.maximize_group_by_proportions(
+                    var_names,
+                    proportion_factors
+                )
             )
             member_steps = []
             audit_contexts = []
@@ -576,9 +586,12 @@ class Apportioner:
 
         while remaining:
             target_vars = list(remaining.keys())
-            _, solved_values = self.engine.solve_objective(
-                target_vars,
-                maximization=True
+            _, solved_values = self._with_feasibility_fallback(
+                'check newly maxed vars',
+                lambda: self.engine.solve_objective(
+                    target_vars,
+                    maximization=True
+                )
             )
 
             increasable_vars = [
@@ -999,3 +1012,30 @@ class Apportioner:
         return feasibility_slacks
 
 
+
+    def _with_feasibility_fallback(
+        self,
+        operation: str,
+        solve_fn,
+    ):
+        """Runs the given function. If a LPSolverError exception is
+        raised, then employs the feasibility fallback and try running the
+        given function again."""
+        try:
+            return solve_fn()
+
+        except LPSolverError:
+            logger.warning(
+                "%s failed. Adding feasibility slacks...",
+                operation
+            )
+
+            minimum_feasibility = self.feasibility_fallback()
+
+            logger.warning(
+                "%s required feasibility adjustment of %.12g",
+                operation,
+                minimum_feasibility
+            )
+
+            return solve_fn()

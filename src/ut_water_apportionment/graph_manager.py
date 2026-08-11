@@ -173,6 +173,10 @@ class GraphManager:
         # 2. Check that each zone only has one residual flow.
         for zone_id, flows in residual_flows_by_zone.items():
 
+            # For now, apply ths check only to stream and storage zones.
+            if self.get_zone_by_id(zone_id).type not in {ZoneTypes.STREAM, ZoneTypes.STORAGE}:
+                continue
+
             gain_routes = [
                 flow for flow in flows
                 if flow.residual_for_gains
