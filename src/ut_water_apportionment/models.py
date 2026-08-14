@@ -455,7 +455,14 @@ class InterzoneFlow:
 
 @dataclass
 class ZoneAccount:
+    """
+    An account is located in a single zone and can be the source or
+    destination for multiple transactions.
+    """
+
     id: str
+
+    # The balance as of the beg-date of beg_date of SolverInput.
     starting_balance: float = 0
 
     # Don't allow incoming transactions to allow the balance to exceed
@@ -474,9 +481,15 @@ class Trxn:
     path: list['TrxnPathItem']
     upper_limit: 'float | AccountingLimit | None'
     priority: float = DEFAULT_TRXN_PRIORITY
-    max_acft: float | None = None
+
     from_account: str | None = None # A ZoneAccount id
     to_account: str | None = None   # A ZoneAccount id
+
+    cummulative_limit: float | None = None
+    cummulative_reset_MMDD: str | None = None
+
+    call_limit: 'float | AccountingLimit | None' = None
+
     #from_nf: bool = False                                                     # TODO - if I activate this, I need to remember to check it inside of _source_nf_is_exhausted
     beg_date: str | None = None
     end_date: str | None = None
@@ -611,7 +624,7 @@ class TrxnGroup:
     wrnum: str | None
     priority: float = DEFAULT_TRXN_PRIORITY
     upper_limit: 'float | AccountingLimit | None' = None
-    max_acft: float | None = None
+    cum_acft_limit: float | None = None
     comment: str | None = None
     beg_date: str | None = None
     end_date: str | None = None

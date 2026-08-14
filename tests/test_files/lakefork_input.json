@@ -1011,7 +1011,7 @@
         ]
       },
       "priority": 18610000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1040,7 +1040,7 @@
         ]
       },
       "priority": 18610000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1071,7 +1071,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1094,7 +1094,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1117,7 +1117,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1140,7 +1140,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1163,7 +1163,7 @@
         "intervals": []
       },
       "priority": 19080107,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1186,7 +1186,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1209,7 +1209,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1232,7 +1232,7 @@
         "intervals": []
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1261,7 +1261,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1284,7 +1284,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1307,7 +1307,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1330,7 +1330,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1361,7 +1361,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1390,7 +1390,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1419,7 +1419,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1442,7 +1442,7 @@
         "intervals": []
       },
       "priority": 19050829,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1473,7 +1473,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1504,7 +1504,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1535,7 +1535,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1566,7 +1566,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1597,7 +1597,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1626,7 +1626,7 @@
         ]
       },
       "priority": 18610000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1655,7 +1655,7 @@
         ]
       },
       "priority": 18610000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1678,7 +1678,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1707,7 +1707,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1730,7 +1730,7 @@
         "intervals": []
       },
       "priority": 19130213,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1759,7 +1759,7 @@
         ]
       },
       "priority": 18610000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1782,7 +1782,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1805,7 +1805,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1828,7 +1828,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1851,7 +1851,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1874,7 +1874,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1897,7 +1897,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1926,7 +1926,7 @@
         ]
       },
       "priority": 19180622,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1955,7 +1955,7 @@
         ]
       },
       "priority": 19220803,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -1978,7 +1978,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2001,7 +2001,7 @@
         "intervals": []
       },
       "priority": 18610000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2030,7 +2030,7 @@
         ]
       },
       "priority": 18610000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2059,7 +2059,7 @@
         ]
       },
       "priority": 18610000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2088,7 +2088,7 @@
         ]
       },
       "priority": 18610000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2111,7 +2111,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2134,7 +2134,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2157,7 +2157,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2180,7 +2180,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2203,7 +2203,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2226,7 +2226,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2249,7 +2249,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2278,7 +2278,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2301,7 +2301,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2332,7 +2332,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2363,7 +2363,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2386,7 +2386,7 @@
         "intervals": []
       },
       "priority": 19120926,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2423,7 +2423,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2460,7 +2460,7 @@
         ]
       },
       "priority": 19260810,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2491,7 +2491,7 @@
         "intervals": []
       },
       "priority": 19260816,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2522,7 +2522,7 @@
         "intervals": []
       },
       "priority": 19260714,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2553,7 +2553,7 @@
         "intervals": []
       },
       "priority": 19160928,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2584,7 +2584,7 @@
         "intervals": []
       },
       "priority": 19160928,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2607,7 +2607,7 @@
         "intervals": []
       },
       "priority": 19050908,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2630,7 +2630,7 @@
         "intervals": []
       },
       "priority": 19070107,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2653,7 +2653,7 @@
         "intervals": []
       },
       "priority": 19100509,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2676,7 +2676,7 @@
         "intervals": []
       },
       "priority": 19340116,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2699,7 +2699,7 @@
         "intervals": []
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2722,7 +2722,7 @@
         "intervals": []
       },
       "priority": 19610830,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2745,7 +2745,7 @@
         "intervals": []
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2768,7 +2768,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2797,7 +2797,7 @@
         ]
       },
       "priority": 19180622,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2826,7 +2826,7 @@
         ]
       },
       "priority": 19220803,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2849,7 +2849,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2872,7 +2872,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2903,7 +2903,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2926,7 +2926,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2949,7 +2949,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2972,7 +2972,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -2995,7 +2995,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3026,7 +3026,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3057,7 +3057,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3080,7 +3080,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3111,7 +3111,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3134,7 +3134,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3165,7 +3165,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3196,7 +3196,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3225,7 +3225,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3254,7 +3254,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3283,7 +3283,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3312,7 +3312,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3341,7 +3341,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3370,7 +3370,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3399,7 +3399,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3428,7 +3428,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3457,7 +3457,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3486,7 +3486,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3515,7 +3515,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3544,7 +3544,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3573,7 +3573,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3602,7 +3602,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3631,7 +3631,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3660,7 +3660,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3689,7 +3689,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3718,7 +3718,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3747,7 +3747,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3776,7 +3776,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3805,7 +3805,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3834,7 +3834,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3863,7 +3863,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3892,7 +3892,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3921,7 +3921,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3950,7 +3950,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -3979,7 +3979,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4008,7 +4008,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4037,7 +4037,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4066,7 +4066,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4095,7 +4095,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4124,7 +4124,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4153,7 +4153,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4182,7 +4182,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4211,7 +4211,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4240,7 +4240,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4269,7 +4269,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4298,7 +4298,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4327,7 +4327,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4356,7 +4356,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4385,7 +4385,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4414,7 +4414,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4443,7 +4443,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4472,7 +4472,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4501,7 +4501,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4530,7 +4530,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4567,7 +4567,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4604,7 +4604,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4641,7 +4641,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4678,7 +4678,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4715,7 +4715,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4752,7 +4752,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4789,7 +4789,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4826,7 +4826,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4863,7 +4863,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4900,7 +4900,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4937,7 +4937,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -4974,7 +4974,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5003,7 +5003,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5032,7 +5032,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5061,7 +5061,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5090,7 +5090,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5119,7 +5119,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5148,7 +5148,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5177,7 +5177,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5222,7 +5222,7 @@
         ]
       },
       "priority": 30000000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5267,7 +5267,7 @@
         ]
       },
       "priority": 30000000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5320,7 +5320,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5349,7 +5349,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5378,7 +5378,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5415,7 +5415,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5444,7 +5444,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5473,7 +5473,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5502,7 +5502,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5531,7 +5531,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5560,7 +5560,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5589,7 +5589,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5618,7 +5618,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5647,7 +5647,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5676,7 +5676,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5713,7 +5713,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5750,7 +5750,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5787,7 +5787,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5824,7 +5824,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5877,7 +5877,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5930,7 +5930,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -5975,7 +5975,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6020,7 +6020,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6065,7 +6065,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6110,7 +6110,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6155,7 +6155,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6178,7 +6178,7 @@
         "intervals": []
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6207,7 +6207,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6236,7 +6236,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6265,7 +6265,7 @@
         ]
       },
       "priority": 19460813,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6302,7 +6302,7 @@
         ]
       },
       "priority": 19460813,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6331,7 +6331,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6360,7 +6360,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6389,7 +6389,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6418,7 +6418,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6447,7 +6447,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6476,7 +6476,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6505,7 +6505,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6534,7 +6534,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6563,7 +6563,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6592,7 +6592,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6621,7 +6621,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6650,7 +6650,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6679,7 +6679,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6708,7 +6708,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6745,7 +6745,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6782,7 +6782,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6819,7 +6819,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6856,7 +6856,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6885,7 +6885,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6914,7 +6914,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6943,7 +6943,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6972,7 +6972,7 @@
         ]
       },
       "priority": 19050000,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -6992,7 +6992,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -7045,7 +7045,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -7074,7 +7074,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -7103,7 +7103,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -7156,7 +7156,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -7176,7 +7176,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -7196,7 +7196,7 @@
         ]
       },
       "priority": 999999999,
-      "max_acft": null,
+      "cum_acft_limit": null,
       "from_account": null,
       "to_account": null,
       "beg_date": "1000-01-01",
@@ -7236,7 +7236,7 @@
             ]
           },
           "priority": 19051204,
-          "max_acft": null,
+          "cum_acft_limit": null,
           "from_account": null,
           "to_account": null,
           "beg_date": "1000-01-01",
@@ -7273,7 +7273,7 @@
             ]
           },
           "priority": 19051204,
-          "max_acft": null,
+          "cum_acft_limit": null,
           "from_account": null,
           "to_account": null,
           "beg_date": "1000-01-01",
@@ -7292,7 +7292,7 @@
           }
         ]
       },
-      "max_acft": null,
+      "cum_acft_limit": null,
       "comment": null,
       "beg_date": "1000-01-01",
       "end_date": "9999-12-31"
@@ -7322,7 +7322,7 @@
             ]
           },
           "priority": 19050000,
-          "max_acft": null,
+          "cum_acft_limit": null,
           "from_account": null,
           "to_account": null,
           "beg_date": "1000-01-01",
@@ -7351,7 +7351,7 @@
             ]
           },
           "priority": 19050000,
-          "max_acft": null,
+          "cum_acft_limit": null,
           "from_account": null,
           "to_account": null,
           "beg_date": "1000-01-01",
@@ -7370,7 +7370,7 @@
           }
         ]
       },
-      "max_acft": null,
+      "cum_acft_limit": null,
       "comment": null,
       "beg_date": "1000-01-01",
       "end_date": "9999-12-31"

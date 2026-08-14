@@ -22,10 +22,15 @@
 
 
 - [ ] Implement storage-account and cumulative-volume constraints.
-        * Trxn object can reference to and from storage accounts. These are referenced by an account name (str) that should be unique for the source zone and destination zone. (The source zone and destination zone are identified via the path list.)
+        * Trxn object can reference to and from storage accounts. These are referenced by an account id (str) that should be unique for the source zone and destination zone. (The source zone and destination zone are identified via the path list.)
         * Trxns can have an annual volume limit. The limit resets at a given day & month. The apportionment to a trxn must be limited to the remaining annual volume limit.
         * An account can be configured to limit outgoing trxns when the current balance drops below a specified volume.
         * An account can be configured to limit incoming trxns when the current balance hits a specified ceiling.
+
+        - fix spelling of cummulative_limit!
+        - add note to documentation. Say that the expectation is for the volume units to be consistent with the flow units (all in cfs-days or acre-feet)
+        - consider adding cumulative_starting_use to zone-accounts.
+
 
 - [ ] Implement non-integer time-lags - solve multi-day period with one matrix, perhaps using entire period, perhaps using rolling window.
 
@@ -41,7 +46,7 @@
 
 
 3. Storage-source exhaustion is not implemented
-The models define max_acft, from_account, to_account, and limit_by_remaining_account_balance, but there is no corresponding constraints or balance updates in the solver.
+The models define cum_acft_limit, from_account, to_account, and limit_by_remaining_account_balance, but there is no corresponding constraints or balance updates in the solver.
 
 4. The spill second pass is conceptually too broad
 Removing all natural-flow constraints does not specifically make only the identified spill available. It potentially makes every measured stream flow available, including natural flow intentionally classified as unavailable. The data manager explicitly distinguishes natural from available_natural, including external natural flow that has already been utilized upstream.

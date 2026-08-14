@@ -555,7 +555,7 @@ def parse_solver_input_from_dict(
                     t.get('upper_limit')
                 ),
                 lower_limit=t.get('lower_limit', 0),
-                max_acft=t.get('max_acft'),
+                cum_acft_limit=t.get('cum_acft_limit'),
                 comment=t.get('comment'),
                 beg_date=t.get('beg_date'),
                 end_date=t.get('end_date'),
@@ -619,7 +619,7 @@ def parse_solver_input_from_dict(
             ),
             priority=priority,
             lower_limit=t.get('lower_limit', 0),
-            max_acft=t.get('max_acft'),
+            cum_acft_limit=t.get('cum_acft_limit'),
             from_account=t.get('from_account'),
             to_account=t.get('to_account'),
             beg_date=t.get('beg_date'),
@@ -1621,7 +1621,7 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=7,
-                    max_acft=None,
+                    cum_acft_limit=None,
                     children_trxns=[
                         Trxn(id='TRXN_2', priority=2, upper_limit=6, path=[TrxnPathItem(flow_id='Diversion', expected_values=[6])]),
                         Trxn(id='TRXN_3', priority=3, upper_limit=12, path=[TrxnPathItem(flow_id='Diversion', expected_values=[1])]),
@@ -1674,7 +1674,7 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=10,
-                    max_acft=None,
+                    cum_acft_limit=None,
                     children_trxns=[
                         Trxn(id='TRXN_2', priority=10, upper_limit=4, path=[TrxnPathItem(flow_id='DiversionA', expected_values=[3])]),
                         Trxn(id='TRXN_3', priority=20, upper_limit=6, path=[TrxnPathItem(flow_id='DiversionB', expected_values=[2])])
@@ -1685,7 +1685,7 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=10,
-                    max_acft=None,
+                    cum_acft_limit=None,
                     children_trxns=[
                         Trxn(id='TRXN_5', priority=10, upper_limit=6, path=[TrxnPathItem(flow_id='DiversionA', expected_values=[3])]),
                         Trxn(id='TRXN_6', priority=10, upper_limit=4, path=[TrxnPathItem(flow_id='DiversionB', expected_values=[2])])
@@ -1736,7 +1736,7 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=4,
-                    max_acft=None,
+                    cum_acft_limit=None,
                     children_trxns=[
                         Trxn(id='TRXN_20', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>A', expected_values=[2])]),
                         Trxn(id='TRXN_21', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[2])])
@@ -1747,7 +1747,7 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=8,
-                    max_acft=None,
+                    cum_acft_limit=None,
                     children_trxns=[
                         Trxn(id='TRXN_30', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>B', expected_values=[8])]),
                         Trxn(id='TRXN_31', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[0])])
@@ -1758,7 +1758,7 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=9,
-                    max_acft=None,
+                    cum_acft_limit=None,
                     children_trxns=[
                         Trxn(id='TRXN_40', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>C', expected_values=[5])]),
                         Trxn(id='TRXN_41', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[4])])
@@ -1811,7 +1811,7 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=4,
-                    max_acft=None,
+                    cum_acft_limit=None,
                     children_trxns=[
                         Trxn(id='TRXN_20', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>A', expected_values=[2])]),
                         Trxn(id='TRXN_21', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[0.22222222222222222 + 2.7777777777777777 * 2/6.5])])
@@ -1822,7 +1822,7 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=8,
-                    max_acft=None,
+                    cum_acft_limit=None,
                     children_trxns=[
                         Trxn(id='TRXN_30', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>B', expected_values=[8])]),
                         Trxn(id='TRXN_31', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[0])])
@@ -1833,7 +1833,7 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=9,
-                    max_acft=None,
+                    cum_acft_limit=None,
                     children_trxns=[
                         Trxn(id='TRXN_40', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>C', expected_values=[5])]),
                         Trxn(id='TRXN_41', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[0 + 2.777777 * 4.5/6.5])])
@@ -1986,7 +1986,7 @@ class E_SharedTrxnLimits(unittest.TestCase):
                     wrnum=None,
                     priority=0,
                     upper_limit=15,
-                    max_acft=None,
+                    cum_acft_limit=None,
                     children_trxns=[
                         Trxn(id='TRXN_1', priority=1, upper_limit=None, path=[TrxnPathItem(flow_id='>A', expected_values=[10])]),
                         Trxn(id='TRXN_2', priority=2, upper_limit=None, path=[TrxnPathItem(flow_id='>B', expected_values=[5])])
@@ -2036,7 +2036,7 @@ class E_SharedTrxnLimits(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=15,
-                    max_acft=None,
+                    cum_acft_limit=None,
                     children_trxns=[
                         Trxn(id='WR_345_1', priority=2, upper_limit=None, path=[TrxnPathItem(flow_id='A>1', expected_values=[11.11111111])]),
                         Trxn(id='WR_345_2', priority=2, upper_limit=None, path=[TrxnPathItem(flow_id='A>2', expected_values=[2.222222222])])
