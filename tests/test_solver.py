@@ -23,161 +23,705 @@ from ut_water_apportionment.loss_models import LossDefinition
 import logging
 import sys
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARN,
     stream=sys.stdout,
     force=True,
 )
 
 
-def parse_solver_input_from_dict(data: dict, results_dict: dict|None = None) -> SolverInput:
-    from collections import defaultdict
+def parse_solver_input_from_dict(
+        data: dict,
+        results_dict: dict | None = None
+        ) -> SolverInput:
 
-    # 1. Build a lookup for expected values from the flat results JSON
+    from collections import defaultdict
+    from dataclasses import fields
+    from enum import Enum
+
+    # Add these imports if they aren't already imported in this module:
+    from ut_water_apportionment.loss_models import (
+        LossDefinition,
+        LossInterval,
+        LossCurvePoint,
+        ResolvedLossRelation,
+    )
+
+    from ut_water_apportionment import NaturalFlowMode
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def construct(cls, **kwargs):
+        """
+        Construct a dataclass using only fields supported by the current
+        version of that class.
+
+        This makes this loader tolerant of fields that have been added or
+        removed between solver versions.
+        """
+        supported = {f.name for f in fields(cls)}
+        return cls(**{
+            key: value
+            for key, value in kwargs.items()
+            if key in supported
+        })
+
+
+    def parse_enum(enum_type, value):
+        """Accept enum instances, enum names, or enum values."""
+        if value is None:
+            return None
+
+        if isinstance(value, enum_type):
+            return value
+
+        text = str(value)
+
+        # Also tolerate strings such as "ZoneTypes.STREAM".
+        prefix = enum_type.__name__ + "."
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+
+        try:
+            return enum_type[text]
+        except KeyError:
+            pass
+
+        for member in enum_type:
+            if str(member.value).lower() == text.lower():
+                return member
+
+        raise ValueError(
+            f"Unknown {enum_type.__name__} value {value!r}"
+        )
+
+
+    def parse_flow_measurement(
+            value,
+            default_adjustment_factor: float = 1.0
+            ) -> FlowMeasurement | None:
+
+        if value is None:
+            return None
+
+        if isinstance(value, FlowMeasurement):
+            return value
+
+        if isinstance(value, str):
+            return FlowMeasurement(
+                measurement_id=value,
+                adjustment_factor=default_adjustment_factor,
+            )
+
+        measurement_id = (
+            value.get('measurement_id')
+            or value.get('node_id')
+        )
+
+        if measurement_id is None:
+            return None
+
+        return FlowMeasurement(
+            measurement_id=str(measurement_id),
+            adjustment_factor=float(
+                value.get(
+                    'adjustment_factor',
+                    default_adjustment_factor
+                )
+            ),
+        )
+
+
+    def parse_loss(value) -> LossDefinition:
+        """
+        Parse the JSON/asdict representation of LossDefinition.
+
+        Supports:
+          - None
+          - numeric constant fraction
+          - {"fraction": ...}
+          - {"points": [...]}
+          - serialized {"segments": [...]}
+          - serialized time-varying {"intervals": [...], "default": ...}
+        """
+        if value is None:
+            return LossDefinition()
+
+        if isinstance(value, LossDefinition):
+            return value
+
+        if isinstance(value, (int, float)):
+            return LossDefinition.linear(float(value))
+
+        if not isinstance(value, dict):
+            raise TypeError(
+                f"Cannot parse loss definition from {value!r}"
+            )
+
+        if 'fraction' in value:
+            return LossDefinition.linear(float(value['fraction']))
+
+        if 'points' in value:
+            return LossDefinition.piecewise_linear([
+                LossCurvePoint(
+                    inflow=float(point['inflow']),
+                    loss=float(point['loss']),
+                )
+                for point in value['points']
+            ])
+
+        # This is what dataclasses.asdict(LossDefinition(...)) produces.
+        if value.get('segments'):
+            return LossDefinition(
+                segments=tuple(
+                    ResolvedLossRelation(
+                        segment_index=int(
+                            segment.get('segment_index', index)
+                        ),
+                        min_driver_flow=float(
+                            segment.get('min_driver_flow', 0)
+                        ),
+                        max_driver_flow=(
+                            None
+                            if segment.get('max_driver_flow') is None
+                            else float(segment['max_driver_flow'])
+                        ),
+                        loss_slope=float(
+                            segment.get('loss_slope', 0)
+                        ),
+                        loss_intercept=float(
+                            segment.get('loss_intercept', 0)
+                        ),
+                    )
+                    for index, segment
+                    in enumerate(value['segments'])
+                )
+            )
+
+        if value.get('intervals'):
+            intervals = tuple(
+                LossInterval(
+                    beg_date=str(interval['beg_date']),
+                    end_date=str(interval['end_date']),
+                    loss=parse_loss(interval['loss']),
+                )
+                for interval in value['intervals']
+            )
+
+            default = value.get('default')
+
+            return LossDefinition(
+                intervals=intervals,
+                default=(
+                    None
+                    if default is None
+                    else parse_loss(default)
+                ),
+            )
+
+        return LossDefinition()
+
+
+    def parse_limit(limit_data):
+        if limit_data is None:
+            return None
+
+        if isinstance(limit_data, (int, float, AccountingLimit)):
+            return limit_data
+
+        if 'intervals' not in limit_data:
+            return limit_data
+
+        return AccountingLimit(
+            intervals=[
+                AccountingLimitInterval(
+                    beg_date=str(i['beg_date']),
+                    end_date=str(i['end_date']),
+                    value=float(i['value']),
+                )
+                for i in limit_data['intervals']
+            ]
+        )
+
+
+    # ------------------------------------------------------------------
+    # 1. Expected-value lookup
+    # ------------------------------------------------------------------
+
     expected_lookup = {}
+
     if results_dict and 'apportionments' in results_dict:
-        # Temporary dict to gather values by date
         temp_lookup = defaultdict(list)
 
         for alloc in results_dict['apportionments']:
             flow_id = str(alloc['interzone_flow_id'])
-            # Strip 'TRXN_' prefix if it exists to match the input path_id format
             txn_id = str(alloc['txn_id']).replace('TRXN_', '')
             date_str = alloc['date']
             value = alloc['value']
 
-            temp_lookup[(txn_id, flow_id)].append((date_str, value))
+            temp_lookup[(txn_id, flow_id)].append(
+                (date_str, value)
+            )
 
-        # Sort by date and store just the values
         for key, date_val_pairs in temp_lookup.items():
-            sorted_vals = [v[1] for v in sorted(date_val_pairs, key=lambda x: x[0])]
-            expected_lookup[key] = sorted_vals
+            expected_lookup[key] = [
+                value
+                for _, value in sorted(
+                    date_val_pairs,
+                    key=lambda x: x[0],
+                )
+            ]
 
-    # 2. Parse Zones
+
+    # ------------------------------------------------------------------
+    # 2. Zones
+    # ------------------------------------------------------------------
+
     zones = []
+
     for z in data['accounting_graph']['zones']:
-        storage_ids = z.get('storage_meas_ids', [])
+
+        storage_ids = [
+            str(value)
+            for value in z.get('storage_meas_ids', [])
+        ]
+
+        # Legacy format.
         if not storage_ids and 'storage_contents' in z:
-            storage_ids = [str(s['measurement_id']) for s in z['storage_contents'] if s.get('measurement_id')]
+            storage_ids = [
+                str(item['measurement_id'])
+                for item in z['storage_contents']
+                if item.get('measurement_id') is not None
+            ]
 
-        zones.append(Zone(
-            id=str(z['id']),
-            type=ZoneTypes(z['type']),
-            storage_meas_ids=storage_ids
-        ))
+        zones.append(
+            construct(
+                Zone,
+                id=str(z['id']),
+                type=parse_enum(ZoneTypes, z['type']),
+                storage_meas_ids=storage_ids,
 
-    # 3. Parse Interzone Flows
+                # Preserves this field if the current Zone supports it.
+                accounts=z.get('accounts', []),
+            )
+        )
+
+
+    # ------------------------------------------------------------------
+    # 3. Interzone flows
+    # ------------------------------------------------------------------
+
     flows = []
+
     for f in data['accounting_graph']['interzone_flows']:
-        flow_type = FlowComponentsTypes.OBSERVATION
-        flow_measurements = []# Handle backwards compatibility for JSON loading
-        raw_components = f.get('pos_flow_components', [])
-        if 'uhd_mapping' in f:
-            raw_components = f['uhd_mapping'].get('positive_flows', [])
 
-        for c in raw_components:
-            f_calc = c.get('flow_calculation', {})
-            f_type = c.get('flow_type')
+        # --------------------------------------------------------------
+        # Current format
+        # --------------------------------------------------------------
 
-            if f_calc or f_type in ('FLOW_BALANCE_OF_DESTINATION_ZONE', 'FB_DEST', 'FLOW_BALANCE_OF_SOURCE_ZONE', 'SOURCE ZONE', 'DESTINATION ZONE'):
-                if f_type in ('FLOW_BALANCE_OF_SOURCE_ZONE', 'SOURCE ZONE') or f_calc.get('calculation_type') != 'FB_DEST':
-                    flow_type = FlowComponentsTypes.FLOW_BALANCE_OF_SOURCE_ZONE
+        if 'flow_type' in f:
+            flow_type = parse_enum(
+                FlowComponentsTypes,
+                f['flow_type'],
+            )
+        else:
+            flow_type = None
+
+        if 'flow_measurements' in f:
+            flow_measurements = [
+                measurement
+                for raw in f.get('flow_measurements', [])
+                if (
+                    measurement := parse_flow_measurement(raw)
+                ) is not None
+            ]
+
+        # --------------------------------------------------------------
+        # Legacy format
+        # --------------------------------------------------------------
+        else:
+            flow_measurements = []
+
+            positive_components = f.get(
+                'pos_flow_components',
+                [],
+            )
+            negative_components = f.get(
+                'neg_flow_components',
+                [],
+            )
+
+            if 'uhd_mapping' in f:
+                mapping = f['uhd_mapping']
+                positive_components = mapping.get(
+                    'positive_flows',
+                    [],
+                )
+                negative_components = mapping.get(
+                    'negative_flows',
+                    [],
+                )
+
+            calculated_type = None
+
+            for component in positive_components:
+
+                calculation = (
+                    component.get('flow_calculation')
+                    or {}
+                )
+
+                raw_type = (
+                    component.get('flow_type')
+                    or calculation.get('calculation_type')
+                )
+
+                if raw_type is not None:
+                    text = str(raw_type)
+
+                    if text in {
+                        'FB_DEST',
+                        'FLOW_BALANCE_OF_DESTINATION_ZONE',
+                        'DESTINATION ZONE',
+                    }:
+                        calculated_type = (
+                            FlowComponentsTypes
+                            .FLOW_BALANCE_OF_DESTINATION_ZONE
+                        )
+
+                    elif text in {
+                        'FB_SOURCE',
+                        'FLOW_BALANCE_OF_SOURCE_ZONE',
+                        'SOURCE ZONE',
+                    }:
+                        calculated_type = (
+                            FlowComponentsTypes
+                            .FLOW_BALANCE_OF_SOURCE_ZONE
+                        )
+
+                measurement = parse_flow_measurement(
+                    component,
+                    default_adjustment_factor=1.0,
+                )
+
+                if measurement is not None:
+                    flow_measurements.append(measurement)
+
+            # Negative input measurements represent reverse-direction
+            # observations.
+            for component in negative_components:
+
+                measurement = parse_flow_measurement(
+                    component,
+                    default_adjustment_factor=-1.0,
+                )
+
+                if measurement is not None:
+                    measurement.adjustment_factor = -abs(
+                        measurement.adjustment_factor
+                    )
+                    flow_measurements.append(measurement)
+
+            if flow_type is None:
+                if calculated_type is not None:
+                    flow_type = calculated_type
+                elif flow_measurements:
+                    flow_type = FlowComponentsTypes.OBSERVATION
                 else:
-                    flow_type = FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE
-            else:
-                meas_id = str(c.get('measurement_id') or c.get('node_id'))
-                if meas_id and meas_id != 'None':
-                    flow_measurements.append(FlowMeasurement(measurement_id=meas_id))
+                    flow_type = FlowComponentsTypes.EMPTY
 
-        flows.append(InterzoneFlow(
-            id=str(f['id']),
-            from_zone=str(f['from_zone']),
-            to_zone=str(f['to_zone']),
-            flow_type=flow_type,
-            flow_measurements=flow_measurements,
-            bidirectional=f.get('bidirectional', False),
-            lag_from_zone=f.get('lag_from_zone', 0),
-            lag_to_zone=f.get('lag_to_zone', 0)
-        ))
+        # If neither current nor legacy data supplied a type.
+        if flow_type is None:
+            flow_type = (
+                FlowComponentsTypes.OBSERVATION
+                if flow_measurements
+                else FlowComponentsTypes.EMPTY
+            )
 
-    graph = AccountingGraph(zones=zones, interzone_flows=flows)
+        natural_flow_mode = f.get('natural_flow_mode')
 
-    # 4. Helper to parse limits
-    def parse_limit(limit_data):
-        if not limit_data or 'intervals' not in limit_data:
-            return limit_data
-        intervals = [AccountingLimitInterval(**i) for i in limit_data['intervals']]
-        return AccountingLimit(intervals=intervals)
+        nf_measurements = [
+            measurement
+            for raw in f.get('nf_measurements', [])
+            if (
+                measurement := parse_flow_measurement(raw)
+            ) is not None
+        ]
 
-    # 5. Helper to parse transactions recursively
+        flows.append(
+            construct(
+                InterzoneFlow,
+                id=str(f['id']),
+                from_zone=str(f['from_zone']),
+                to_zone=str(f['to_zone']),
+                bidirectional=bool(
+                    f.get('bidirectional', False)
+                ),
+
+                # Important fields that the old parser dropped:
+                flow_type=flow_type,
+                flow_measurements=flow_measurements,
+
+                residual_for_gains=bool(
+                    f.get('residual_for_gains', False)
+                ),
+                residual_for_losses=bool(
+                    f.get('residual_for_losses', False)
+                ),
+
+                lag_from_zone=float(
+                    f.get('lag_from_zone', 0)
+                ),
+                lag_to_zone=float(
+                    f.get('lag_to_zone', 0)
+                ),
+
+                loss_from_zone=parse_loss(
+                    f.get('loss_from_zone')
+                ),
+                loss_to_zone=parse_loss(
+                    f.get('loss_to_zone')
+                ),
+
+                natural_flow_mode=(
+                    None
+                    if natural_flow_mode in (
+                        None,
+                        '',
+                        'DEFAULT',
+                    )
+                    else parse_enum(
+                        NaturalFlowMode,
+                        natural_flow_mode,
+                    )
+                ),
+
+                nf_measurements=nf_measurements,
+
+                beg_date=str(
+                    f.get('beg_date', '1000-01-01')
+                ),
+                end_date=str(
+                    f.get('end_date', '9999-12-31')
+                ),
+            )
+        )
+
+    graph = AccountingGraph(
+        zones=zones,
+        interzone_flows=flows,
+    )
+
+
+    # ------------------------------------------------------------------
+    # 4. Transactions
+    # ------------------------------------------------------------------
+
     def parse_trxn(t):
-        raw_id = str(t.get('id') or t.get('path_id'))
-        t_id = f"TRXN_{raw_id}" if not raw_id.startswith('TRXN_') else raw_id
 
-        priority = t.get('priority_order') if t.get('priority_order') is not None else t.get('priority', -1)
+        raw_id = str(
+            t.get('id')
+            or t.get('path_id')
+        )
+
+        t_id = (
+            raw_id
+            if raw_id.startswith('TRXN_')
+            else f'TRXN_{raw_id}'
+        )
+
+        priority = t.get('priority_order')
+
+        if priority is None:
+            priority = t.get('priority', -1)
+
+        # --------------------------------------------------------------
+        # Transaction group
+        # --------------------------------------------------------------
 
         if 'children_trxns' in t:
-            children = [parse_trxn(c) for c in t['children_trxns']]
-            return TrxnGroup(
+
+            return construct(
+                TrxnGroup,
                 id=t_id,
-                children_trxns=children,
+                children_trxns=[
+                    parse_trxn(child)
+                    for child in t['children_trxns']
+                ],
                 wrnum=t.get('wrnum'),
                 priority=priority,
-                upper_limit=parse_limit(t.get('upper_limit')),
+                upper_limit=parse_limit(
+                    t.get('upper_limit')
+                ),
+                lower_limit=t.get('lower_limit', 0),
                 max_acft=t.get('max_acft'),
                 comment=t.get('comment'),
                 beg_date=t.get('beg_date'),
-                end_date=t.get('end_date')
-            )
-        else:
-            path = []
-            for p in t.get('path', []):
-                flow_id = str(p.get('flow_id') or p.get('flow_name'))
-
-                # Figure out the lookup key by stripping the "TRXN_" prefix
-                lookup_key = None
-                if 'path_id' in t and t['path_id'] is not None:
-                    lookup_key = str(t['path_id'])
-                elif 'id' in t:
-                    lookup_key = str(t['id']).replace('TRXN_', '')
-
-                expected = expected_lookup.get((lookup_key, flow_id))
-
-                path.append(TrxnPathItem(
-                    flow_id=flow_id,
-                    factor=p.get('factor', 1.0),
-                    expected_values=expected
-                ))
-
-            return Trxn(
-                id=t_id,
-                path=path,
-                upper_limit=parse_limit(t.get('upper_limit')),
-                priority=priority,
-                max_acft=t.get('max_acft'),
-                from_account=t.get('from_account'),
-                to_account=t.get('to_account'),
-                beg_date=t.get('beg_date'),
                 end_date=t.get('end_date'),
-                is_slack=t.get('is_slack', False)
             )
 
-    txns = [parse_trxn(t) for t in data.get('transactions', data.get('txns', []))]
+        # --------------------------------------------------------------
+        # Ordinary transaction
+        # --------------------------------------------------------------
 
-    # 6. Build and return the final SolverInput
-    return SolverInput(
+        path = []
+
+        for p in t.get('path', []):
+
+            flow_id = str(
+                p.get('flow_id')
+                or p.get('flow_name')
+            )
+
+            if t.get('path_id') is not None:
+                lookup_id = str(t['path_id'])
+            else:
+                lookup_id = raw_id.replace(
+                    'TRXN_',
+                    '',
+                )
+
+            # results_dict takes precedence when supplied.
+            expected = expected_lookup.get(
+                (lookup_id, flow_id),
+                p.get('expected_values'),
+            )
+
+            path.append(
+                construct(
+                    TrxnPathItem,
+                    flow_id=flow_id,
+                    factor=float(
+                        p.get('factor', 1.0)
+                    ),
+                    expected_values=expected,
+
+                    # Previously omitted:
+                    loss_before=float(
+                        p.get('loss_before', 0)
+                    ),
+                    loss_after=float(
+                        p.get('loss_after', 0)
+                    ),
+                    remaining_factor=float(
+                        p.get('remaining_factor', 1)
+                    ),
+                )
+            )
+
+        return construct(
+            Trxn,
+            id=t_id,
+            path=path,
+            upper_limit=parse_limit(
+                t.get('upper_limit')
+            ),
+            priority=priority,
+            lower_limit=t.get('lower_limit', 0),
+            max_acft=t.get('max_acft'),
+            from_account=t.get('from_account'),
+            to_account=t.get('to_account'),
+            beg_date=t.get('beg_date'),
+            end_date=t.get('end_date'),
+            is_slack=bool(
+                t.get('is_slack', False)
+            ),
+            limit_by_remaining_account_balance=bool(
+                t.get(
+                    'limit_by_remaining_account_balance',
+                    False,
+                )
+            ),
+        )
+
+
+    txns = [
+        parse_trxn(t)
+        for t in data.get(
+            'transactions',
+            data.get('txns', []),
+        )
+    ]
+
+
+    # ------------------------------------------------------------------
+    # 5. Measurements
+    # ------------------------------------------------------------------
+
+    raw_measurements = data['measurements']
+
+    if isinstance(raw_measurements, MeasurementCollection):
+        measurements = raw_measurements
+
+    elif 'series' in raw_measurements:
+        measurements = MeasurementCollection(
+            beg_date=str(raw_measurements['beg_date']),
+            end_date=str(raw_measurements['end_date']),
+            series=[
+                MeasurementSeries(
+                    id=str(series['id']),
+                    values=list(series['values']),
+                )
+                for series in raw_measurements['series']
+            ],
+        )
+
+    # Older dictionary format.
+    else:
+        measurement_beg_date = data.get(
+            'measurement_beg_date',
+            data['beg_date'],
+        )
+        measurement_end_date = data.get(
+            'measurement_end_date',
+            data['end_date'],
+        )
+
+        measurements = MeasurementCollection(
+            beg_date=str(measurement_beg_date),
+            end_date=str(measurement_end_date),
+            series=[
+                MeasurementSeries(
+                    id=str(measurement_id),
+                    values=list(values),
+                )
+                for measurement_id, values
+                in raw_measurements.items()
+            ],
+        )
+
+
+    # ------------------------------------------------------------------
+    # 6. SolverInput
+    # ------------------------------------------------------------------
+
+    return construct(
+        SolverInput,
         accounting_graph=graph,
         txns=txns,
-        beg_date=data.get('beg_date'), # type: ignore
-        end_date=data.get('end_date'), # type: ignore
-        measurements=MeasurementCollection(
-            beg_date=data['measurements']['beg_date'],
-            end_date=data['measurements']['end_date'],
-            series=[
-                MeasurementSeries(id=x['id'], values=x['values'])
-                for x in data['measurements']['series']
-            ]
-        )
+        measurements=measurements,
+        beg_date=str(data['beg_date']),
+        end_date=str(data['end_date']),
+
+        # Included for compatibility with older SolverInput versions.
+        measurement_beg_date=measurements.beg_date,
+        measurement_end_date=measurements.end_date,
+
+        # This was also omitted by the old parser.
+        external_natural_flows={
+            str(flow_id): {
+                str(date): float(value)
+                for date, value in values.items()
+            }
+            for flow_id, values
+            in data.get(
+                'external_natural_flows',
+                {},
+            ).items()
+        },
     )
+
 
 class HelperUtilitiesTests(unittest.TestCase):
 
@@ -934,6 +1478,35 @@ class B_Reservoirs(unittest.TestCase):
         results = solve(input, check_expected_values=True)
 
 
+
+    def test_spill_makes_natural_flow_available_downstream(self):
+
+        input = self.reservoir_problem_input(
+            stor_chg=-5,
+            stor_loss=0,
+            Q_AB=0,
+            Q_DIV1=0,
+            Q_BC=5,
+            Q_DIV2=5,
+            Q_DIV3=0,
+            Q_CD=0,
+        )
+
+        input.txns.extend([
+            Trxn(
+                id='TRXN_2',
+                priority=2,
+                upper_limit=4,
+                path=[
+                    TrxnPathItem(
+                        flow_id='C>2',
+                        expected_values=[4],
+                    )
+                ],
+            )
+        ])
+
+        results = solve(input, check_expected_values=True)
 
 
 class B_Imports(unittest.TestCase):
@@ -2238,3 +2811,18 @@ class RealProblems(unittest.TestCase):
             input_dict = json.load(file)
         input = parse_solver_input_from_dict(input_dict)
         solve(input)
+
+    def test_feron(self):
+        """Can this problem be solved w/o an exception?
+
+        """
+        import json
+        from pathlib import Path
+
+        filepath = Path("tests") / "test_files" / "feron_input.json"
+        with open(filepath, 'r') as file:
+            input_dict = json.load(file)
+        input = parse_solver_input_from_dict(input_dict)
+
+        results = solve(input)
+        results.print_solve_steps()

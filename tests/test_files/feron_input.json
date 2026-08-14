@@ -1,0 +1,1826 @@
+{
+  "accounting_graph": {
+    "zones": [
+      {
+        "id": "27",
+        "type": "system-gain-loss",
+        "storage_meas_ids": [],
+        "accounts": []
+      },
+      {
+        "id": "171",
+        "type": "stream",
+        "storage_meas_ids": [],
+        "accounts": []
+      },
+      {
+        "id": "172",
+        "type": "storage",
+        "storage_meas_ids": [
+          "10557"
+        ],
+        "accounts": []
+      },
+      {
+        "id": "173",
+        "type": "use",
+        "storage_meas_ids": [],
+        "accounts": []
+      },
+      {
+        "id": "174",
+        "type": "use",
+        "storage_meas_ids": [],
+        "accounts": []
+      },
+      {
+        "id": "175",
+        "type": "use",
+        "storage_meas_ids": [],
+        "accounts": []
+      },
+      {
+        "id": "176",
+        "type": "stream",
+        "storage_meas_ids": [],
+        "accounts": []
+      },
+      {
+        "id": "177",
+        "type": "use",
+        "storage_meas_ids": [],
+        "accounts": []
+      },
+      {
+        "id": "178",
+        "type": "use",
+        "storage_meas_ids": [],
+        "accounts": []
+      },
+      {
+        "id": "179",
+        "type": "use",
+        "storage_meas_ids": [],
+        "accounts": []
+      },
+      {
+        "id": "402",
+        "type": "use",
+        "storage_meas_ids": [],
+        "accounts": []
+      },
+      {
+        "id": "701",
+        "type": "depletion",
+        "storage_meas_ids": [],
+        "accounts": []
+      },
+      {
+        "id": "497",
+        "type": "stream",
+        "storage_meas_ids": [],
+        "accounts": []
+      },
+      {
+        "id": "217",
+        "type": "depletion",
+        "storage_meas_ids": [],
+        "accounts": []
+      }
+    ],
+    "interzone_flows": [
+      {
+        "id": "191",
+        "from_zone": "27",
+        "to_zone": "171",
+        "bidirectional": true,
+        "flow_type": "EMPTY",
+        "flow_measurements": [],
+        "lag_from_zone": 0,
+        "lag_to_zone": 0,
+        "loss_from_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "loss_to_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "natural_flow_mode": null,
+        "nf_measurements": [],
+        "beg_date": "1000-01-01",
+        "end_date": "9999-12-31"
+      },
+      {
+        "id": "187",
+        "from_zone": "171",
+        "to_zone": "172",
+        "bidirectional": true,
+        "flow_type": "DESTINATION ZONE",
+        "flow_measurements": [],
+        "lag_from_zone": 0,
+        "lag_to_zone": 0,
+        "loss_from_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "loss_to_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "natural_flow_mode": null,
+        "nf_measurements": [],
+        "beg_date": "1000-01-01",
+        "end_date": "9999-12-31"
+      },
+      {
+        "id": "662",
+        "from_zone": "171",
+        "to_zone": "173",
+        "bidirectional": false,
+        "flow_type": "OBSERVATION",
+        "flow_measurements": [
+          {
+            "measurement_id": "10989",
+            "adjustment_factor": 1
+          }
+        ],
+        "lag_from_zone": 0,
+        "lag_to_zone": 0,
+        "loss_from_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "loss_to_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "natural_flow_mode": null,
+        "nf_measurements": [],
+        "beg_date": "1000-01-01",
+        "end_date": "9999-12-31"
+      },
+      {
+        "id": "660",
+        "from_zone": "171",
+        "to_zone": "174",
+        "bidirectional": false,
+        "flow_type": "OBSERVATION",
+        "flow_measurements": [
+          {
+            "measurement_id": "10562",
+            "adjustment_factor": 1
+          }
+        ],
+        "lag_from_zone": 0,
+        "lag_to_zone": 0,
+        "loss_from_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "loss_to_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "natural_flow_mode": null,
+        "nf_measurements": [],
+        "beg_date": "1000-01-01",
+        "end_date": "9999-12-31"
+      },
+      {
+        "id": "661",
+        "from_zone": "171",
+        "to_zone": "175",
+        "bidirectional": false,
+        "flow_type": "OBSERVATION",
+        "flow_measurements": [
+          {
+            "measurement_id": "10563",
+            "adjustment_factor": 1
+          }
+        ],
+        "lag_from_zone": 0,
+        "lag_to_zone": 0,
+        "loss_from_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "loss_to_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "natural_flow_mode": null,
+        "nf_measurements": [],
+        "beg_date": "1000-01-01",
+        "end_date": "9999-12-31"
+      },
+      {
+        "id": "196",
+        "from_zone": "27",
+        "to_zone": "176",
+        "bidirectional": true,
+        "flow_type": "EMPTY",
+        "flow_measurements": [],
+        "lag_from_zone": 0,
+        "lag_to_zone": 0,
+        "loss_from_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "loss_to_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "natural_flow_mode": null,
+        "nf_measurements": [],
+        "beg_date": "1000-01-01",
+        "end_date": "9999-12-31"
+      },
+      {
+        "id": "192",
+        "from_zone": "171",
+        "to_zone": "176",
+        "bidirectional": false,
+        "flow_type": "OBSERVATION",
+        "flow_measurements": [
+          {
+            "measurement_id": "11021",
+            "adjustment_factor": 1
+          }
+        ],
+        "lag_from_zone": 0,
+        "lag_to_zone": 0,
+        "loss_from_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "loss_to_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "natural_flow_mode": null,
+        "nf_measurements": [],
+        "beg_date": "1000-01-01",
+        "end_date": "9999-12-31"
+      },
+      {
+        "id": "193",
+        "from_zone": "176",
+        "to_zone": "177",
+        "bidirectional": false,
+        "flow_type": "OBSERVATION",
+        "flow_measurements": [
+          {
+            "measurement_id": "10564",
+            "adjustment_factor": 1
+          }
+        ],
+        "lag_from_zone": 0,
+        "lag_to_zone": 0,
+        "loss_from_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "loss_to_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "natural_flow_mode": null,
+        "nf_measurements": [],
+        "beg_date": "1000-01-01",
+        "end_date": "9999-12-31"
+      },
+      {
+        "id": "194",
+        "from_zone": "176",
+        "to_zone": "178",
+        "bidirectional": false,
+        "flow_type": "OBSERVATION",
+        "flow_measurements": [
+          {
+            "measurement_id": "10565",
+            "adjustment_factor": 1
+          }
+        ],
+        "lag_from_zone": 0,
+        "lag_to_zone": 0,
+        "loss_from_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "loss_to_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "natural_flow_mode": null,
+        "nf_measurements": [],
+        "beg_date": "1000-01-01",
+        "end_date": "9999-12-31"
+      },
+      {
+        "id": "195",
+        "from_zone": "176",
+        "to_zone": "179",
+        "bidirectional": false,
+        "flow_type": "OBSERVATION",
+        "flow_measurements": [
+          {
+            "measurement_id": "10566",
+            "adjustment_factor": 1
+          }
+        ],
+        "lag_from_zone": 0,
+        "lag_to_zone": 0,
+        "loss_from_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "loss_to_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "natural_flow_mode": null,
+        "nf_measurements": [],
+        "beg_date": "1000-01-01",
+        "end_date": "9999-12-31"
+      },
+      {
+        "id": "652",
+        "from_zone": "176",
+        "to_zone": "402",
+        "bidirectional": false,
+        "flow_type": "DESTINATION ZONE",
+        "flow_measurements": [],
+        "lag_from_zone": 0,
+        "lag_to_zone": 0,
+        "loss_from_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "loss_to_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "natural_flow_mode": null,
+        "nf_measurements": [],
+        "beg_date": "1000-01-01",
+        "end_date": "9999-12-31"
+      },
+      {
+        "id": "1235",
+        "from_zone": "172",
+        "to_zone": "701",
+        "bidirectional": false,
+        "flow_type": "EMPTY",
+        "flow_measurements": [],
+        "lag_from_zone": 0,
+        "lag_to_zone": 0,
+        "loss_from_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "loss_to_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "natural_flow_mode": null,
+        "nf_measurements": [],
+        "beg_date": "1000-01-01",
+        "end_date": "9999-12-31"
+      },
+      {
+        "id": "878",
+        "from_zone": "176",
+        "to_zone": "497",
+        "bidirectional": false,
+        "flow_type": "EMPTY",
+        "flow_measurements": [],
+        "lag_from_zone": 0,
+        "lag_to_zone": 0,
+        "loss_from_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "loss_to_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "natural_flow_mode": null,
+        "nf_measurements": [],
+        "beg_date": "1000-01-01",
+        "end_date": "9999-12-31"
+      },
+      {
+        "id": "653",
+        "from_zone": "402",
+        "to_zone": "217",
+        "bidirectional": false,
+        "flow_type": "OBSERVATION",
+        "flow_measurements": [
+          {
+            "measurement_id": "12756",
+            "adjustment_factor": 1
+          }
+        ],
+        "lag_from_zone": 0,
+        "lag_to_zone": 0,
+        "loss_from_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "loss_to_zone": {
+          "segments": [
+            {
+              "segment_index": 0,
+              "min_driver_flow": 0.0,
+              "max_driver_flow": null,
+              "loss_slope": 0.0,
+              "loss_intercept": 0.0
+            }
+          ],
+          "intervals": [],
+          "default": null
+        },
+        "natural_flow_mode": null,
+        "nf_measurements": [],
+        "beg_date": "1000-01-01",
+        "end_date": "9999-12-31"
+      }
+    ]
+  },
+  "txns": [
+    {
+      "id": "TRXN_4480",
+      "path": [
+        {
+          "flow_id": "652",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "2023-04-01",
+            "end_date": "2023-11-01",
+            "value": 4.333
+          }
+        ]
+      },
+      "priority": 18760000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4665",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 1000.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4672",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 1000.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4673",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 1000.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4674",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4675",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4676",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4677",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4678",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4679",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4680",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4681",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 225.0
+          }
+        ]
+      },
+      "priority": 18770000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4682",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 100.0
+          }
+        ]
+      },
+      "priority": 18900000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4683",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 53.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4684",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19111123.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4685",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19370511.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4686",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19331215.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4687",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19480621.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4688",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19510929.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4689",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19631016.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4690",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": -1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        },
+        {
+          "flow_id": "192",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        },
+        {
+          "flow_id": "195",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 1000.0
+          }
+        ]
+      },
+      "priority": 19000101.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4691",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": -1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        },
+        {
+          "flow_id": "192",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        },
+        {
+          "flow_id": "194",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 1000.0
+          }
+        ]
+      },
+      "priority": 19000101.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4694",
+      "path": [
+        {
+          "flow_id": "194",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 7.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4695",
+      "path": [
+        {
+          "flow_id": "194",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.015
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4696",
+      "path": [
+        {
+          "flow_id": "193",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 15.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4697",
+      "path": [
+        {
+          "flow_id": "193",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 15.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4698",
+      "path": [
+        {
+          "flow_id": "193",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 25.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4699",
+      "path": [
+        {
+          "flow_id": "193",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 21.5
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_4700",
+      "path": [
+        {
+          "flow_id": "193",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_9024",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": -1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        },
+        {
+          "flow_id": "660",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 1000.0
+          }
+        ]
+      },
+      "priority": 19000101.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_9025",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": -1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        },
+        {
+          "flow_id": "192",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        },
+        {
+          "flow_id": "193",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 1000.0
+          }
+        ]
+      },
+      "priority": 19000101.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_9026",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": -1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        },
+        {
+          "flow_id": "661",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 1000.0
+          }
+        ]
+      },
+      "priority": 19000101.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_9027",
+      "path": [
+        {
+          "flow_id": "194",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 0.0
+          }
+        ]
+      },
+      "priority": 19000000.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    },
+    {
+      "id": "TRXN_9028",
+      "path": [
+        {
+          "flow_id": "187",
+          "factor": -1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        },
+        {
+          "flow_id": "662",
+          "factor": 1.0,
+          "expected_values": null,
+          "loss_before": 0,
+          "loss_after": 0,
+          "remaining_factor": 1
+        }
+      ],
+      "upper_limit": {
+        "intervals": [
+          {
+            "beg_date": "1000-01-01",
+            "end_date": "9999-12-31",
+            "value": 1000.0
+          }
+        ]
+      },
+      "priority": 19000101.0,
+      "max_acft": null,
+      "from_account": null,
+      "to_account": null,
+      "beg_date": "1000-01-01",
+      "end_date": "9999-12-31",
+      "is_slack": false
+    }
+  ],
+  "measurements": {
+    "series": [
+      {
+        "id": "10989",
+        "values": [
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "id": "10562",
+        "values": [
+          8.55653810763906,
+          6.7920305266205
+        ]
+      },
+      {
+        "id": "10563",
+        "values": [
+          21.5671296296301,
+          15.9675898148151
+        ]
+      },
+      {
+        "id": "11021",
+        "values": [
+          35.66,
+          28.19
+        ]
+      },
+      {
+        "id": "10564",
+        "values": [
+          89.4,
+          91.2
+        ]
+      },
+      {
+        "id": "10565",
+        "values": [
+          18.2,
+          17.03
+        ]
+      },
+      {
+        "id": "10566",
+        "values": [
+          72.86,
+          75.79
+        ]
+      },
+      {
+        "id": "12756",
+        "values": [
+          0.092375177477027,
+          0.092375177477027
+        ]
+      },
+      {
+        "id": "10557",
+        "values": [
+          8721.188437384677,
+          9074.096533213344
+        ]
+      }
+    ],
+    "beg_date": "2023-06-01",
+    "end_date": "2023-06-02"
+  },
+  "beg_date": "2023-06-02",
+  "end_date": "2023-06-02",
+  "external_natural_flows": {}
+}

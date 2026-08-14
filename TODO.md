@@ -1,8 +1,11 @@
 
-- [ ] fully implement for interzone-flows:
-    beg_date:, end_date
+ - [ ] ...
+        * NF deserves an audit entry
+        * impacts of specified boundary NF deserves an entry
+        * spills deserves an audit entry.
+        * Skipped items deserve an audit entry too.
 
-- [ ] DailyDataManager currently does too much, particularly the nf stuff does not belong.
+- [ ] solve_for_nonpath_vars seems to be too inclusive. But when I target it to just the slack variables, many tests fail. What is going on?
 
 - [ ] Update Trxn data model so the source-account is 'Natural Flow' for diversions from the stream,
       During the 1st pass:
@@ -10,6 +13,16 @@
       During the 2nd pass:
         * only attempt to maximize transactions that were previously limited by remaining natural flow.
         * once all the natural flow for a zone has been used up, don't try to maximize apportionments to any trxns comming from that zone's natural flow
+
+      Tracking Remaining Natural Flow:
+      - on startup, we need to know the natural flow avaialable to each zone.
+      - after every aportionment from natural flow, we need to
+        1. propigate the impact downstream
+        2. report how much NF remains in each zone (put in audit log)
+        3. update my set of which NF zones have been depleted
+        4. (future) update the NF constraint coefs when we move from one slope to another (depending on which direction the next objective will pull)
+
+
 
 - [ ] Implement storage-account and cumulative-volume constraints.
         * Trxn object can reference to and from storage accounts. These are referenced by an account name (str) that should be unique for the source zone and destination zone. (The source zone and destination zone are identified via the path list.)

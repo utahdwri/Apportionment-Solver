@@ -7,7 +7,7 @@ from .models import (
     FlowComponentsTypes, InterzoneFlow, MeasurementCollection, NaturalFlowMode, Zone, ZoneTypes
 )
 from .graph_manager import GraphManager
-from .natural_flow_calculator import CurFlowInfo, NaturalFlowCalculator
+from .natural_flow_calculator import CurFlowInfo
 
 
 COALESCE_MISSING_FLOWS_TO_ZERO = True
@@ -20,7 +20,6 @@ class DailyDataManager:
         self,
         gm: GraphManager,
         measurements: MeasurementCollection,
-        natural_flow_calculator: NaturalFlowCalculator,
         external_natural_flows: dict | None = None,
     ):
         self._validate_measurement_references(gm, measurements)
@@ -36,7 +35,6 @@ class DailyDataManager:
         self._set_lag_by_traversal()
 
         self.external_natural_flows = external_natural_flows or {}
-        self.natural_flow_calculator = natural_flow_calculator
 
     # TODO - this is needed only once -- consider redesign...
     @property
@@ -137,27 +135,6 @@ class DailyDataManager:
                 values[flow_id] = value
         return values
 
-    def calc_natural_flows(self):
-        """Calculate natural flow for the current day."""
-        if self.cur_date is None:
-            raise ValueError("set_day() must be called before calc_natural_flows().")
-
-        self.natural_flow_calculator.calculate(
-            date=self.cur_date,
-            daily_flows=self.cur_flows_by_id,
-            specified_values=self.get_specified_natural_flow_values(self.cur_date),
-            boundary_values=self.get_boundary_natural_flow_values(self.cur_date),
-        )
-
-    def get_available_natural_at_zone(self, zone_id: str) -> float:
-        """Return natural flow available for allocation at a stream zone."""
-        return max(
-            0.0,
-            self.natural_flow_calculator.available_natural_at_zone.get(
-                zone_id,
-                0.0,
-            ),
-        )
 
 
     def _set_lag_by_traversal(self) -> None:

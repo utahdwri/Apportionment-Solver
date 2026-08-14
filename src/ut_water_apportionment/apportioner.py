@@ -16,13 +16,14 @@ from .models import (
     CorePropSchedule,
     CoreScheduleVariable, CoreSeqSchedule,
     SolverOutputApportionment,
-    SolverOutputSolveGroupEvidence,
-    SolverOutputSolveStepEvidence,
+    SolveStepResult,
+    SolveStepVariableResult,
     Trxn, TrxnGroup, ZoneTypes
 )
 from .graph_manager import GraphManager
 from .timeseries_manager import DailyDataManager
 from .trxn_schedule import TrxnSchedule
+from .natural_flow_calculator import NaturalFlowCalculator
 from .lp_solver import (
     LPSolverError,
     LPSolverFactory,
@@ -54,11 +55,13 @@ class Apportioner:
         gm: GraphManager,
         tm: TrxnSchedule,
         dm: DailyDataManager,
+        nfc: NaturalFlowCalculator,
         lp_solver_factory: LPSolverFactory | None = None,
     ):
         self.gm = gm
         self.tm = tm
         self.dm = dm
+        self.nfc = nfc
         self._lp_solver_factory = (
             lp_solver_factory
             if lp_solver_factory is not None
@@ -66,7 +69,7 @@ class Apportioner:
         )
         self.cur_trxn_value: dict[str, float] = {}
         self.cur_trxn_reasons: dict[str, str] = {}
-        self.apportionments_audit: list[SolverOutputSolveGroupEvidence] = []
+        self.apportionments_audit: list[SolveStepResult] = []
         self._audit_sequence = 0
         self.all_trxns = tm.all_trxns
         self.engine = self._build_linear_equations()
@@ -151,7 +154,12 @@ class Apportioner:
                     engine.set_coefficient(con_name, v2, 1.0)
                     engine.set_coefficient(con_name, v1, -rem_factor)
 
-                # 3. Natural Flow Constraints (only tied to anchor variables)
+
+        # 3. Natural Flow Constraints (only tied to anchor variables)
+        ''' -- this code was replaced with what follows.
+        for trxn in self.all_trxns:
+            if type(trxn) == Trxn:
+                ordered_path = self.tm.ordered_paths.get(trxn.id, [])
                 if not trxn.is_slack and len(ordered_path) > 0:
                     first_item = ordered_path[0]
                     anchor_var = f"{trxn.id}___{first_item.flow_id}"
@@ -165,6 +173,8 @@ class Apportioner:
                         engine.set_coefficient(PREFIX_NF_ZONE + from_zone.id, anchor_var, 1)
                         for f in self.gm.traverse_downstream(from_zone.id):
                             engine.set_coefficient(PREFIX_NF_ZONE + f.to_zone, anchor_var, 1)
+        '''
+
 
         # Group Limits
         for trxn in self.all_trxns:
@@ -214,12 +224,38 @@ class Apportioner:
                 self.engine.update_constraint_lb(name=PREFIX_MEASURE + f.id, lb=flow)
                 self.engine.update_constraint_ub(name=PREFIX_MEASURE + f.id, ub=flow)
 
-    def apply_nf_mass_balance_constraints(self):
-        """Set natural-flow limits for the current day."""
+    def apply_nf_mass_balance_constraints(self, date:str):
+        """Set natural-flow limits and variable coefs for the current day."""
+
+        # 1. Calculate the natural flow.
+        self.nfc.calculate(
+            date=date,
+            daily_flows=self.dm.cur_flows_by_id,
+            specified_values=self.dm.get_specified_natural_flow_values(date),
+            boundary_values=self.dm.get_boundary_natural_flow_values(date),
+        )
+
+        # 2. Complete the NF Constraints (these constraints were created in
+        #    init but we didn't have all the info to complete them)
         for z in self.gm.graph.zones:
             if z.type == ZoneTypes.STREAM:
+
+                # A. Update the coefs for all variables that are constrained.
+                coefficients = self.nfc.get_nf_constraint_coefficients(z.id)
+                for trxn in self.tm.get_nf_trxn_ids_for_zone(z.id):
+                    anchor_var = self.tm.get_anchor_var(trxn)
+                    if anchor_var is None:
+                        continue
+                    for zone_id, coefficient in coefficients.items():
+                        self.engine.set_coefficient(
+                            PREFIX_NF_ZONE + zone_id,
+                            anchor_var,
+                            coefficient,
+                        )
+
+                # B. Set the bounds to fix NF to the actual value.
                 con_name = PREFIX_NF_ZONE + z.id
-                nf_available = self.dm.get_available_natural_at_zone(z.id)
+                nf_available = max(0, self.nfc.remaining_natural_at_zone[z.id])
 
                 self.engine.update_constraint_lb(name=con_name, lb=0)
                 self.engine.update_constraint_ub(
@@ -227,6 +263,7 @@ class Apportioner:
                 )
 
     def remove_nf_mass_balance_constraints(self):
+
         for z in self.gm.graph.zones:
             if z.type == ZoneTypes.STREAM:
                 self.engine.update_constraint_lb(name=PREFIX_NF_ZONE + z.id, lb=0)
@@ -298,6 +335,9 @@ class Apportioner:
                     stop_priority
                 )
             elif type(item) is CoreScheduleVariable:
+                if self._source_nf_is_exhausted(item.var):
+                    continue
+
                 self._maximize_var(item.var)
 
             logger.info(f"Completed iteration for priority: {priority}")
@@ -390,6 +430,11 @@ class Apportioner:
         )
         self.cur_trxn_value[target_var] = new_value
 
+        # Update the remaining NF
+        delta = new_value - value_before
+        self._apply_natural_flow_change(var, delta)
+
+        # Add to audit history
         solve_step, audit_context = self._snapshot_audit_step(
             var=var,
             target_var=target_var,
@@ -419,6 +464,7 @@ class Apportioner:
         deferred_vars: list[Trxn | TrxnGroup] = []  # Track variables with tiny proportion factors
 
         vars_list, factors = self._get_next_iter(series, maxed_vs)
+        circular_loop_strikes = 0
         while vars_list:
             var_names = []
             vars_by_name = {}
@@ -503,6 +549,10 @@ class Apportioner:
                     member_steps.append(solve_step)
                     audit_contexts.append(audit_context)
 
+                    delta = var_value - values_before[var_name]
+                    self._apply_natural_flow_change(var_obj, delta)
+
+
             # Identify every member that can no longer increase. This uses
             # batched objectives so one solve can classify many variables.
             newly_maxed = self._get_newly_maxed_vars(vars_list)
@@ -536,7 +586,9 @@ class Apportioner:
             vars_list, factors = self._get_next_iter(series, maxed_vs)
             new_cnt = len(vars_list)
             if new_cnt >= old_cnt:
-                raise RuntimeError('Circular loop detected! Problem identifying any equal-priority variables to drop!')
+                circular_loop_strikes += 1
+                if circular_loop_strikes >= 3:
+                    raise RuntimeError('Circular loop detected! Problem identifying any equal-priority variables to drop!')
 
             ## reset all minus vars
             self._reset_minus_vars(origional_ub)
@@ -562,6 +614,9 @@ class Apportioner:
         current_values: dict[str, float] = {}
 
         for var in vars:
+            if self._source_nf_is_exhausted(var): # If there is no more nf then no need to spend a solver run
+                maxed_ids.add(var.id)
+                continue
             if type(var) == Trxn:
                 target_var = self.tm.get_anchor_var(var)
             else:
@@ -628,7 +683,10 @@ class Apportioner:
                 if type(item) == CoreSeqSchedule or type(item) == CorePropSchedule:
                     var_names, factors = self._get_next_iter(item, maxed_vars)
                 elif type(item) is CoreScheduleVariable:
-                    if item.var not in maxed_vars:
+                    if (
+                        item.var not in maxed_vars
+                        and not self._source_nf_is_exhausted(item.var)
+                    ):
                         var_names.append(item.var)
                         factors.append(1)
                 if len(var_names)>0:
@@ -653,7 +711,10 @@ class Apportioner:
                         factors.extend([f * x for f in sfactors])
 
                 elif type(item) is CoreScheduleVariable:
-                    if item.var not in maxed_vars:
+                    if (
+                        item.var not in maxed_vars
+                        and not self._source_nf_is_exhausted(item.var)
+                    ):
                         var_names.append(item.var)
                         factors.append(factor)
 
@@ -739,7 +800,7 @@ class Apportioner:
             value_before: float,
             value_after: float,
             proportion_factor: float | None = None
-            ) -> tuple[SolverOutputSolveStepEvidence, dict]:
+            ) -> tuple[SolveStepVariableResult, dict]:
         """Capture the small amount of transient solve evidence needed later.
 
         Constraint details are used only to produce the iteration reason and
@@ -782,7 +843,7 @@ class Apportioner:
         }
 
         return (
-            SolverOutputSolveStepEvidence(
+            SolveStepVariableResult(
                 variable_name=target_var,
                 value_before=value_before,
                 value_after=value_after,
@@ -793,11 +854,11 @@ class Apportioner:
 
     def _record_audit_iteration(
             self,
-            steps: list[SolverOutputSolveStepEvidence],
+            steps: list[SolveStepVariableResult],
             contexts: list[dict],
             limiting_txn_ids: list[str],
             is_proportional: bool
-            ) -> SolverOutputSolveGroupEvidence:
+            ) -> SolveStepResult:
         if self.dm.cur_date is None:
             raise ValueError("Daily data date has not been set.")
 
@@ -808,12 +869,13 @@ class Apportioner:
         )
 
         self._audit_sequence += 1
-        audit_record = SolverOutputSolveGroupEvidence(
+        audit_record = SolveStepResult(
             date=self.dm.cur_date,
             sequence=self._audit_sequence,
-            steps=steps,
+            variables=steps,
             reason=reason,
             limited_by_natural_flow=limited_by_natural_flow,
+            remaining_natural_flow=self.nfc.remaining_natural_at_zone.copy()
         )
         self.apportionments_audit.append(audit_record)
         return audit_record
@@ -947,12 +1009,67 @@ class Apportioner:
         return 'OTHER'
 
 
+
+    def _apply_natural_flow_change(
+        self,
+        var: Trxn | TrxnGroup,
+        delta: float,
+    ):
+        if type(var) != Trxn:
+            return
+
+        source_zone_id = self.tm.get_nf_zone_id(var)
+
+        if source_zone_id is None:
+            return
+
+        self.nfc.apply_committed_allocation(
+            source_zone_id,
+            delta,
+        )
+
+
+    def _source_nf_is_exhausted(
+        self,
+        var: Trxn | TrxnGroup,
+    ) -> bool:
+
+        if type(var) == Trxn:
+            from_zone_id = self.tm.get_nf_zone_id(var)
+            if from_zone_id is None:
+                return False
+
+            return self.nfc.source_is_exhausted(from_zone_id)
+
+        if type(var) == TrxnGroup:
+            children = list(
+                self.tm.traverse_vars(var.children_trxns)
+            )
+
+            source_children = [
+                child
+                for child in children
+                if type(child) == Trxn
+            ]
+
+            return (
+                bool(source_children)
+                and all(
+                    self._source_nf_is_exhausted(child)
+                    for child in source_children
+                )
+            )
+
+        return False
+
+
     def feasibility_fallback(self) -> float:
         """
         The intended fallback hierarchy is:
         1. minimize total constraint violation;
         2. among solutions with minimum violation, maximize the current transaction.
         """
+        FEASIBILITY_FALLBACK_TOL = 10 * SOLVER_TOL
 
         self.feasibility_slacks = self.add_feasibility_vars(self.feasibility_slacks)
 
@@ -971,8 +1088,8 @@ class Apportioner:
         # first minimize constraint violations, then optimize apportionment.
         self.engine.update_variable_bounds(
             'FEAS_SUM',
-            lb=minimum_feasibility,
-            ub=minimum_feasibility
+            lb=0,
+            ub=minimum_feasibility+ FEASIBILITY_FALLBACK_TOL
         )
 
         return minimum_feasibility

@@ -23,60 +23,19 @@ class TrxnSchedule:
         self._validate(txns, gm)
 
         self.gm = gm
-        p_trxns = self._process_input_trxns(txns)
+        p_trxns = self._init_process_input_trxns(txns)
         self.all_trxns = list(self.traverse_vars(p_trxns))
         self._max_daily_apportionment = max_daily_apportionment
 
-        self.ordered_paths: dict[str, list[TrxnPathItem]] = {}
-        for t in self.all_trxns:
-            if type(t) == Trxn:
-                if len(t.path) > 0:
-                    self.ordered_paths[t.id] = self._get_ordered_path(t)
-                else:
-                    self.ordered_paths[t.id] = []
+        self.ordered_paths = self._init_build_ordered_paths()
 
-        self.lookup_flow_trxns = self._build_flow_trxns_lookup()
+        self._natural_flow_trxns = self._init_natural_flow_trxns()             # This helps to track the trxns that depend on NF available at a given zone.
+
+        self.lookup_flow_trxns = self._init_build_flow_trxns_lookup()
 
 
-    @staticmethod
-    def traverse_vars(vars: list[Trxn | TrxnGroup]) -> Iterator[Trxn | TrxnGroup]:
-        """Recursively yields all transactions, including nested children."""
-        for v in vars:
-            yield v
-            if isinstance(v, TrxnGroup):
-                yield from TrxnSchedule.traverse_vars(v.children_trxns)
 
-
-    @staticmethod
-    def _validate(trxns:list[Trxn | TrxnGroup], gm:GraphManager) -> None:
-        """Raises a ValueError if:
-         - trxn ids are not unique
-         - interzone-flow references are not valid
-        """
-
-        all_trxns = list(TrxnSchedule.traverse_vars(trxns))
-
-        # Transaction IDs must be unique.
-        seen = set()
-        for trxn in all_trxns:
-            if trxn.id in seen:
-                raise ValueError(f"Duplicate transaction id: {trxn.id!r}")
-            seen.add(trxn.id)
-
-        # Interzone-flow references must exist.
-        for trxn in all_trxns:
-            if isinstance(trxn, Trxn):
-                for item in trxn.path:
-                    try:
-                        gm.get_flow_by_id(item.flow_id)
-                    except ValueError:
-                        raise ValueError(
-                            f"Transaction {trxn.id!r} references "
-                            f"unknown interzone-flow {item.flow_id!r}."
-                        )
-
-
-    def _process_input_trxns(self, input_txns: list['Trxn | TrxnGroup']):
+    def _init_process_input_trxns(self, input_txns: list['Trxn | TrxnGroup']):
         """Given the input txns list, do some neccessary checks and make needed
         modifications. Returns a seperate list, not modifying the origional
         list."""
@@ -138,6 +97,19 @@ class TrxnSchedule:
                 self._ensure_children_after_parent(t.children_trxns, t.priority)
 
 
+    def _init_build_ordered_paths(self) -> dict[str, list[TrxnPathItem]]:
+        """Build a collection keyed by trxn id that provides ordered, verified
+        paths"""
+        output = {}
+        for t in self.all_trxns:
+            if type(t) == Trxn:
+                if len(t.path) > 0:
+                    output[t.id] = self._get_ordered_path(t)
+                else:
+                    output[t.id] = []
+        return output
+
+
     def _get_ordered_path(self, trxn: Trxn) -> list[TrxnPathItem]:
         if not trxn.path:
             return []
@@ -184,19 +156,116 @@ class TrxnSchedule:
 
         return ordered
 
-    def get_anchor_var(self, trxn: Trxn) -> str | None:
-        path = self.ordered_paths.get(trxn.id, [])
-        if path:
-            return f"{trxn.id}___{path[0].flow_id}"
-        return None
 
-    def _build_flow_trxns_lookup(self) -> dict[str, list[tuple[Trxn, TrxnPathItem]]]:
+    def _init_natural_flow_trxns(self) -> dict[str, list[Trxn]]:
+        """Set up a lookup table that will make it easy to look up the set of
+        trxns that originate from a given natural flow zone."""
+
+        output: dict[str, list[Trxn]] = {}
+
+        for zone in self.gm.graph.zones:                                       # TODO - consider requiring input to define account objects to assist with this...
+            if zone.type == ZoneTypes.STREAM:
+                output[zone.id] = []
+
+        for trxn in self.all_trxns:
+            if type(trxn) != Trxn:
+                continue
+
+            if trxn.is_slack:
+                continue
+
+            from_zone = self.get_from_zone(trxn)
+
+            if from_zone and from_zone.type == ZoneTypes.STREAM:
+                output[from_zone.id].append(trxn)
+
+        return output
+
+
+    def _init_build_flow_trxns_lookup(self) -> dict[str, list[tuple[Trxn, TrxnPathItem]]]:
         lookup = {f.id: [] for f in self.gm.graph.interzone_flows}
         for t in self.all_trxns:
             if type(t) == Trxn:
                 for x in t.path:
                     lookup[x.flow_id].append((t, x))
         return lookup
+
+
+
+
+    @staticmethod
+    def traverse_vars(vars: list[Trxn | TrxnGroup]) -> Iterator[Trxn | TrxnGroup]:
+        """Recursively yields all transactions, including nested children."""
+        for v in vars:
+            yield v
+            if isinstance(v, TrxnGroup):
+                yield from TrxnSchedule.traverse_vars(v.children_trxns)
+
+
+    @staticmethod
+    def _validate(trxns:list[Trxn | TrxnGroup], gm:GraphManager) -> None:
+        """Raises a ValueError if:
+         - trxn ids are not unique
+         - interzone-flow references are not valid
+        """
+
+        all_trxns = list(TrxnSchedule.traverse_vars(trxns))
+
+        # Transaction IDs must be unique.
+        seen = set()
+        for trxn in all_trxns:
+            if trxn.id in seen:
+                raise ValueError(f"Duplicate transaction id: {trxn.id!r}")
+            seen.add(trxn.id)
+
+        # Interzone-flow references must exist.
+        for trxn in all_trxns:
+            if isinstance(trxn, Trxn):
+                for item in trxn.path:
+                    try:
+                        gm.get_flow_by_id(item.flow_id)
+                    except ValueError:
+                        raise ValueError(
+                            f"Transaction {trxn.id!r} references "
+                            f"unknown interzone-flow {item.flow_id!r}."
+                        )
+
+
+    def get_nf_trxn_ids_for_zone(self, zone_id:str) -> list[Trxn]:
+        if zone_id in self._natural_flow_trxns:
+            return self._natural_flow_trxns[zone_id]
+        else:
+            return []
+
+    def get_nf_zone_id(self, trxn) -> str | None:
+        from_zone = self.get_from_zone(trxn)
+        if from_zone is not None and from_zone.id in self._natural_flow_trxns:
+            return from_zone.id
+        return None
+
+    def get_from_zone(self, trxn: Trxn) -> Zone | None:
+        ordered_path = self.ordered_paths.get(trxn.id, [])
+        if not ordered_path:
+            return None
+
+        first_item = ordered_path[0]
+        flow = self.gm.get_flow_by_id(first_item.flow_id)
+
+        zone_id = (
+            flow.from_zone
+            if first_item.factor > 0
+            else flow.to_zone
+        )
+
+        return self.gm.get_zone_by_id(zone_id)
+
+
+    def get_anchor_var(self, trxn: Trxn) -> str | None:
+        path = self.ordered_paths.get(trxn.id, [])
+        if path:
+            return f"{trxn.id}___{path[0].flow_id}"
+        return None
+
 
     def get_transaction_upper_limit(self, t: Trxn | TrxnGroup, date:str|None) -> float | None:
 
@@ -226,6 +295,7 @@ class TrxnSchedule:
 
         #log(f"TRXN UPPER LIMIT: {t.id} = {upper_limit}")
         return upper_limit
+
 
     def get_minus_vars(self, vars: list[Trxn | TrxnGroup]) -> list[Trxn]:
 
@@ -277,6 +347,7 @@ class TrxnSchedule:
                             if get_from(trxn)[0] == to_zone:
                                 output.append(trxn)
         return output
+
 
     def build_schedule(self, date:str) -> CoreSeqSchedule:
         # Convert the paths dictionary to an ordered schedule list by sorting the
@@ -368,6 +439,7 @@ class TrxnSchedule:
                     ))
 
         return CoreSeqSchedule(series=output_list)
+
 
     def get_path_item(self, trxn_id, interzone_flow_id):
         """Return the path-item object for the given trxn passing the given

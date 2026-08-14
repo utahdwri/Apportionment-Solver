@@ -21,7 +21,7 @@ def solve(
     input: SolverInput,
     *,
     check_expected_values: bool = False,
-    solver_backend: SolverBackend | str = SolverBackend.AUTO,
+    solver_backend: SolverBackend | str = SolverBackend.GLOP,
     max_daily_apportionment: float | None = None,
 ) -> SolverOutput:
     """Build and solve the apportionment model.
@@ -43,10 +43,10 @@ def solve(
 
     # 2. Initialize daily data and natural-flow services.
     natural_flow_calculator = NaturalFlowCalculator(graph_manager)
+
     data_manager = DailyDataManager(
         graph_manager,
         input.measurements,
-        natural_flow_calculator,
         input.external_natural_flows,
     )
 
@@ -59,14 +59,13 @@ def solve(
 
         # A. Setup the state for the day
         data_manager.set_day(date)
-        data_manager.calc_natural_flows()
-
 
         #
         apportioner = Apportioner(
             graph_manager,
             trxn_manager,
             data_manager,
+            natural_flow_calculator,
             lp_solver_factory=resolved_backend.factory,
         )
 
@@ -81,7 +80,7 @@ def solve(
 
         # Solve sequentially with and without NF mass balance limits
         #apportioner.solve_phase = 'NATURAL_FLOW'
-        apportioner.apply_nf_mass_balance_constraints()
+        apportioner.apply_nf_mass_balance_constraints(date)
         apportioner.calculate_apportionments(schedule)
 
         #apportioner.solve_phase = 'SPILL_REALLOCATION'
@@ -97,14 +96,6 @@ def solve(
         apportionment_results.extend(apportioner.get_variables(date))
         apportionments_audit.extend(apportioner.apportionments_audit)
 
-        #logger.info( apportioner.engine.lp_string() )
-
-    '''# These result values all use the adjusted/lagged time.
-    lagged_results = SolverOutput(
-        apportionments=apportionment_results,
-        apportionments_audit=apportionments_audit,
-        solver_backend=resolved_backend.name.value,
-    )'''
 
     unlagged_apportionments = unlag_apportionments(
         apportionment_results,
@@ -113,11 +104,14 @@ def solve(
 
     results = SolverOutput(
         apportionments=unlagged_apportionments,
-        apportionments_audit=apportionments_audit,
+        solve_steps=apportionments_audit,
         solver_backend=resolved_backend.name.value,
     )
 
     if check_expected_values:
+
+        results.print_solve_steps()
+
         assert_apportionments_equal_expected(results, input, graph_manager, data_manager, trxn_manager)
 
     return results

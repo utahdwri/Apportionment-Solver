@@ -180,8 +180,8 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
         results = solve(solver_input)
         transaction_steps = [
             step
-            for audit_record in results.apportionments_audit
-            for step in audit_record.steps
+            for audit_record in results.solve_steps
+            for step in audit_record.variables
             if step.variable_name.startswith("TRXN_DIV___")
         ]
 

@@ -63,74 +63,12 @@ class SolverInput:
                 f"to {self.measurements.end_date}."
             )
 
-    def to_dict(self) -> dict:
-        """Return a JSON-serializable representation of this SolverInput."""
-
-        def serialize(value):
-            # Dataclasses: only save constructor fields.
-            # This intentionally skips fields such as
-            # MeasurementCollection._series_by_id.
-            if is_dataclass(value):
-                return {
-                    f.name: serialize(getattr(value, f.name))
-                    for f in fields(value)
-                    if f.init
-                }
-
-            # Store enum values rather than Python enum representations.
-            if isinstance(value, Enum):
-                return value.value
-
-            if isinstance(value, dict):
-                return {
-                    str(key): serialize(item)
-                    for key, item in value.items()
-                }
-
-            if isinstance(value, (list, tuple)):
-                return [serialize(item) for item in value]
-
-            if isinstance(value, date):
-                return value.isoformat()
-
-            if value is None or isinstance(
-                value,
-                (str, int, float, bool),
-            ):
-                return value
-
-            raise TypeError(
-                f"Cannot serialize object of type "
-                f"{type(value).__name__}: {value!r}"
-            )
-
-        return serialize(self) # type: ignore
-
-    def export_json(
-        self,
-        *,
-        indent: int = 2,
-    ) -> str:
-        """
-        Get this SolverInput as human-readable JSON.
-        """
-
-        text = json.dumps(
-            self.to_dict(),
-            indent=indent,
-            ensure_ascii=False,
-            allow_nan=False,
-        )
-
-        return text
 
 
 @dataclass
 class SolverOutput:
     apportionments: list['SolverOutputApportionment']
-    apportionments_audit: list['SolverOutputSolveGroupEvidence'] = field(
-        default_factory=list
-    )
+    solve_steps: list['SolveStepResult']
     solver_backend: str | None = None
 
     def get_result_value(self,
@@ -149,7 +87,7 @@ class SolverOutput:
         return output
 
 
-    def print_solve_steps(self, date: str | None = None) -> None:
+    def print_solve_steps_old(self, date: str | None = None) -> None:
         """Print one audit-table row for every variable changed by a solve.
 
         When ``date`` is provided, only iterations for that date are printed.
@@ -164,14 +102,14 @@ class SolverOutput:
 
         groups = [
             group
-            for group in self.apportionments_audit
+            for group in self.solve_steps
             if date is None or group.date == date
         ]
         groups.sort(key=lambda group: (group.date, group.sequence))
 
         rows: list[list[str]] = []
         for group in groups:
-            for step in group.steps:
+            for step in group.variables:
                 rows.append([
                     group.date,
                     str(group.sequence),
@@ -216,6 +154,106 @@ class SolverOutput:
 
         print(render(headers))
         print('-+-'.join('-' * width for width in widths))
+        for row in rows:
+            print(render(row))
+
+
+    def print_solve_steps(self, date: str | None = None) -> None:
+        """Print one audit-table row for every variable changed by a solve.
+
+        Remaining natural flow at each stream zone is printed after the
+        transaction variables for each sequence.
+
+        When ``date`` is provided, only iterations for that date are printed.
+        When it is omitted, all dates are printed in chronological/sequence
+        order.
+        """
+
+        def fmt_number(value: float | None) -> str:
+            if value is None:
+                return '-'
+            return f'{value:.3f}'
+
+        groups = [
+            group
+            for group in self.solve_steps
+            if date is None or group.date == date
+        ]
+        groups.sort(key=lambda group: (group.date, group.sequence))
+
+        rows: list[list[str]] = []
+
+        for group in groups:
+
+            # Ordinary transaction/group variables.
+            for step in group.variables:
+                rows.append([
+                    group.date,
+                    str(group.sequence),
+                    step.variable_name,
+                    fmt_number(step.value_before),
+                    fmt_number(step.value_after),
+                    fmt_number(step.value_after - step.value_before),
+                    fmt_number(step.proportion_factor),
+                    'Y' if group.limited_by_natural_flow else '',
+                    group.reason or '-',
+                ])
+
+            # Remaining natural-flow state after this sequence.
+            for zone_id, value in sorted(
+                group.remaining_natural_flow.items()
+            ):
+                rows.append([
+                    group.date,
+                    str(group.sequence),
+                    f'REMAINING_NF_{zone_id}',
+                    '-',
+                    fmt_number(value),
+                    '-',
+                    '-',
+                    '',
+                    '-',
+                ])
+
+        if not rows:
+            date_text = f' for {date}' if date is not None else ''
+            print(f'No apportionment audit records were found{date_text}.')
+            return
+
+        headers = [
+            'Date',
+            'Seq',
+            'Variable',
+            'Before',
+            'After',
+            'Change',
+            'Factor',
+            'NF limit',
+            'Reason',
+        ]
+
+        widths = [
+            max(
+                len(headers[index]),
+                *(len(row[index]) for row in rows)
+            )
+            for index in range(len(headers))
+        ]
+
+        def render(row: list[str]) -> str:
+            cells = []
+
+            for index, value in enumerate(row):
+                if index in {1, 3, 4, 5, 6}:
+                    cells.append(value.rjust(widths[index]))
+                else:
+                    cells.append(value.ljust(widths[index]))
+
+            return ' | '.join(cells)
+
+        print(render(headers))
+        print('-+-'.join('-' * width for width in widths))
+
         for row in rows:
             print(render(row))
 
@@ -319,19 +357,24 @@ class SolverOutputApportionment:
 
 
 @dataclass
-class SolverOutputSolveStepEvidence:
+class SolveStepVariableResult:
     variable_name: str
     value_before: float
     value_after: float
     proportion_factor: float | None = None
 
 @dataclass
-class SolverOutputSolveGroupEvidence:
+class SolveStepResult:
+    """
+    Helps track each step or iteration of the solve to provide an audit log
+    explaining the results.
+    """
     date: str
     sequence: int
-    steps: list[SolverOutputSolveStepEvidence] = field(default_factory=list)
+    variables: list[SolveStepVariableResult] = field(default_factory=list)
     reason: str | None = None
     limited_by_natural_flow: bool = False
+    remaining_natural_flow: dict[str, float] = field(default_factory=dict)
 
 
 
@@ -347,6 +390,7 @@ class Zone:
     id: str
     type: 'ZoneTypes'
     storage_meas_ids: list[str] = field(default_factory=list)
+    accounts: list['ZoneAccount'] = field(default_factory=list)
 
 
 class ZoneTypes(Enum):
@@ -450,10 +494,8 @@ class InterzoneFlow:
 
 @dataclass
 class ZoneAccount:
-    name: str
+    id: str
     starting_balance: float = 0
-
-
 
     # Don't allow incoming transactions to allow the balance to exceed
     # the ceiling:
@@ -472,13 +514,15 @@ class Trxn:
     upper_limit: 'float | AccountingLimit | None'
     priority: float = DEFAULT_TRXN_PRIORITY
     max_acft: float | None = None
-    from_account: ZoneAccount | None = None
-    to_account: ZoneAccount | None = None
+    from_account: str | None = None # A ZoneAccount id
+    to_account: str | None = None   # A ZoneAccount id
+    #from_nf: bool = False                                                     # TODO - if I activate this, I need to remember to check it inside of _source_nf_is_exhausted
     beg_date: str | None = None
     end_date: str | None = None
-    is_slack: bool = False
+    is_slack: bool = False                                                     # TODO - this info should be stored elsewhere -- the user should not be exposed to this concept
 
-    limit_by_remaining_account_balance: bool = False #~
+
+
     # What if we want to use the remaining_account_balance as the equal-priority proportion factor?
 
 
