@@ -21,7 +21,7 @@ def solve(
     input: SolverInput,
     *,
     check_expected_values: bool = False,
-    solver_backend: SolverBackend | str = SolverBackend.GLOP,
+    solver_backend: SolverBackend | str = SolverBackend.AUTO,
     max_daily_apportionment: float | None = None,
 ) -> SolverOutput:
     """Build and solve the apportionment model.

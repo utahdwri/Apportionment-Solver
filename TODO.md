@@ -1,8 +1,5 @@
 
  - [ ] ...
-        * NF deserves an audit entry
-        * impacts of specified boundary NF deserves an entry
-        * spills deserves an audit entry.
         * Skipped items deserve an audit entry too.
 
 - [ ] solve_for_nonpath_vars seems to be too inclusive. But when I target it to just the slack variables, many tests fail. What is going on?

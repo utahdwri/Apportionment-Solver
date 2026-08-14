@@ -487,12 +487,12 @@ class NaturalFlowCalculator:
         """
         Is it possible to apportion any more nf water from the given zone?
         """
-        return False
-        '''
+        #return False
+
         coefficients = self.get_nf_constraint_coefficients(source_zone_id)
 
         return any(
             coefficient > SOLVER_TOL
             and self.remaining_natural_at_zone[zone_id] <= SOLVER_TOL
             for zone_id, coefficient in coefficients.items()
-        )'''
+        )

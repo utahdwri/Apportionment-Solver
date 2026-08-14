@@ -2721,7 +2721,7 @@ class K_Accounting_Graph_Details(unittest.TestCase):
         zero. B>DIV also carries 10 cfs, so the measured flows balance exactly.
         There are no imports, storage releases, or other spills.
 
-        The first natural-flow-limited pass must leave TRXN_1 at zero. The
+        The first natural-flow-limited pass must leave TRXN_1 at 10. The
         second pass must not reclassify the measured diversion as TRXN_1 merely
         because the natural-flow constraints were removed.
         """
