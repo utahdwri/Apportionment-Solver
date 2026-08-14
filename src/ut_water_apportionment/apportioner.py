@@ -68,7 +68,6 @@ class Apportioner:
             else resolve_solver_backend().factory
         )
         self.cur_trxn_value: dict[str, float] = {}
-        self.cur_trxn_reasons: dict[str, str] = {}
         self.apportionments_audit: list[SolveStepResult] = []
         self._audit_sequence = 0
         self.all_trxns = tm.all_trxns
@@ -235,6 +234,38 @@ class Apportioner:
             boundary_values=self.dm.get_boundary_natural_flow_values(date),
         )
 
+        self._audit_sequence += 1
+        audit_record = SolveStepResult(
+            date=date,
+            sequence=self._audit_sequence,
+            variables=[],
+            reason='NF Calculations',
+            limited_by_natural_flow=False,
+            remaining_natural_flow=self.nfc.remaining_natural_at_zone.copy()
+        )
+        self.apportionments_audit.append(audit_record)
+
+
+        # 1-B.
+        # Accounting boundaries affect only what remains available
+        # to this solver.
+        self.nfc.apply_external_boundary_commitments(
+            daily_flows=self.dm.cur_flows_by_id,
+            boundary_values=self.dm.get_boundary_natural_flow_values(date)
+        )
+
+        self._audit_sequence += 1
+        audit_record = SolveStepResult(
+            date=date,
+            sequence=self._audit_sequence,
+            variables=[],
+            reason='NF Boundary Adjustments',
+            limited_by_natural_flow=False,
+            remaining_natural_flow=self.nfc.remaining_natural_at_zone.copy()
+        )
+        self.apportionments_audit.append(audit_record)
+
+
         # 2. Complete the NF Constraints (these constraints were created in
         #    init but we didn't have all the info to complete them)
         for z in self.gm.graph.zones:
@@ -269,9 +300,11 @@ class Apportioner:
                 self.engine.update_constraint_lb(name=PREFIX_NF_ZONE + z.id, lb=0)
                 self.engine.update_constraint_ub(name=PREFIX_NF_ZONE + z.id, ub=None)
 
-    def lock_spill_variables(self):
+    def calculate_spills(self) -> float:
         """Find all the variables that flow to a stream, and add a constraint
         to prevent them from increasing. """
+
+        total_spill = 0
 
         natural_zones = {ZoneTypes.STREAM, ZoneTypes.SYSTEM_GAIN_LOSS}
 
@@ -303,11 +336,92 @@ class Apportioner:
                 )
             )
 
-            # Lock the spill vars to their min value.
-            con_name = 'lock-slacks'
-            self.engine.add_constraint(name=con_name, lb=0, ub=obj_value)
-            for var_name in anchor_spill_vars:
-                self.engine.set_coefficient(con_name, var_name, 1)
+            # Lock the spill vars to their calculated value.
+            for var_name, value in solved_values.items():
+                self.engine.update_variable_bounds(var_name, lb=value, ub=value)
+                self.cur_trxn_value[var_name] = value
+
+
+            # Increase the NF.
+            for var_name, value in solved_values.items():
+                # 1. Get the to-zone for the spill variable, and
+                spill_trxn = next(
+                    (
+                        t for t in spill_vars
+                        if self.tm.get_anchor_var(t) == var_name
+                    ),
+                    None,
+                )
+
+                if spill_trxn is None:
+                    raise ValueError(
+                        f"Could not find spill transaction for variable {var_name!r}."
+                    )
+
+                path_item = spill_trxn.path[0]
+                flow = self.gm.get_flow_by_id(path_item.flow_id)
+
+                # Determine the receiving zone in the actual transaction direction,
+                # along with the endpoint loss encountered before the spill reaches it.
+                if path_item.factor > 0:
+                    to_zone_id = flow.to_zone
+                    endpoint_loss = flow.loss_to_zone
+                else:
+                    to_zone_id = flow.from_zone
+                    endpoint_loss = flow.loss_from_zone
+
+                # 2. Apply a NF credit to that to-zone
+                credit_at_zone = endpoint_loss.transform_total_flow(
+                    value,
+                    date=self.dm.cur_date,
+                )
+                self.nfc.apply_committed_allocation(to_zone_id, -credit_at_zone)
+
+                # 3. Add it to the output
+                total_spill += credit_at_zone
+
+
+            # Update the NF constraint upper bounds.
+            # This needs to take into account the routing of spills downstream.
+            # We can do this by comparing the current NF to that from the
+            # latest audit record. The increase in each zone is what needs to
+            # be added to the NF constraint.
+            latest = self.apportionments_audit[len(self.apportionments_audit) - 1]
+            for zone_id, prev_nf in latest.remaining_natural_flow.items():
+                new_nf = self.nfc.remaining_natural_at_zone[zone_id]
+                delta = new_nf - prev_nf
+
+                # 3. Increase the NF constraint.
+                con_name = PREFIX_NF_ZONE + zone_id
+                lb, ub = self.engine.get_constraint_bounds(con_name)
+                self.engine.update_constraint_ub(
+                    name=con_name,
+                    ub=ub+delta
+                )
+
+
+            # Add to audit log
+            self._audit_sequence += 1
+            audit_record = SolveStepResult(
+                date=self.dm.cur_date or '',
+                sequence=self._audit_sequence,
+                variables=[
+                    SolveStepVariableResult(
+                        variable_name=varid,
+                        value_before=0,
+                        value_after=value,
+                    )
+                    for varid, value in solved_values.items()
+                ],
+                reason='Spills',
+                limited_by_natural_flow=False,
+                remaining_natural_flow=self.nfc.remaining_natural_at_zone.copy()
+            )
+            self.apportionments_audit.append(audit_record)
+
+
+        return total_spill
+
 
     def calculate_apportionments(self,
                                  schedule: CoreSeqSchedule,
@@ -447,10 +561,8 @@ class Apportioner:
             limiting_txn_ids=[var.id],
             is_proportional=False
         )
-        reason = audit_record.reason or "No limiting constraint identified"
-        self.cur_trxn_reasons[var.id] = reason
 
-        logger.debug(f' - maxed {target_var} to {new_value} (Reason: {reason})')
+        logger.debug(f' - maxed {target_var} to {new_value}')
         self._reset_minus_vars(origional_ub)
 
     def maximize_series(self, series: CorePropSchedule | CoreSeqSchedule):
@@ -565,13 +677,10 @@ class Apportioner:
                 limiting_txn_ids=limiting_txn_ids,
                 is_proportional=True
             )
-            reason = audit_record.reason or "Equal-priority proportional allocation"
             for var_name, var_obj in vars_by_name.items():
                 if var_name in var_values:
-                    self.cur_trxn_reasons[var_obj.id] = reason
                     logger.debug(
                         f' - maxed {var_name} to {self.cur_trxn_value[var_name]} '
-                        f'(Reason: {reason})'
                     )
 
             # Get a list of the variables that are now maximized.
@@ -730,8 +839,6 @@ class Apportioner:
             if type(v) != Trxn:
                 continue
 
-            reason = self.cur_trxn_reasons.get(v.id, "Unsolved / Unconstrained")
-
             # Check if this variable is a special single-hop stream-to-stream slack variable
             is_stream_slack = False
 
@@ -772,7 +879,7 @@ class Apportioner:
                         txn_id=v.id + '_CPI',
                         value=(var_value - natural_flow) * v.path[0].factor,
                         is_forward=(var_value > natural_flow),
-                        reason=reason
+                        reason=''
                     ))
             else:
                 for a in v.path:
@@ -788,7 +895,7 @@ class Apportioner:
                         txn_id=v.id,
                         value=var_value * a.factor,
                         is_forward=a.factor > 0,
-                        reason=reason
+                        reason=''
                     ))
 
         return vars_output

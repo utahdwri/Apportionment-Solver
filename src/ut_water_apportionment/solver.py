@@ -84,9 +84,15 @@ def solve(
         apportioner.calculate_apportionments(schedule)
 
         #apportioner.solve_phase = 'SPILL_REALLOCATION'
-        apportioner.remove_nf_mass_balance_constraints()
-        apportioner.lock_spill_variables()
-        apportioner.calculate_apportionments(schedule)
+        #apportioner.remove_nf_mass_balance_constraints()
+        total_spill = apportioner.calculate_spills()
+
+        # NOTE - I would like to make this 2nd pass conditional, but even if
+        # there is no spill released, there may be some storage delivery that
+        # is freed up. If I make the following conditional,
+        # test_storage_deliveries_and_diversions_and_losses fails.
+        if total_spill > 0 or True:
+            apportioner.calculate_apportionments(schedule)
 
         # D. Finalize unconstrained (nonpath) vars
         apportioner.solve_for_nonpath_vars()

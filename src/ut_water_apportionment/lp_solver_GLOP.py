@@ -77,6 +77,15 @@ class LPSolver:
         return (variable.lb(), variable.ub())
 
 
+    def get_constraint_bounds(
+        self,
+        name: str,
+    ) -> tuple[float, float]:
+        """Return the current lower and upper bounds of a constraint."""
+        constraint = self.cons[name]
+        return constraint.lb(), constraint.ub()
+
+
     def add_constraint(self, name:str, lb:float|None=None, ub:float|None=None) -> None:
         "Add a constraint to the system of equations."
 

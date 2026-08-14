@@ -41,6 +41,8 @@ class LPSolverProtocol(Protocol):
 
     def get_variable_bounds(self, name: str) -> tuple[float, float]: ...
 
+    def get_constraint_bounds(self, name: str) -> tuple[float, float]: ...
+
     def add_constraint(
         self,
         name: str,

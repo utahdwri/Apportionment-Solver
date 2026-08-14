@@ -2646,6 +2646,7 @@ class K_Accounting_Graph_Details(unittest.TestCase):
         )
 
         results = solve(input, check_expected_values=False)
+        results.print_solve_steps()
 
         for result in results.get_result_value(flow_id="A>B"):
             if result.txn_id.endswith('_NF'):
@@ -2654,8 +2655,6 @@ class K_Accounting_Graph_Details(unittest.TestCase):
         for result in results.get_result_value(flow_id="B>C"):
             if result.txn_id.endswith('_NF'):
                 self.assertEqual(result.value, 110, 'Solver did not correctly calculate the downstream natural flow for the given upstream natural flow')
-
-        print(results)
 
 
 

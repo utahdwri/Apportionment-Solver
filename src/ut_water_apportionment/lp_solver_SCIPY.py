@@ -168,6 +168,14 @@ class LPSolver:
         variable = self.vars[name]
         return variable.lb(), variable.ub()
 
+    def get_constraint_bounds(
+        self,
+        name: str,
+    ) -> tuple[float, float]:
+        """Return the current lower and upper bounds of a constraint."""
+        constraint = self.cons[name]
+        return constraint.lb(), constraint.ub()
+
     def add_constraint(
         self,
         name: str,

@@ -126,6 +126,10 @@ class NaturalFlowCalculator:
 
         for flow in self.gm.graph.interzone_flows:
 
+            # External NF boundaries are cuts in the calculated NF network.
+            if flow.id in boundary_flow_ids:
+                continue
+
             if flow.natural_flow_mode != NaturalFlowMode.CALCULATED:
                 continue
 
@@ -359,20 +363,18 @@ class NaturalFlowCalculator:
         self.remaining_natural_at_zone = self.natural_at_zone.copy()
 
 
-        # Accounting boundaries affect only what remains available
-        # to this solver.
-        self._apply_upstream_boundary_impacts(boundary_values, daily_flows)
 
-
-    def _apply_upstream_boundary_impacts(
+    def apply_external_boundary_commitments(
         self,
         boundary_values: dict[str, float],
         daily_flows: dict[str, CurFlowInfo]
     ) -> None:
         """
-        Adjust the remaining natural flow to account for diversion or imports
-        that are upstream from the problem boundary, i.e. above the current
-        accounting domain.
+        Remove natural flow that was already apportioned outside the solver
+        domain.
+
+        External natural-flow boundaries are cut edges. Their upstream zones
+        do not participate in remaining-natural-flow accounting.
         """
 
         for flow_id, specified_nf in boundary_values.items():
@@ -380,9 +382,17 @@ class NaturalFlowCalculator:
             flow = self.gm.get_flow_by_id(flow_id)
 
             measured_flow = daily_flows[flow.id].measured
-            net_outflow_above_boundary = specified_nf - measured_flow
+            already_apportioned = specified_nf - measured_flow
 
-            self.apply_committed_allocation(flow.from_zone, net_outflow_above_boundary)
+            # The boundary value is expressed at the flow itself. Move the
+            # adjustment through any loss at the downstream endpoint before
+            # applying it to the first in-domain stream zone.
+            amount_at_entry_zone = self._transform_value(
+                flow.loss_to_zone,
+                already_apportioned,
+            )
+
+            self.apply_committed_allocation(flow.to_zone, amount_at_entry_zone)
 
 
 
