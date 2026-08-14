@@ -87,45 +87,16 @@ class SolverOutput:
         return output
 
 
-    def print_solve_steps_old(self, date: str | None = None) -> None:
-        """Print one audit-table row for every variable changed by a solve.
-
-        When ``date`` is provided, only iterations for that date are printed.
-        When it is omitted, all dates are printed in chronological/sequence
-        order.
-        """
+    def _get_solve_step_rows(
+        self,
+        date: str | None = None,
+    ) -> tuple[list[str], list[list[str]]]:
+        """Build the headers and rows used by solve-step output."""
 
         def fmt_number(value: float | None) -> str:
             if value is None:
-                return '-'
+                return ''
             return f'{value:.3f}'
-
-        groups = [
-            group
-            for group in self.solve_steps
-            if date is None or group.date == date
-        ]
-        groups.sort(key=lambda group: (group.date, group.sequence))
-
-        rows: list[list[str]] = []
-        for group in groups:
-            for step in group.variables:
-                rows.append([
-                    group.date,
-                    str(group.sequence),
-                    step.variable_name,
-                    fmt_number(step.value_before),
-                    fmt_number(step.value_after),
-                    fmt_number(step.value_after - step.value_before),
-                    fmt_number(step.proportion_factor),
-                    'Y' if group.limited_by_natural_flow else '',
-                    group.reason or '-',
-                ])
-
-        if not rows:
-            date_text = f' for {date}' if date is not None else ''
-            print(f'No apportionment audit records were found{date_text}.')
-            return
 
         headers = [
             'Date',
@@ -138,41 +109,6 @@ class SolverOutput:
             'NF limit',
             'Reason',
         ]
-        widths = [
-            max(len(headers[index]), *(len(row[index]) for row in rows))
-            for index in range(len(headers))
-        ]
-
-        def render(row: list[str]) -> str:
-            cells = []
-            for index, value in enumerate(row):
-                if index in {1, 3, 4, 5, 6}:
-                    cells.append(value.rjust(widths[index]))
-                else:
-                    cells.append(value.ljust(widths[index]))
-            return ' | '.join(cells)
-
-        print(render(headers))
-        print('-+-'.join('-' * width for width in widths))
-        for row in rows:
-            print(render(row))
-
-
-    def print_solve_steps(self, date: str | None = None) -> None:
-        """Print one audit-table row for every variable changed by a solve.
-
-        Remaining natural flow at each stream zone is printed after the
-        transaction variables for each sequence.
-
-        When ``date`` is provided, only iterations for that date are printed.
-        When it is omitted, all dates are printed in chronological/sequence
-        order.
-        """
-
-        def fmt_number(value: float | None) -> str:
-            if value is None:
-                return '-'
-            return f'{value:.3f}'
 
         groups = [
             group
@@ -196,7 +132,7 @@ class SolverOutput:
                     fmt_number(step.value_after - step.value_before),
                     fmt_number(step.proportion_factor),
                     'Y' if group.limited_by_natural_flow else '',
-                    group.reason or '-',
+                    group.reason or '',
                 ])
 
             # Remaining natural-flow state after this sequence.
@@ -207,30 +143,56 @@ class SolverOutput:
                     group.date,
                     str(group.sequence),
                     f'REMAINING_NF_{zone_id}',
-                    '-',
-                    fmt_number(value),
-                    '-',
-                    '-',
                     '',
-                    '-',
+                    fmt_number(value),
+                    '',
+                    '',
+                    '',
+                    '',
                 ])
+
+        return headers, rows
+
+    def get_solve_steps_csv_string(
+        self,
+        date: str | None = None,
+    ) -> str:
+        """
+        Return a string representing one audit-table row for every variable
+        changed by a solve. The string is ready to save to a CSV file.
+
+        Remaining natural flow at each stream zone is included after the
+        transaction variables for each sequence.
+
+        When ``date`` is provided, only iterations for that date are included.
+        When it is omitted, all dates are included in chronological/sequence
+        order.
+        """
+
+        headers, rows = self._get_solve_step_rows(date)
+
+        import io
+        import csv
+
+        output = io.StringIO()
+        writer = csv.writer(output, lineterminator='\n')
+
+        writer.writerow(headers)
+        writer.writerows(rows)
+
+        return output.getvalue()
+
+    def print_solve_steps(self, date: str | None = None) -> None:
+        """Print the solve-step audit in table format."""
+
+        headers, rows = self._get_solve_step_rows(date)
 
         if not rows:
             date_text = f' for {date}' if date is not None else ''
-            print(f'No apportionment audit records were found{date_text}.')
+            print(
+                f'No apportionment audit records were found{date_text}.'
+            )
             return
-
-        headers = [
-            'Date',
-            'Seq',
-            'Variable',
-            'Before',
-            'After',
-            'Change',
-            'Factor',
-            'NF limit',
-            'Reason',
-        ]
 
         widths = [
             max(
@@ -256,7 +218,6 @@ class SolverOutput:
 
         for row in rows:
             print(render(row))
-
 
     def print_apportionments(
         self,
