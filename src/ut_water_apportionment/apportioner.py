@@ -18,7 +18,7 @@ from .models import (
     SolverOutputApportionment,
     SolveStepResult,
     SolveStepVariableResult,
-    Trxn, TrxnGroup, ZoneTypes
+    PathTrxn, TrxnGroup, ZoneTypes
 )
 from .graph_manager import GraphManager
 from .timeseries_manager import DailyDataManager
@@ -41,6 +41,8 @@ PREFIX_MEASURE = 'MEAS_'
 PREFIX_NF_ZONE = 'NF_ZONE_'
 PREFIX_PARENT = 'PARENT_'
 PREFIX_CONT = 'CONT_'
+PREFIX_ACCOUNT_OUT = 'ACCOUNT_OUT_'
+PREFIX_ACCOUNT_IN = 'ACCOUNT_IN_'
 
 # Set up logging.
 import logging
@@ -82,14 +84,12 @@ class Apportioner:
 
         # Add Variables
         for trxn in self.all_trxns:
-            if type(trxn) == Trxn:
-                lb = 0
+            if type(trxn) == PathTrxn:
                 for x in trxn.path:
                     var_name = f"{trxn.id}___{x.flow_id}"
-                    engine.add_variable(name=var_name, lb=lb, ub=None)
+                    engine.add_variable(name=var_name, lb=0, ub=None)
             elif type(trxn) == TrxnGroup:
-                lb = 0
-                engine.add_variable(name=trxn.id, lb=lb, ub=None)
+                engine.add_variable(name=trxn.id, lb=0, ub=None)
 
         # Add Interzone Flow Measurements
         for f in self.gm.graph.interzone_flows:
@@ -104,7 +104,7 @@ class Apportioner:
 
         # Tie variables to constraints
         for trxn in self.all_trxns:
-            if type(trxn) == Trxn:
+            if type(trxn) == PathTrxn:
                 # 1. Measurement Constraints
                 for x in trxn.path:
                     var_name = f"{trxn.id}___{x.flow_id}"
@@ -175,6 +175,36 @@ class Apportioner:
         '''
 
 
+        # Zone-account limits. These are shared constraints: every transaction
+        # that references the same account competes for the same available
+        # outgoing/incoming capacity.
+        for zone in self.gm.graph.zones:
+            for account in zone.accounts:
+                balance = self.tm.get_account_balance(zone.id, account.id)
+
+                if account.balance_floor is not None:
+                    con_name = f"{PREFIX_ACCOUNT_OUT}{zone.id}___{account.id}"
+                    available_out = max(0.0, balance - account.balance_floor)
+                    engine.add_constraint(name=con_name, lb=0, ub=available_out)
+                    for trxn in self.tm.get_account_outgoing_trxns(zone.id, account.id):
+                        engine.set_coefficient(
+                            con_name,
+                            self.tm.get_from_account_var(trxn),
+                            1.0,
+                        )
+
+                if account.balance_ceiling is not None:
+                    con_name = f"{PREFIX_ACCOUNT_IN}{zone.id}___{account.id}"
+                    available_in = max(0.0, account.balance_ceiling - balance)
+                    engine.add_constraint(name=con_name, lb=0, ub=available_in)
+                    for trxn in self.tm.get_account_incoming_trxns(zone.id, account.id):
+                        engine.set_coefficient(
+                            con_name,
+                            self.tm.get_to_account_var(trxn),
+                            1.0,
+                        )
+
+
         # Group Limits
         for trxn in self.all_trxns:
             if type(trxn) == TrxnGroup:
@@ -183,7 +213,7 @@ class Apportioner:
                 engine.set_coefficient(con_name, trxn.id, 1)
 
                 for v2 in trxn.children_trxns:
-                    if type(v2) == Trxn:
+                    if type(v2) == PathTrxn:
                         anchor_var = self.tm.get_anchor_var(v2)
                         if anchor_var:
                             engine.set_coefficient(con_name, anchor_var, -1)
@@ -198,7 +228,7 @@ class Apportioner:
         for trxn in self.all_trxns:
             upper_limit = self.tm.get_transaction_upper_limit(trxn, self.dm.cur_date)
 
-            if type(trxn) == Trxn:
+            if type(trxn) == PathTrxn:
                 if trxn.is_slack:
                     upper_limit = None
 
@@ -309,9 +339,9 @@ class Apportioner:
         natural_zones = {ZoneTypes.STREAM, ZoneTypes.SYSTEM_GAIN_LOSS}
 
         # Find all the spill vars...
-        spill_vars:list[Trxn] = []
+        spill_vars:list[PathTrxn] = []
         for t in self.all_trxns:
-            if type(t) == Trxn and t.is_slack:
+            if type(t) == PathTrxn and t.is_slack:
                 if len(t.path) == 1:
                     path_item = t.path[0]
                     flow = self.gm.get_flow_by_id(path_item.flow_id)
@@ -463,7 +493,7 @@ class Apportioner:
         #       than their max values.
         target_variables = []
         for trxn in self.all_trxns:
-            if type(trxn) == Trxn:
+            if type(trxn) == PathTrxn:
                 for x in trxn.path:
                     target_variables.append(f"{trxn.id}___{x.flow_id}")
             elif type(trxn) == TrxnGroup:
@@ -481,7 +511,7 @@ class Apportioner:
             self.cur_trxn_value[var_name] = solved_value
             logger.debug(f' - maxed {var_name} to {solved_value}')
 
-    def _minimize_minus_vars(self, vars: list[Trxn | TrxnGroup]) -> dict[str, float]:
+    def _minimize_minus_vars(self, vars: list[PathTrxn | TrxnGroup]) -> dict[str, float]:
         origional_ub: dict[str, float] = {}
         minus_vars = self.tm.get_minus_vars(vars)
 
@@ -522,11 +552,11 @@ class Apportioner:
         for minus_var, ub in origional_ub.items():
             self.engine.update_variable_bounds(minus_var, ub=ub)
 
-    def _maximize_var(self, var: Trxn | TrxnGroup):
+    def _maximize_var(self, var: PathTrxn | TrxnGroup):
         """My earlier version of this function used _minimize_minus_vars and
         _reset_minus_vars to prevent apportionments from forcing a reservoir
         spill to increase the divertible natural flow."""
-        if type(var) == Trxn:
+        if type(var) == PathTrxn:
             target_var = self.tm.get_anchor_var(var)
         else:
             target_var = var.id
@@ -572,8 +602,8 @@ class Apportioner:
         Tiny factor variables are caught, warned, and executed
         sequentially immediately following the equal-priority series.
         """
-        maxed_vs: list[Trxn | TrxnGroup] = []
-        deferred_vars: list[Trxn | TrxnGroup] = []  # Track variables with tiny proportion factors
+        maxed_vs: list[PathTrxn | TrxnGroup] = []
+        deferred_vars: list[PathTrxn | TrxnGroup] = []  # Track variables with tiny proportion factors
 
         vars_list, factors = self._get_next_iter(series, maxed_vs)
         circular_loop_strikes = 0
@@ -581,7 +611,7 @@ class Apportioner:
             var_names = []
             vars_by_name = {}
             for v in vars_list:
-                if type(v) == Trxn:
+                if type(v) == PathTrxn:
                     var_name = self.tm.get_anchor_var(v)
                 else:
                     var_name = v.id
@@ -708,7 +738,7 @@ class Apportioner:
             self._maximize_var(var_obj)
 
 
-    def _get_newly_maxed_vars(self, vars: list[Trxn | TrxnGroup]):
+    def _get_newly_maxed_vars(self, vars: list[PathTrxn | TrxnGroup]):
         """Return the variables that cannot be increased further.
 
         The active variables have already been fixed at their current values by
@@ -719,14 +749,14 @@ class Apportioner:
 
 
         maxed_ids: set[str] = set()
-        remaining: dict[str, Trxn | TrxnGroup] = {}
+        remaining: dict[str, PathTrxn | TrxnGroup] = {}
         current_values: dict[str, float] = {}
 
         for var in vars:
             if self._source_nf_is_exhausted(var): # If there is no more nf then no need to spend a solver run
                 maxed_ids.add(var.id)
                 continue
-            if type(var) == Trxn:
+            if type(var) == PathTrxn:
                 target_var = self.tm.get_anchor_var(var)
             else:
                 target_var = var.id
@@ -777,12 +807,12 @@ class Apportioner:
 
         return [var for var in vars if var.id in maxed_ids]
 
-    def _get_next_iter(self, schedule: CorePropSchedule | CoreSeqSchedule, maxed_vars: list[Trxn | TrxnGroup]):
+    def _get_next_iter(self, schedule: CorePropSchedule | CoreSeqSchedule, maxed_vars: list[PathTrxn | TrxnGroup]):
         """Returns two lists for the next iteration.
         If there are no remaining variables to maximize, returns two empty
         lists.
         """
-        var_names: list[Trxn | TrxnGroup] = []
+        var_names: list[PathTrxn | TrxnGroup] = []
         factors: list[float] = []
 
         # If it is a sequential series, return the params for the next item.
@@ -836,7 +866,7 @@ class Apportioner:
         for v in self.all_trxns:
 
             # Skip non-transaction objects (like TrxnGroups)
-            if type(v) != Trxn:
+            if type(v) != PathTrxn:
                 continue
 
             # Check if this variable is a special single-hop stream-to-stream slack variable
@@ -902,7 +932,7 @@ class Apportioner:
 
     def _snapshot_audit_step(
             self,
-            var: Trxn | TrxnGroup,
+            var: PathTrxn | TrxnGroup,
             target_var: str,
             value_before: float,
             value_after: float,
@@ -918,7 +948,7 @@ class Apportioner:
         if type(var) == TrxnGroup:
             def add_descendant_variables(group: TrxnGroup):
                 for child in group.children_trxns:
-                    if type(child) == Trxn:
+                    if type(child) == PathTrxn:
                         anchor_var = self.tm.get_anchor_var(child)
                         if anchor_var:
                             evidence_variable_names.append(anchor_var)
@@ -938,7 +968,9 @@ class Apportioner:
                 seen_constraints.add(constraint_name)
                 constraints.append(dict(constraint))
 
-        upper_limit = self.tm.get_transaction_upper_limit(var, self.dm.cur_date)
+        upper_limit, limit_source = self.tm.get_transaction_limit_info(
+            var, self.dm.cur_date
+        )
         context = {
             'txn_id': var.id,
             'var': var,
@@ -946,6 +978,7 @@ class Apportioner:
                 upper_limit is not None
                 and isclose(value_after, upper_limit, abs_tol=SOLVER_TOL)
             ),
+            'limit_source': limit_source,
             'constraints': constraints,
         }
 
@@ -1006,20 +1039,27 @@ class Apportioner:
             limiting_contexts = contexts
 
         reasons = []
-        upper_limit_txn_ids = [
-            context['txn_id']
-            for context in limiting_contexts
-            if context['upper_limit_reached']
-        ]
-        if upper_limit_txn_ids:
-            if len(upper_limit_txn_ids) == 1:
-                reasons.append(
-                    f"Reached upper limit for '{upper_limit_txn_ids[0]}'"
-                )
+
+        reached_limits: dict[str, list[str]] = {}
+        for context in limiting_contexts:
+            if not context['upper_limit_reached']:
+                continue
+            source = context.get('limit_source') or 'UPPER_LIMIT'
+            reached_limits.setdefault(source, []).append(context['txn_id'])
+
+        limit_labels = {
+            'UPPER_LIMIT': 'upper limit',
+            'CALL_LIMIT': 'call limit',
+            'CUMULATIVE_LIMIT': 'cumulative limit',
+        }
+        for source, txn_ids in reached_limits.items():
+            label = limit_labels.get(source, 'transaction limit')
+            if len(txn_ids) == 1:
+                reasons.append(f"Reached {label} for '{txn_ids[0]}'")
             else:
                 reasons.append(
-                    "Reached upper limits for "
-                    + ", ".join(f"'{txn_id}'" for txn_id in upper_limit_txn_ids)
+                    f"Reached {label}s for "
+                    + ", ".join(f"'{txn_id}'" for txn_id in txn_ids)
                 )
 
         selected_blockers: dict[str, dict] = {}
@@ -1092,6 +1132,10 @@ class Apportioner:
             return f"natural flow availability at '{constraint_name[len(PREFIX_NF_ZONE):]}'"
         if constraint_type == 'GROUP_LIMIT':
             return f"transaction group limit '{constraint_name[len(PREFIX_PARENT):]}'"
+        if constraint_type == 'ACCOUNT_FLOOR':
+            return f"account floor '{constraint_name[len(PREFIX_ACCOUNT_OUT):]}'"
+        if constraint_type == 'ACCOUNT_CEILING':
+            return f"account ceiling '{constraint_name[len(PREFIX_ACCOUNT_IN):]}'"
         if constraint_type == 'SPILL_LOCK':
             return "locked minimum spill"
         if constraint_type == 'FEASIBILITY':
@@ -1105,6 +1149,10 @@ class Apportioner:
             return 'NATURAL_FLOW'
         if constraint_name.startswith(PREFIX_PARENT):
             return 'GROUP_LIMIT'
+        if constraint_name.startswith(PREFIX_ACCOUNT_OUT):
+            return 'ACCOUNT_FLOOR'
+        if constraint_name.startswith(PREFIX_ACCOUNT_IN):
+            return 'ACCOUNT_CEILING'
         if constraint_name.startswith(PREFIX_CONT):
             return 'PATH_CONTINUITY'
         if constraint_name.startswith('combined_'):
@@ -1119,10 +1167,10 @@ class Apportioner:
 
     def _apply_natural_flow_change(
         self,
-        var: Trxn | TrxnGroup,
+        var: PathTrxn | TrxnGroup,
         delta: float,
     ):
-        if type(var) != Trxn:
+        if type(var) != PathTrxn:
             return
 
         source_zone_id = self.tm.get_nf_zone_id(var)
@@ -1138,10 +1186,10 @@ class Apportioner:
 
     def _source_nf_is_exhausted(
         self,
-        var: Trxn | TrxnGroup,
+        var: PathTrxn | TrxnGroup,
     ) -> bool:
 
-        if type(var) == Trxn:
+        if type(var) == PathTrxn:
             from_zone_id = self.tm.get_nf_zone_id(var)
             if from_zone_id is None:
                 return False
@@ -1156,7 +1204,7 @@ class Apportioner:
             source_children = [
                 child
                 for child in children
-                if type(child) == Trxn
+                if type(child) == PathTrxn
             ]
 
             return (

@@ -23,7 +23,7 @@ container app.
 @dataclass
 class SolverInput:
     accounting_graph: 'AccountingGraph'
-    txns: 'list[Trxn | TrxnGroup]'
+    txns: 'list[PathTrxn | TrxnGroup]'
     measurements: 'MeasurementCollection'
     beg_date: str
     end_date: str
@@ -456,48 +456,89 @@ class InterzoneFlow:
 @dataclass
 class ZoneAccount:
     """
-    An account is located in a single zone and can be the source or
-    destination for multiple transactions.
-    """
+    An account located in a single zone. Multiple transactions may deposit
+    into or withdraw from the same account.
 
+    Balances use the same quantity units as transaction apportionments.
+    ``starting_balance`` is the balance at the beginning of SolverInput.beg_date.
+    """
     id: str
 
     # The balance as of the beg-date of beg_date of SolverInput.
     starting_balance: float = 0
 
-    # Don't allow incoming transactions to allow the balance to exceed
-    # the ceiling:
+    # Do not allow incoming transactions to increase the balance above this.
     balance_ceiling: float | None = None
 
-    # Don't allow outgoing delivery transactions to take the balance below
-    # the floor. In many cases this will be zero, but it is possible for
-    # negative balances to be allowed.
+    # Do not allow outgoing transactions to reduce the balance below this.
     balance_floor: float | None = None
+
+    def __post_init__(self):
+        for field_name in ("starting_balance", "balance_ceiling", "balance_floor"):
+            value = getattr(self, field_name)
+            if value is not None and (not isinstance(value, (int, float)) or not isfinite(value)):
+                raise ValueError(
+                    f"ZoneAccount {self.id!r} {field_name} must be a finite number or None."
+                )
+
+        if (
+            self.balance_floor is not None
+            and self.balance_ceiling is not None
+            and self.balance_floor > self.balance_ceiling
+        ):
+            raise ValueError(
+                f"ZoneAccount {self.id!r} balance_floor cannot exceed "
+                f"balance_ceiling: {self.balance_floor} > {self.balance_ceiling}."
+            )
 
 
 @dataclass
-class Trxn:
+class TrxnBaseClass:
     id: str
-    path: list['TrxnPathItem']
-    upper_limit: 'float | AccountingLimit | None'
     priority: float = DEFAULT_TRXN_PRIORITY
 
+    upper_limit: 'float | AccountingLimit | None' = None
+
+    # Cumulative allocation cap. The running total is tracked across solver
+    # days and resets before solving the configured month/day. ``None`` means
+    # there is no cumulative cap.
+    cumulative_limit: float | None = None
+    cumulative_reset_before_MMDD: str | None = None
+
+    # Optional user call. This is resolved by date in exactly the same way as
+    # upper_limit and participates in the effective daily transaction cap.
+    call_limit: 'float | AccountingLimit | None' = None
+
+    wrnum: str | None = None
+    beg_date: str | None = None
+    end_date: str | None = None
+
+    # What if we want to use the remaining_account_balance as the equal-priority proportion factor?
+
+    def __post_init__(self):
+        """Validates the data."""
+        if isinstance(self.upper_limit, (int, float)) and self.upper_limit < 0:
+            raise ValueError(
+                f'Accounting limit cannot be negative: '
+                f'{self.upper_limit} '
+            )
+
+        if self.priority < 0 or self.priority > DEFAULT_TRXN_PRIORITY:
+            raise ValueError(
+                f'priority must be >= 0 and <= {DEFAULT_TRXN_PRIORITY}:'
+                f'{self.priority} for TrxnGroup {self.id}'
+            )
+
+
+@dataclass
+class PathTrxn(TrxnBaseClass):
+    path: list['TrxnPathItem'] = field(default_factory=list)
     from_account: str | None = None # A ZoneAccount id
     to_account: str | None = None   # A ZoneAccount id
 
-    cummulative_limit: float | None = None
-    cummulative_reset_MMDD: str | None = None
-
-    call_limit: 'float | AccountingLimit | None' = None
-
     #from_nf: bool = False                                                     # TODO - if I activate this, I need to remember to check it inside of _source_nf_is_exhausted
-    beg_date: str | None = None
-    end_date: str | None = None
+
     is_slack: bool = False                                                     # TODO - this info should be stored elsewhere -- the user should not be exposed to this concept
-
-
-
-    # What if we want to use the remaining_account_balance as the equal-priority proportion factor?
 
 
     def __post_init__(self):
@@ -509,6 +550,39 @@ class Trxn:
                 f'{self.upper_limit} '
             )
 
+        if isinstance(self.call_limit, (int, float)) and self.call_limit < 0:
+            raise ValueError(
+                f'Call limit cannot be negative: {self.call_limit} for Trxn {self.id}'
+            )
+
+        if self.cumulative_limit is not None:
+            if (
+                isinstance(self.cumulative_limit, bool)
+                or not isinstance(self.cumulative_limit, (int, float))
+                or not isfinite(self.cumulative_limit)
+                or self.cumulative_limit < 0
+            ):
+                raise ValueError(
+                    f'cumulative_limit must be a finite non-negative number: '
+                    f'{self.cumulative_limit!r} for Trxn {self.id}'
+                )
+
+        if self.cumulative_reset_before_MMDD is not None:
+            raw_mmdd = self.cumulative_reset_before_MMDD.replace('-', '')
+            if len(raw_mmdd) != 4 or not raw_mmdd.isdigit():
+                raise ValueError(
+                    f'cumulative_reset_MMDD must use MMDD or MM-DD format: '
+                    f'{self.cumulative_reset_before_MMDD!r} for Trxn {self.id}'
+                )
+            try:
+                # Leap year permits 0229 while still rejecting invalid dates.
+                date(2000, int(raw_mmdd[:2]), int(raw_mmdd[2:]))
+            except ValueError as exc:
+                raise ValueError(
+                    f'Invalid cumulative_reset_MMDD '
+                    f'{self.cumulative_reset_before_MMDD!r} for Trxn {self.id}'
+                ) from exc
+
         if self.priority < 0 or self.priority > DEFAULT_TRXN_PRIORITY:
             raise ValueError(
                 f'priority must be >= 0 and <= {DEFAULT_TRXN_PRIORITY}:'
@@ -517,6 +591,14 @@ class Trxn:
 
         if self.is_slack:
             self.priority = SLACK_TRXN_PRIORITY
+
+
+@dataclass
+class TrxnGroup(TrxnBaseClass):
+    """A constraint that applies to a group of Transactions.
+    """
+    children_trxns: list['PathTrxn | TrxnGroup'] = field(default_factory=list)
+
 
 
 @dataclass
@@ -614,36 +696,6 @@ class AccountingLimitInterval:
                 "Accounting limit beg_date must be before end_date: "
                 f"{self.beg_date} to {self.end_date}"
             )
-
-@dataclass
-class TrxnGroup:
-    """A constraint that applies to a group of Transactions.
-    """
-    id: str
-    children_trxns: list['Trxn | TrxnGroup']
-    wrnum: str | None
-    priority: float = DEFAULT_TRXN_PRIORITY
-    upper_limit: 'float | AccountingLimit | None' = None
-    cum_acft_limit: float | None = None
-    comment: str | None = None
-    beg_date: str | None = None
-    end_date: str | None = None
-
-
-    def __post_init__(self):
-        """Validates the data."""
-        if isinstance(self.upper_limit, (int, float)) and self.upper_limit < 0:
-            raise ValueError(
-                f'Accounting limit cannot be negative: '
-                f'{self.upper_limit} '
-            )
-
-        if self.priority < 0 or self.priority > DEFAULT_TRXN_PRIORITY:
-            raise ValueError(
-                f'priority must be >= 0 and <= {DEFAULT_TRXN_PRIORITY}:'
-                f'{self.priority} for TrxnGroup {self.id}'
-            )
-
 
 
 @dataclass
@@ -781,7 +833,7 @@ class MeasurementCollection:
 
 @dataclass
 class CoreScheduleVariable:
-    var: Trxn | TrxnGroup
+    var: PathTrxn | TrxnGroup
 
     def __str__(self):
         return f'ScheduleVariable: {self.var.id}'

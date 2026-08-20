@@ -7335,7 +7335,6 @@
         ]
       },
       "cum_acft_limit": null,
-      "comment": null,
       "beg_date": "1000-01-01",
       "end_date": "9999-12-31"
     },
@@ -7413,7 +7412,6 @@
         ]
       },
       "cum_acft_limit": null,
-      "comment": null,
       "beg_date": "1000-01-01",
       "end_date": "9999-12-31"
     }

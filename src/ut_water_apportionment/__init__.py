@@ -16,11 +16,12 @@ from .models import (
     NaturalFlowMode,
     SolverInput,
     SolverOutput,
-    Trxn,
+    PathTrxn,
     TrxnGroup,
     TrxnPathItem,
     Zone,
     ZoneTypes,
+    ZoneAccount
 )
 
 __all__ = [
@@ -39,9 +40,10 @@ __all__ = [
     "NaturalFlowMode",
     "SolverInput",
     "SolverOutput",
-    "Trxn",
+    "PathTrxn",
     "TrxnGroup",
     "TrxnPathItem",
     "Zone",
     "ZoneTypes",
+    "ZoneAccount"
 ]

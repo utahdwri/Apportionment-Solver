@@ -21,15 +21,8 @@
 
 
 
-- [ ] Implement storage-account and cumulative-volume constraints.
-        * Trxn object can reference to and from storage accounts. These are referenced by an account id (str) that should be unique for the source zone and destination zone. (The source zone and destination zone are identified via the path list.)
-        * Trxns can have an annual volume limit. The limit resets at a given day & month. The apportionment to a trxn must be limited to the remaining annual volume limit.
-        * An account can be configured to limit outgoing trxns when the current balance drops below a specified volume.
-        * An account can be configured to limit incoming trxns when the current balance hits a specified ceiling.
+- [x] Implement storage-account and cumulative-volume constraints.
 
-        - fix spelling of cummulative_limit!
-        - add note to documentation. Say that the expectation is for the volume units to be consistent with the flow units (all in cfs-days or acre-feet)
-        - consider adding cumulative_starting_use to zone-accounts.
 
 
 - [ ] Implement non-integer time-lags - solve multi-day period with one matrix, perhaps using entire period, perhaps using rolling window.

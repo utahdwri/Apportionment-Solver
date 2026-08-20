@@ -18,7 +18,7 @@ from ut_water_apportionment import (
     MeasurementCollection,
     MeasurementSeries,
     SolverInput,
-    Trxn,
+    PathTrxn,
     TrxnGroup,
     TrxnPathItem,
     Zone,
@@ -49,7 +49,7 @@ class TransactionModelValidationTests(unittest.TestCase):
 
     def test_transaction_rejects_negative_upper_limit(self):
         with self.assertRaisesRegex(ValueError, "cannot be negative"):
-            Trxn(
+            PathTrxn(
                 id="T1",
                 path=[],
                 upper_limit=-1.0,
@@ -66,7 +66,7 @@ class TransactionModelValidationTests(unittest.TestCase):
 
     def test_transaction_rejects_negative_priority(self):
         with self.assertRaisesRegex(ValueError, "priority must be"):
-            Trxn(
+            PathTrxn(
                 id="T1",
                 path=[],
                 upper_limit=None,
@@ -75,7 +75,7 @@ class TransactionModelValidationTests(unittest.TestCase):
 
     def test_transaction_rejects_priority_above_maximum(self):
         with self.assertRaisesRegex(ValueError, "priority must be"):
-            Trxn(
+            PathTrxn(
                 id="T1",
                 path=[],
                 upper_limit=None,
@@ -384,7 +384,7 @@ class TransactionScheduleValidationTests(unittest.TestCase):
                 id="DUPLICATE",
                 wrnum=None,
                 children_trxns=[
-                    Trxn(
+                    PathTrxn(
                         id="DUPLICATE",
                         path=[TrxnPathItem("A>B")],
                         upper_limit=10,
@@ -404,7 +404,7 @@ class TransactionScheduleValidationTests(unittest.TestCase):
                 id="GROUP",
                 wrnum=None,
                 children_trxns=[
-                    Trxn(
+                    PathTrxn(
                         id="T1",
                         path=[TrxnPathItem("DOES_NOT_EXIST")],
                         upper_limit=10,
@@ -435,7 +435,7 @@ class TransactionScheduleValidationTests(unittest.TestCase):
             TrxnSchedule(
                 gm,
                 [
-                    Trxn(
+                    PathTrxn(
                         id="T1",
                         path=[
                             TrxnPathItem("A>B"),
@@ -464,7 +464,7 @@ class TransactionScheduleValidationTests(unittest.TestCase):
             TrxnSchedule(
                 gm,
                 [
-                    Trxn(
+                    PathTrxn(
                         id="T1",
                         path=[
                             TrxnPathItem("A>B"),
@@ -492,7 +492,7 @@ class TransactionScheduleValidationTests(unittest.TestCase):
             TrxnSchedule(
                 gm,
                 [
-                    Trxn(
+                    PathTrxn(
                         id="T1",
                         path=[
                             TrxnPathItem("A>B"),

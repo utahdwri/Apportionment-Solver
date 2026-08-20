@@ -11,10 +11,11 @@ from ut_water_apportionment import (
     MeasurementSeries,
     SolverInput,
     SolverOutput,
-    Trxn,
+    PathTrxn,
     TrxnGroup,
     TrxnPathItem,
     Zone,
+    ZoneAccount,
     ZoneTypes
 )
 from ut_water_apportionment.loss_models import LossDefinition
@@ -555,8 +556,7 @@ def parse_solver_input_from_dict(
                     t.get('upper_limit')
                 ),
                 lower_limit=t.get('lower_limit', 0),
-                cum_acft_limit=t.get('cum_acft_limit'),
-                comment=t.get('comment'),
+                cumulative_limit=t.get('cumulative_limit'),
                 beg_date=t.get('beg_date'),
                 end_date=t.get('end_date'),
             )
@@ -611,7 +611,7 @@ def parse_solver_input_from_dict(
             )
 
         return construct(
-            Trxn,
+            PathTrxn,
             id=t_id,
             path=path,
             upper_limit=parse_limit(
@@ -619,7 +619,7 @@ def parse_solver_input_from_dict(
             ),
             priority=priority,
             lower_limit=t.get('lower_limit', 0),
-            cum_acft_limit=t.get('cum_acft_limit'),
+            cumulative_limit=t.get('cumulative_limit'),
             from_account=t.get('from_account'),
             to_account=t.get('to_account'),
             beg_date=t.get('beg_date'),
@@ -769,10 +769,10 @@ class A_SingleReachProblems(unittest.TestCase):
                 MeasurementSeries(id='1', values=[12])
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1, upper_limit= 3, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[3])]),
-                Trxn(id='TRXN_2', priority=2, upper_limit= 6, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[6])]),
-                Trxn(id='TRXN_3', priority=3, upper_limit=12, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[3])]),
-                Trxn(id='TRXN_4', priority=4, upper_limit= 4, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[0])]),
+                PathTrxn(id='TRXN_1', priority=1, upper_limit= 3, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[3])]),
+                PathTrxn(id='TRXN_2', priority=2, upper_limit= 6, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[6])]),
+                PathTrxn(id='TRXN_3', priority=3, upper_limit=12, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[3])]),
+                PathTrxn(id='TRXN_4', priority=4, upper_limit= 4, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[0])]),
             ]
         )
         results = solve(input, check_expected_values=True)
@@ -800,10 +800,10 @@ class A_SingleReachProblems(unittest.TestCase):
                 MeasurementSeries(id='1', values=[100])
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1, upper_limit= 3, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[ 3])]),
-                Trxn(id='TRXN_2', priority=2, upper_limit= 6, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[ 6])]),
-                Trxn(id='TRXN_3', priority=3, upper_limit=12, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[12])]),
-                Trxn(id='TRXN_4', priority=4, upper_limit= 4, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[ 4])]),
+                PathTrxn(id='TRXN_1', priority=1, upper_limit= 3, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[ 3])]),
+                PathTrxn(id='TRXN_2', priority=2, upper_limit= 6, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[ 6])]),
+                PathTrxn(id='TRXN_3', priority=3, upper_limit=12, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[12])]),
+                PathTrxn(id='TRXN_4', priority=4, upper_limit= 4, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[ 4])]),
             ]
         )
         solve(input, check_expected_values=True)
@@ -833,10 +833,10 @@ class A_SingleReachProblems(unittest.TestCase):
                 MeasurementSeries(id='C', values=[6]),
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1, upper_limit=1, path=[TrxnPathItem(flow_id='RIVER>A', expected_values=[1])]), #limited by water right
-                Trxn(id='TRXN_2', priority=1, upper_limit=6, path=[TrxnPathItem(flow_id='RIVER>B', expected_values=[5])]), #limited by measured diversion
-                Trxn(id='TRXN_3', priority=1, upper_limit=6, path=[TrxnPathItem(flow_id='RIVER>C', expected_values=[3])]), #limited by proportion
-                Trxn(id='TRXN_4', priority=1, upper_limit=6, path=[TrxnPathItem(flow_id='RIVER>C', expected_values=[3])]), #limited by proportion
+                PathTrxn(id='TRXN_1', priority=1, upper_limit=1, path=[TrxnPathItem(flow_id='RIVER>A', expected_values=[1])]), #limited by water right
+                PathTrxn(id='TRXN_2', priority=1, upper_limit=6, path=[TrxnPathItem(flow_id='RIVER>B', expected_values=[5])]), #limited by measured diversion
+                PathTrxn(id='TRXN_3', priority=1, upper_limit=6, path=[TrxnPathItem(flow_id='RIVER>C', expected_values=[3])]), #limited by proportion
+                PathTrxn(id='TRXN_4', priority=1, upper_limit=6, path=[TrxnPathItem(flow_id='RIVER>C', expected_values=[3])]), #limited by proportion
             ]
         )
         solve(input, check_expected_values=True)
@@ -870,10 +870,10 @@ class A_SingleReachProblems(unittest.TestCase):
                 MeasurementSeries(id='C', values=[0]),
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1, upper_limit=0, path=[TrxnPathItem(flow_id='RIVER>A', expected_values=[0])]), #limited by water right
-                Trxn(id='TRXN_2', priority=1, upper_limit=0, path=[TrxnPathItem(flow_id='RIVER>B', expected_values=[0])]), #limited by measured diversion
-                Trxn(id='TRXN_3', priority=1, upper_limit=0, path=[TrxnPathItem(flow_id='RIVER>C', expected_values=[0])]), #limited by proportion
-                Trxn(id='TRXN_4', priority=1, upper_limit=0, path=[TrxnPathItem(flow_id='RIVER>C', expected_values=[0])]), #limited by proportion
+                PathTrxn(id='TRXN_1', priority=1, upper_limit=0, path=[TrxnPathItem(flow_id='RIVER>A', expected_values=[0])]), #limited by water right
+                PathTrxn(id='TRXN_2', priority=1, upper_limit=0, path=[TrxnPathItem(flow_id='RIVER>B', expected_values=[0])]), #limited by measured diversion
+                PathTrxn(id='TRXN_3', priority=1, upper_limit=0, path=[TrxnPathItem(flow_id='RIVER>C', expected_values=[0])]), #limited by proportion
+                PathTrxn(id='TRXN_4', priority=1, upper_limit=0, path=[TrxnPathItem(flow_id='RIVER>C', expected_values=[0])]), #limited by proportion
             ]
         )
         results = solve(input, check_expected_values=True)
@@ -975,11 +975,11 @@ class A_SingleReachProblems(unittest.TestCase):
 
         for i in range(1, n):
             input.txns.append(
-                Trxn(id='TRXN_'+str(i), priority=1, upper_limit=i/47, path=[TrxnPathItem(flow_id='RIVER>A', expected_values=[i/47/total*10])])
+                PathTrxn(id='TRXN_'+str(i), priority=1, upper_limit=i/47, path=[TrxnPathItem(flow_id='RIVER>A', expected_values=[i/47/total*10])])
             )
 
         input.txns.append(
-            Trxn(id='TRXN_'+str(n), priority=1, upper_limit=small_val, path=[TrxnPathItem(flow_id='RIVER>A', expected_values=[small_val/total*10])])
+            PathTrxn(id='TRXN_'+str(n), priority=1, upper_limit=small_val, path=[TrxnPathItem(flow_id='RIVER>A', expected_values=[small_val/total*10])])
         )
 
         results = solve(input, check_expected_values=True)
@@ -1068,11 +1068,11 @@ class B_Reservoirs(unittest.TestCase):
                  MeasurementSeries(id='B', values=[0, 10])
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='RIVER>A')]),
-                Trxn(id='TRXN_2', priority=1, upper_limit=4, path=[TrxnPathItem(flow_id='RIVER>B')]),
-                Trxn(id='TRXN_3', priority=2, upper_limit=50, path=[TrxnPathItem(flow_id='RIVER>STORAGE')]),
-                Trxn(id='TRXN_4', priority=3, upper_limit=None, path=[TrxnPathItem(flow_id='RIVER>STORAGE', factor=-1), TrxnPathItem(flow_id='RIVER>A', expected_values=[8])]),
-                Trxn(id='TRXN_5', priority=3, upper_limit=None, path=[TrxnPathItem(flow_id='RIVER>STORAGE', factor=-1), TrxnPathItem(flow_id='RIVER>B', expected_values=[6])]),
+                PathTrxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='RIVER>A')]),
+                PathTrxn(id='TRXN_2', priority=1, upper_limit=4, path=[TrxnPathItem(flow_id='RIVER>B')]),
+                PathTrxn(id='TRXN_3', priority=2, upper_limit=50, path=[TrxnPathItem(flow_id='RIVER>STORAGE')]),
+                PathTrxn(id='TRXN_4', priority=3, upper_limit=None, path=[TrxnPathItem(flow_id='RIVER>STORAGE', factor=-1), TrxnPathItem(flow_id='RIVER>A', expected_values=[8])]),
+                PathTrxn(id='TRXN_5', priority=3, upper_limit=None, path=[TrxnPathItem(flow_id='RIVER>STORAGE', factor=-1), TrxnPathItem(flow_id='RIVER>B', expected_values=[6])]),
             ]
         )
         solve(input, check_expected_values=True)
@@ -1109,11 +1109,11 @@ class B_Reservoirs(unittest.TestCase):
                  MeasurementSeries(id='Q', values=[0, 2])
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='DOWNSTREAM>A')]),
-                Trxn(id='TRXN_2', priority=1, upper_limit=4, path=[TrxnPathItem(flow_id='DOWNSTREAM>B')]),
-                Trxn(id='TRXN_3', priority=2, upper_limit=50, path=[TrxnPathItem(flow_id='UPSTREAM>STORAGE')]),
-                Trxn(id='TRXN_4', priority=3, upper_limit=None, path=[TrxnPathItem(flow_id='UPSTREAM>STORAGE', factor=-1), TrxnPathItem(flow_id='UPSTREAM>DOWNSTREAM'), TrxnPathItem(flow_id='DOWNSTREAM>A', expected_values=[1])]),
-                Trxn(id='TRXN_5', priority=3, upper_limit=None, path=[TrxnPathItem(flow_id='UPSTREAM>STORAGE', factor=-1), TrxnPathItem(flow_id='UPSTREAM>DOWNSTREAM'), TrxnPathItem(flow_id='DOWNSTREAM>B', expected_values=[1])]),
+                PathTrxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='DOWNSTREAM>A')]),
+                PathTrxn(id='TRXN_2', priority=1, upper_limit=4, path=[TrxnPathItem(flow_id='DOWNSTREAM>B')]),
+                PathTrxn(id='TRXN_3', priority=2, upper_limit=50, path=[TrxnPathItem(flow_id='UPSTREAM>STORAGE')]),
+                PathTrxn(id='TRXN_4', priority=3, upper_limit=None, path=[TrxnPathItem(flow_id='UPSTREAM>STORAGE', factor=-1), TrxnPathItem(flow_id='UPSTREAM>DOWNSTREAM'), TrxnPathItem(flow_id='DOWNSTREAM>A', expected_values=[1])]),
+                PathTrxn(id='TRXN_5', priority=3, upper_limit=None, path=[TrxnPathItem(flow_id='UPSTREAM>STORAGE', factor=-1), TrxnPathItem(flow_id='UPSTREAM>DOWNSTREAM'), TrxnPathItem(flow_id='DOWNSTREAM>B', expected_values=[1])]),
             ]
         )
         results = solve(input, check_expected_values=True)
@@ -1121,72 +1121,72 @@ class B_Reservoirs(unittest.TestCase):
     def test_trivial(self):
         input = self.reservoir_problem_input(stor_chg=0, stor_loss=0, Q_AB=5, Q_DIV1=2, Q_BC=7, Q_DIV2=4, Q_DIV3=4, Q_CD=1)
         input.txns.extend([
-            Trxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[2])]),
-            Trxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
-            Trxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[4])]),
-            Trxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[0])]),
-            Trxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[0])]),
-            Trxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[0])])
+            PathTrxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[2])]),
+            PathTrxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
+            PathTrxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[4])]),
+            PathTrxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[0])]),
+            PathTrxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[0])]),
+            PathTrxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[0])])
         ])
         results = solve(input, check_expected_values=True)
 
     def test_storage_diversions_with_no_deliveries(self):
         input = self.reservoir_problem_input(stor_chg=2, stor_loss=0, Q_AB=5, Q_DIV1=2, Q_BC=7, Q_DIV2=4, Q_DIV3=4, Q_CD=1)
         input.txns.extend([
-            Trxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[2])]),
-            Trxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
-            Trxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[4])]),
-            Trxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[2])]),
-            Trxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[0])]),
-            Trxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[0])])
+            PathTrxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[2])]),
+            PathTrxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
+            PathTrxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[4])]),
+            PathTrxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[2])]),
+            PathTrxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[0])]),
+            PathTrxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[0])])
         ])
         results = solve(input, check_expected_values=True)
 
     def test_storage_deliveries_with_no_diversions(self):
         input = self.reservoir_problem_input(stor_chg=-2, stor_loss=0, Q_AB=5, Q_DIV1=2, Q_BC=7, Q_DIV2=6, Q_DIV3=4, Q_CD=1)
         input.txns.extend([
-            Trxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[2])]),
-            Trxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
-            Trxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[4])]),
-            Trxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[0])]),
-            Trxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[0])]),
-            Trxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[2])])
+            PathTrxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[2])]),
+            PathTrxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
+            PathTrxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[4])]),
+            PathTrxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[0])]),
+            PathTrxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[0])]),
+            PathTrxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[2])])
         ])
         results = solve(input, check_expected_values=True)
 
     def test_equal_priority_deliveries(self):
         input = self.reservoir_problem_input(stor_chg=-2, stor_loss=0, Q_AB=5, Q_DIV1=2, Q_BC=7, Q_DIV2=6, Q_DIV3=4, Q_CD=1)
         input.txns.extend([
-            Trxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[2])]),
-            Trxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
-            Trxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[4])]),
-            Trxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[0])]),
-            Trxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[0])]),
-            Trxn(id='TRXN_6', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[2])])
+            PathTrxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[2])]),
+            PathTrxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
+            PathTrxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[4])]),
+            PathTrxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[0])]),
+            PathTrxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[0])]),
+            PathTrxn(id='TRXN_6', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[2])])
         ])
         results = solve(input, check_expected_values=True)
 
     def test_storage_deliveries_and_diversions_and_losses(self):
         input = self.reservoir_problem_input(stor_chg=-1, stor_loss=1, Q_AB=5, Q_DIV1=2, Q_BC=7, Q_DIV2=6, Q_DIV3=4, Q_CD=1)
         input.txns.extend([
-            Trxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[2])]),
-            Trxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
-            Trxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[4])]),
-            Trxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[2])]),
-            Trxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[0])]),
-            Trxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[2])])
+            PathTrxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[2])]),
+            PathTrxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
+            PathTrxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[4])]),
+            PathTrxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[2])]),
+            PathTrxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[0])]),
+            PathTrxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[2])])
         ])
         results = solve(input, check_expected_values=True)
 
     def test_equal_priority_apportionmnets(self):
         input = self.reservoir_problem_input(stor_chg=-4, stor_loss=1, Q_AB=2, Q_DIV1=1, Q_BC=4, Q_DIV2=2+2, Q_DIV3=3+1, Q_CD=1)
         input.txns.extend([
-            Trxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[1])]),
-            Trxn(id='TRXN_2', priority=1, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[2+.4])]),
-            Trxn(id='TRXN_3', priority=1, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[3+.6])]),
-            Trxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[0])]),
-            Trxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[1-.6])]),
-            Trxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[2-.4])])
+            PathTrxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[1])]),
+            PathTrxn(id='TRXN_2', priority=1, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[2+.4])]),
+            PathTrxn(id='TRXN_3', priority=1, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[3+.6])]),
+            PathTrxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[0])]),
+            PathTrxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[1-.6])]),
+            PathTrxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[2-.4])])
         ])
         results = solve(input, check_expected_values=True)
 
@@ -1219,72 +1219,72 @@ class B_Reservoirs(unittest.TestCase):
         """
         input = self.reservoir_problem_input(stor_chg=-4, stor_loss=1, Q_AB=0, Q_DIV1=1, Q_BC=6, Q_DIV2=7, Q_DIV3=7, Q_CD=0)
         input.txns.extend([
-            Trxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[1])]),
-            Trxn(id='TRXN_2', priority=1, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
-            Trxn(id='TRXN_3', priority=1, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[6])]),
-            Trxn(id='TRXN_4', priority=1, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[1])]),
-            Trxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[7 - 6])]),
-            Trxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[7 - 4])])
+            PathTrxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[1])]),
+            PathTrxn(id='TRXN_2', priority=1, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
+            PathTrxn(id='TRXN_3', priority=1, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[6])]),
+            PathTrxn(id='TRXN_4', priority=1, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[1])]),
+            PathTrxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[7 - 6])]),
+            PathTrxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[7 - 4])])
         ])
         results = solve(input, check_expected_values=True)
 
     def test_change_water_that_is_not_available_at_htf_source(self):
         input = self.reservoir_problem_input(stor_chg=-2, stor_loss=0, Q_AB=0, Q_DIV1=0, Q_BC=2, Q_DIV2=6, Q_DIV3=8, Q_CD=0)
         input.txns.extend([
-            Trxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
-            Trxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[6])]),
-            Trxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[0])]),
-            Trxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[2])]),
-            Trxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[0])]),
-            Trxn(id='TRXN_101', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[0])])
+            PathTrxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
+            PathTrxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[6])]),
+            PathTrxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[0])]),
+            PathTrxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[2])]),
+            PathTrxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[0])]),
+            PathTrxn(id='TRXN_101', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[0])])
         ])
         results = solve(input, check_expected_values=True)
 
     def test_change_water_that_is_available_at_htf_source(self):
         input = self.reservoir_problem_input(stor_chg=-2, stor_loss=0, Q_AB=2, Q_DIV1=0, Q_BC=4, Q_DIV2=6, Q_DIV3=8, Q_CD=0)
         input.txns.extend([
-            Trxn(id='TRXN_101', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[2])]),
-            Trxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
-            Trxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[6])]),
-            Trxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[0])]),
-            Trxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[2])]),
-            Trxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[0])])
+            PathTrxn(id='TRXN_101', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[2])]),
+            PathTrxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[4])]),
+            PathTrxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[6])]),
+            PathTrxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[0])]),
+            PathTrxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[2])]),
+            PathTrxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[0])])
         ])
         results = solve(input, check_expected_values=True)
 
     def test_spill_to_natural_flow(self):
         input = self.reservoir_problem_input(stor_chg=-5, stor_loss=0, Q_AB=0, Q_DIV1=2, Q_BC=5, Q_DIV2=0, Q_DIV3=0, Q_CD=5)
         input.txns.extend([
-            Trxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[2])]),
-            Trxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[0])]),
-            Trxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[0])]),
-            Trxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[0])]),
-            Trxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[0])]),
-            Trxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[0])])
+            PathTrxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[2])]),
+            PathTrxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[0])]),
+            PathTrxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[0])]),
+            PathTrxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[0])]),
+            PathTrxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[0])]),
+            PathTrxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[0])])
         ])
         results = solve(input, check_expected_values=True)
 
     def test_storage_diversion_exceeds_storage_right(self):
         input = self.reservoir_problem_input(stor_chg=25, stor_loss=0, Q_AB=0, Q_DIV1=0, Q_BC=0, Q_DIV2=0, Q_DIV3=0, Q_CD=0)
         input.txns.extend([
-            Trxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[0])]),
-            Trxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[0])]),
-            Trxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[0])]),
-            Trxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[20])]),
-            Trxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[0])]),
-            Trxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[0])])
+            PathTrxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[0])]),
+            PathTrxn(id='TRXN_2', priority=2, upper_limit=4, path=[TrxnPathItem(flow_id='C>2', expected_values=[0])]),
+            PathTrxn(id='TRXN_3', priority=3, upper_limit=6, path=[TrxnPathItem(flow_id='C>3', expected_values=[0])]),
+            PathTrxn(id='TRXN_4', priority=4, upper_limit=20, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[20])]),
+            PathTrxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[0])]),
+            PathTrxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[0])])
         ])
         results = solve(input, check_expected_values=True)
 
     def test_presentation_example(self):
         input = self.reservoir_problem_input(stor_chg=-10, stor_loss=0, Q_AB=0, Q_DIV1=0, Q_BC=20, Q_DIV2=15, Q_DIV3=10, Q_CD=5)
         input.txns.extend([
-            Trxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[0])]),
-            Trxn(id='TRXN_2', priority=2, upper_limit=5, path=[TrxnPathItem(flow_id='C>2', expected_values=[5])]),
-            Trxn(id='TRXN_3', priority=3, upper_limit=2, path=[TrxnPathItem(flow_id='C>3', expected_values=[2])]),
-            Trxn(id='TRXN_4', priority=4, upper_limit=100, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[8])]),
-            Trxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[8])]),
-            Trxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[10])])
+            PathTrxn(id='TRXN_1', priority=1, upper_limit=2, path=[TrxnPathItem(flow_id='B>1', expected_values=[0])]),
+            PathTrxn(id='TRXN_2', priority=2, upper_limit=5, path=[TrxnPathItem(flow_id='C>2', expected_values=[5])]),
+            PathTrxn(id='TRXN_3', priority=3, upper_limit=2, path=[TrxnPathItem(flow_id='C>3', expected_values=[2])]),
+            PathTrxn(id='TRXN_4', priority=4, upper_limit=100, path=[TrxnPathItem(flow_id='B>STOR', expected_values=[8])]),
+            PathTrxn(id='TRXN_5', priority=9900, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>3', expected_values=[8])]),
+            PathTrxn(id='TRXN_6', priority=9901, upper_limit=None, path=[TrxnPathItem(flow_id='B>STOR', factor=-1), TrxnPathItem(flow_id='B>C'), TrxnPathItem(flow_id='C>2', expected_values=[10])])
         ])
         results = solve(input, check_expected_values=True)
 
@@ -1313,9 +1313,9 @@ class B_Reservoirs(unittest.TestCase):
                  MeasurementSeries(id='OUTFLOW', values=[0, 0]),
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1900, upper_limit=5, path=[TrxnPathItem(flow_id='S>A', expected_values=[0])]),
-                Trxn(id='TRXN_2', priority=1950, upper_limit=100, path=[TrxnPathItem(flow_id='S>R', expected_values=[0])]),
-                Trxn(id='TRXN_3', priority=9999, upper_limit=None, path=[TrxnPathItem(flow_id='S>R', factor=-1), TrxnPathItem(flow_id='S>A', expected_values=[5])])
+                PathTrxn(id='TRXN_1', priority=1900, upper_limit=5, path=[TrxnPathItem(flow_id='S>A', expected_values=[0])]),
+                PathTrxn(id='TRXN_2', priority=1950, upper_limit=100, path=[TrxnPathItem(flow_id='S>R', expected_values=[0])]),
+                PathTrxn(id='TRXN_3', priority=9999, upper_limit=None, path=[TrxnPathItem(flow_id='S>R', factor=-1), TrxnPathItem(flow_id='S>A', expected_values=[5])])
             ]
         )
         results = solve(input, check_expected_values=True)
@@ -1345,9 +1345,9 @@ class B_Reservoirs(unittest.TestCase):
                  MeasurementSeries(id='OUT', values=[0, 5]),
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1900, upper_limit=5, path=[TrxnPathItem(flow_id='S>A', expected_values=[5])]),
-                Trxn(id='TRXN_2', priority=1950, upper_limit=100, path=[TrxnPathItem(flow_id='S>R', expected_values=[0])]),
-                Trxn(id='TRXN_3', priority=9999, upper_limit=None, path=[TrxnPathItem(flow_id='S>R', factor=-1), TrxnPathItem(flow_id='S>A', expected_values=[0])])
+                PathTrxn(id='TRXN_1', priority=1900, upper_limit=5, path=[TrxnPathItem(flow_id='S>A', expected_values=[5])]),
+                PathTrxn(id='TRXN_2', priority=1950, upper_limit=100, path=[TrxnPathItem(flow_id='S>R', expected_values=[0])]),
+                PathTrxn(id='TRXN_3', priority=9999, upper_limit=None, path=[TrxnPathItem(flow_id='S>R', factor=-1), TrxnPathItem(flow_id='S>A', expected_values=[0])])
             ]
         )
         results = solve(input, check_expected_values=True)
@@ -1408,14 +1408,14 @@ class B_Reservoirs(unittest.TestCase):
             txns=[
 
                 # Move from S1 to S2
-                Trxn(id='TRXN_1', priority=1, upper_limit=1000, path=[
+                PathTrxn(id='TRXN_1', priority=1, upper_limit=1000, path=[
                     TrxnPathItem(flow_id='R2>S2', factor=-1, expected_values=[0]),
                     TrxnPathItem(flow_id='R1>R2', factor=-1, expected_values=[0]),
                     TrxnPathItem(flow_id='R1>S1', expected_values=[0])
                 ]),
 
                 # Reach to S2
-                Trxn(id='TRXN_2', priority=2, upper_limit=1000, path=[
+                PathTrxn(id='TRXN_2', priority=2, upper_limit=1000, path=[
                     TrxnPathItem(flow_id='R2>S2', factor=1, expected_values=[0])
                 ])
             ]
@@ -1470,9 +1470,9 @@ class B_Reservoirs(unittest.TestCase):
                  MeasurementSeries(id='R2-A', values=[0, 5]),
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1, upper_limit=5, path=[TrxnPathItem(flow_id='R2>S', factor=-1), TrxnPathItem(flow_id='R2>R3', expected_values=[5])]),
-                Trxn(id='TRXN_2', priority=2, upper_limit=5, path=[TrxnPathItem(flow_id='R1>R2', expected_values=[5]), TrxnPathItem(flow_id='R2>A', expected_values=[5])]),
-                Trxn(id='TRXN_3', priority=3, upper_limit=5, path=[TrxnPathItem(flow_id='R1>R2', expected_values=[0]), TrxnPathItem(flow_id='R2>S', expected_values=[0])]),
+                PathTrxn(id='TRXN_1', priority=1, upper_limit=5, path=[TrxnPathItem(flow_id='R2>S', factor=-1), TrxnPathItem(flow_id='R2>R3', expected_values=[5])]),
+                PathTrxn(id='TRXN_2', priority=2, upper_limit=5, path=[TrxnPathItem(flow_id='R1>R2', expected_values=[5]), TrxnPathItem(flow_id='R2>A', expected_values=[5])]),
+                PathTrxn(id='TRXN_3', priority=3, upper_limit=5, path=[TrxnPathItem(flow_id='R1>R2', expected_values=[0]), TrxnPathItem(flow_id='R2>S', expected_values=[0])]),
             ]
         )
         results = solve(input, check_expected_values=True)
@@ -1493,7 +1493,7 @@ class B_Reservoirs(unittest.TestCase):
         )
 
         input.txns.extend([
-            Trxn(
+            PathTrxn(
                 id='TRXN_2',
                 priority=2,
                 upper_limit=4,
@@ -1537,8 +1537,8 @@ class B_Imports(unittest.TestCase):
                  MeasurementSeries(id='OUT', values=[0]),
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=10, upper_limit=5, path=[TrxnPathItem(flow_id='IMP>S'), TrxnPathItem(flow_id='S>DIV', expected_values=[5])]),
-                Trxn(id='TRXN_2', priority=2, upper_limit=5, path=[TrxnPathItem(flow_id='S>DIV', expected_values=[0])]),
+                PathTrxn(id='TRXN_1', priority=10, upper_limit=5, path=[TrxnPathItem(flow_id='IMP>S'), TrxnPathItem(flow_id='S>DIV', expected_values=[5])]),
+                PathTrxn(id='TRXN_2', priority=2, upper_limit=5, path=[TrxnPathItem(flow_id='S>DIV', expected_values=[0])]),
             ]
         )
 
@@ -1582,9 +1582,9 @@ class B_Imports(unittest.TestCase):
             ]),
             txns=[
                 # TRXN_1 should be limited to the gains in the lower reach
-                Trxn(id='TRXN_1', priority=1, upper_limit=10, path=[TrxnPathItem(flow_id='SYS>LOWER'), TrxnPathItem(flow_id='Lower>A', expected_values=[3])]),
+                PathTrxn(id='TRXN_1', priority=1, upper_limit=10, path=[TrxnPathItem(flow_id='SYS>LOWER'), TrxnPathItem(flow_id='Lower>A', expected_values=[3])]),
                 # TRXN_2 should be the remaining diversion
-                Trxn(id='TRXN_2', priority=2, upper_limit=10, path=[TrxnPathItem(flow_id='Lower>A', expected_values=[5])])
+                PathTrxn(id='TRXN_2', priority=2, upper_limit=10, path=[TrxnPathItem(flow_id='Lower>A', expected_values=[5])])
             ]
         )
 
@@ -1621,11 +1621,10 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=7,
-                    cum_acft_limit=None,
                     children_trxns=[
-                        Trxn(id='TRXN_2', priority=2, upper_limit=6, path=[TrxnPathItem(flow_id='Diversion', expected_values=[6])]),
-                        Trxn(id='TRXN_3', priority=3, upper_limit=12, path=[TrxnPathItem(flow_id='Diversion', expected_values=[1])]),
-                        Trxn(id='TRXN_4', priority=4, upper_limit=4, path=[TrxnPathItem(flow_id='Diversion', expected_values=[0])])
+                        PathTrxn(id='TRXN_2', priority=2, upper_limit=6, path=[TrxnPathItem(flow_id='Diversion', expected_values=[6])]),
+                        PathTrxn(id='TRXN_3', priority=3, upper_limit=12, path=[TrxnPathItem(flow_id='Diversion', expected_values=[1])]),
+                        PathTrxn(id='TRXN_4', priority=4, upper_limit=4, path=[TrxnPathItem(flow_id='Diversion', expected_values=[0])])
                     ]
                 )
             ]
@@ -1674,10 +1673,9 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=10,
-                    cum_acft_limit=None,
                     children_trxns=[
-                        Trxn(id='TRXN_2', priority=10, upper_limit=4, path=[TrxnPathItem(flow_id='DiversionA', expected_values=[3])]),
-                        Trxn(id='TRXN_3', priority=20, upper_limit=6, path=[TrxnPathItem(flow_id='DiversionB', expected_values=[2])])
+                        PathTrxn(id='TRXN_2', priority=10, upper_limit=4, path=[TrxnPathItem(flow_id='DiversionA', expected_values=[3])]),
+                        PathTrxn(id='TRXN_3', priority=20, upper_limit=6, path=[TrxnPathItem(flow_id='DiversionB', expected_values=[2])])
                     ]
                 ),
                 TrxnGroup(
@@ -1685,10 +1683,9 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=10,
-                    cum_acft_limit=None,
                     children_trxns=[
-                        Trxn(id='TRXN_5', priority=10, upper_limit=6, path=[TrxnPathItem(flow_id='DiversionA', expected_values=[3])]),
-                        Trxn(id='TRXN_6', priority=10, upper_limit=4, path=[TrxnPathItem(flow_id='DiversionB', expected_values=[2])])
+                        PathTrxn(id='TRXN_5', priority=10, upper_limit=6, path=[TrxnPathItem(flow_id='DiversionA', expected_values=[3])]),
+                        PathTrxn(id='TRXN_6', priority=10, upper_limit=4, path=[TrxnPathItem(flow_id='DiversionB', expected_values=[2])])
                     ]
                 )
             ]
@@ -1736,10 +1733,9 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=4,
-                    cum_acft_limit=None,
                     children_trxns=[
-                        Trxn(id='TRXN_20', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>A', expected_values=[2])]),
-                        Trxn(id='TRXN_21', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[2])])
+                        PathTrxn(id='TRXN_20', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>A', expected_values=[2])]),
+                        PathTrxn(id='TRXN_21', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[2])])
                     ]
                 ),
                 TrxnGroup(
@@ -1747,10 +1743,9 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=8,
-                    cum_acft_limit=None,
                     children_trxns=[
-                        Trxn(id='TRXN_30', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>B', expected_values=[8])]),
-                        Trxn(id='TRXN_31', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[0])])
+                        PathTrxn(id='TRXN_30', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>B', expected_values=[8])]),
+                        PathTrxn(id='TRXN_31', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[0])])
                     ]
                 ),
                 TrxnGroup(
@@ -1758,10 +1753,9 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=9,
-                    cum_acft_limit=None,
                     children_trxns=[
-                        Trxn(id='TRXN_40', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>C', expected_values=[5])]),
-                        Trxn(id='TRXN_41', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[4])])
+                        PathTrxn(id='TRXN_40', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>C', expected_values=[5])]),
+                        PathTrxn(id='TRXN_41', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[4])])
                     ]
                 )
             ]
@@ -1811,10 +1805,9 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=4,
-                    cum_acft_limit=None,
                     children_trxns=[
-                        Trxn(id='TRXN_20', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>A', expected_values=[2])]),
-                        Trxn(id='TRXN_21', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[0.22222222222222222 + 2.7777777777777777 * 2/6.5])])
+                        PathTrxn(id='TRXN_20', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>A', expected_values=[2])]),
+                        PathTrxn(id='TRXN_21', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[0.22222222222222222 + 2.7777777777777777 * 2/6.5])])
                     ]
                 ),
                 TrxnGroup(
@@ -1822,10 +1815,9 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=8,
-                    cum_acft_limit=None,
                     children_trxns=[
-                        Trxn(id='TRXN_30', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>B', expected_values=[8])]),
-                        Trxn(id='TRXN_31', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[0])])
+                        PathTrxn(id='TRXN_30', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>B', expected_values=[8])]),
+                        PathTrxn(id='TRXN_31', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[0])])
                     ]
                 ),
                 TrxnGroup(
@@ -1833,10 +1825,9 @@ class D_PrioritySeries(unittest.TestCase):
                     wrnum=None,
                     priority=1,
                     upper_limit=9,
-                    cum_acft_limit=None,
                     children_trxns=[
-                        Trxn(id='TRXN_40', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>C', expected_values=[5])]),
-                        Trxn(id='TRXN_41', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[0 + 2.777777 * 4.5/6.5])])
+                        PathTrxn(id='TRXN_40', priority=10, upper_limit=None, path=[TrxnPathItem(flow_id='>C', expected_values=[5])]),
+                        PathTrxn(id='TRXN_41', priority=11, upper_limit=None, path=[TrxnPathItem(flow_id='UPPER>LOWER', factor=-1), TrxnPathItem(flow_id='UPPER>RESV', expected_values=[0 + 2.777777 * 4.5/6.5])])
                     ]
                 )
             ]
@@ -1885,12 +1876,12 @@ class D_PrioritySeries(unittest.TestCase):
                  MeasurementSeries(id="R3>C", values=[20]),
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1, upper_limit=30, path=[TrxnPathItem(flow_id='R1>A', expected_values=[20])]),
-                Trxn(id='TRXN_2', priority=1, upper_limit=20, path=[TrxnPathItem(flow_id='R2>B', expected_values=[20])]),
-                Trxn(id='TRXN_3', priority=1, upper_limit=40, path=[TrxnPathItem(flow_id='R3>C', expected_values=[20])]),
-                Trxn(id='TRXN_11', priority=2, upper_limit=None, path=[TrxnPathItem(flow_id='Imports>R1'), TrxnPathItem(flow_id='R1>A')]),
-                Trxn(id='TRXN_12', priority=3, upper_limit=None, path=[TrxnPathItem(flow_id='Imports>R1'), TrxnPathItem(flow_id='R1>R2'), TrxnPathItem(flow_id='R2>B')]),
-                Trxn(id='TRXN_13', priority=4, upper_limit=None, path=[TrxnPathItem(flow_id='Imports>R1'), TrxnPathItem(flow_id='R1>R2'), TrxnPathItem(flow_id='R2>R3'), TrxnPathItem(flow_id='R3>C')])
+                PathTrxn(id='TRXN_1', priority=1, upper_limit=30, path=[TrxnPathItem(flow_id='R1>A', expected_values=[20])]),
+                PathTrxn(id='TRXN_2', priority=1, upper_limit=20, path=[TrxnPathItem(flow_id='R2>B', expected_values=[20])]),
+                PathTrxn(id='TRXN_3', priority=1, upper_limit=40, path=[TrxnPathItem(flow_id='R3>C', expected_values=[20])]),
+                PathTrxn(id='TRXN_11', priority=2, upper_limit=None, path=[TrxnPathItem(flow_id='Imports>R1'), TrxnPathItem(flow_id='R1>A')]),
+                PathTrxn(id='TRXN_12', priority=3, upper_limit=None, path=[TrxnPathItem(flow_id='Imports>R1'), TrxnPathItem(flow_id='R1>R2'), TrxnPathItem(flow_id='R2>B')]),
+                PathTrxn(id='TRXN_13', priority=4, upper_limit=None, path=[TrxnPathItem(flow_id='Imports>R1'), TrxnPathItem(flow_id='R1>R2'), TrxnPathItem(flow_id='R2>R3'), TrxnPathItem(flow_id='R3>C')])
             ]
         )
 
@@ -1940,12 +1931,12 @@ class D_PrioritySeries(unittest.TestCase):
                  MeasurementSeries(id="R3>C", values=[20]),
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1, upper_limit=30, path=[TrxnPathItem(flow_id='R1>A', expected_values=[0])]),
-                Trxn(id='TRXN_2', priority=1, upper_limit=20, path=[TrxnPathItem(flow_id='R2>B', expected_values=[20])]),
-                Trxn(id='TRXN_3', priority=1, upper_limit=40, path=[TrxnPathItem(flow_id='R3>C', expected_values=[20])]),
-                Trxn(id='TRXN_11', priority=2, upper_limit=None, path=[TrxnPathItem(flow_id='Imports>R1'), TrxnPathItem(flow_id='R1>A')]),
-                Trxn(id='TRXN_12', priority=3, upper_limit=None, path=[TrxnPathItem(flow_id='Imports>R1'), TrxnPathItem(flow_id='R1>R2'), TrxnPathItem(flow_id='R2>B')]),
-                Trxn(id='TRXN_13', priority=4, upper_limit=None, path=[TrxnPathItem(flow_id='Imports>R1'), TrxnPathItem(flow_id='R1>R2'), TrxnPathItem(flow_id='R2>R3'), TrxnPathItem(flow_id='R3>C')])
+                PathTrxn(id='TRXN_1', priority=1, upper_limit=30, path=[TrxnPathItem(flow_id='R1>A', expected_values=[0])]),
+                PathTrxn(id='TRXN_2', priority=1, upper_limit=20, path=[TrxnPathItem(flow_id='R2>B', expected_values=[20])]),
+                PathTrxn(id='TRXN_3', priority=1, upper_limit=40, path=[TrxnPathItem(flow_id='R3>C', expected_values=[20])]),
+                PathTrxn(id='TRXN_11', priority=2, upper_limit=None, path=[TrxnPathItem(flow_id='Imports>R1'), TrxnPathItem(flow_id='R1>A')]),
+                PathTrxn(id='TRXN_12', priority=3, upper_limit=None, path=[TrxnPathItem(flow_id='Imports>R1'), TrxnPathItem(flow_id='R1>R2'), TrxnPathItem(flow_id='R2>B')]),
+                PathTrxn(id='TRXN_13', priority=4, upper_limit=None, path=[TrxnPathItem(flow_id='Imports>R1'), TrxnPathItem(flow_id='R1>R2'), TrxnPathItem(flow_id='R2>R3'), TrxnPathItem(flow_id='R3>C')])
             ]
         )
 
@@ -1986,10 +1977,9 @@ class E_SharedTrxnLimits(unittest.TestCase):
                     wrnum=None,
                     priority=0,
                     upper_limit=15,
-                    cum_acft_limit=None,
                     children_trxns=[
-                        Trxn(id='TRXN_1', priority=1, upper_limit=None, path=[TrxnPathItem(flow_id='>A', expected_values=[10])]),
-                        Trxn(id='TRXN_2', priority=2, upper_limit=None, path=[TrxnPathItem(flow_id='>B', expected_values=[5])])
+                        PathTrxn(id='TRXN_1', priority=1, upper_limit=None, path=[TrxnPathItem(flow_id='>A', expected_values=[10])]),
+                        PathTrxn(id='TRXN_2', priority=2, upper_limit=None, path=[TrxnPathItem(flow_id='>B', expected_values=[5])])
                     ]
                 )
             ]
@@ -2029,17 +2019,16 @@ class E_SharedTrxnLimits(unittest.TestCase):
                 MeasurementSeries(id="A>B", values=[0]),
             ]),
             txns=[
-                Trxn(id='WR_123', priority=1, upper_limit=10, path=[TrxnPathItem(flow_id='A>1', expected_values=[8.888888889])]),
-                Trxn(id='WR_234', priority=1, upper_limit=20, path=[TrxnPathItem(flow_id='A>2', expected_values=[17.77777778])]),
+                PathTrxn(id='WR_123', priority=1, upper_limit=10, path=[TrxnPathItem(flow_id='A>1', expected_values=[8.888888889])]),
+                PathTrxn(id='WR_234', priority=1, upper_limit=20, path=[TrxnPathItem(flow_id='A>2', expected_values=[17.77777778])]),
                 TrxnGroup(
                     id='WR_345',
                     wrnum=None,
                     priority=1,
                     upper_limit=15,
-                    cum_acft_limit=None,
                     children_trxns=[
-                        Trxn(id='WR_345_1', priority=2, upper_limit=None, path=[TrxnPathItem(flow_id='A>1', expected_values=[11.11111111])]),
-                        Trxn(id='WR_345_2', priority=2, upper_limit=None, path=[TrxnPathItem(flow_id='A>2', expected_values=[2.222222222])])
+                        PathTrxn(id='WR_345_1', priority=2, upper_limit=None, path=[TrxnPathItem(flow_id='A>1', expected_values=[11.11111111])]),
+                        PathTrxn(id='WR_345_2', priority=2, upper_limit=None, path=[TrxnPathItem(flow_id='A>2', expected_values=[2.222222222])])
                     ]
                 )
             ]
@@ -2047,6 +2036,105 @@ class E_SharedTrxnLimits(unittest.TestCase):
 
         results = solve(input, check_expected_values=True)
 
+class F_TransactionLimits(unittest.TestCase):
+
+    def _get_input(self):
+        return SolverInput(
+            beg_date='2000-01-02',
+            end_date='2000-01-10',
+            accounting_graph=AccountingGraph(
+                zones=[
+                    Zone(id="SYS", type=ZoneTypes.SYSTEM_GAIN_LOSS),
+                    Zone(id="STR", type=ZoneTypes.STREAM),
+                    Zone(id="DIV", type=ZoneTypes.STREAM),
+                    Zone(id="STO", type=ZoneTypes.STORAGE,
+                        storage_meas_ids=['sto'],
+                        accounts=[
+                            ZoneAccount(
+                                id='ACCOUNT-1',
+                                starting_balance=10,
+                                balance_floor=0,
+                                balance_ceiling=40
+                            )
+                        ]
+                    ),
+                ],
+                interzone_flows=[
+                    InterzoneFlow(
+                        id="SYS>STR",
+                        from_zone="SYS",
+                        to_zone="STR",
+                        flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE,
+                        bidirectional=True
+                    ),
+                    InterzoneFlow(
+                        id="STR>DIV",
+                        from_zone="STR",
+                        to_zone="DIV",
+                        flow_measurements=[FlowMeasurement(measurement_id="div")]
+                    ),
+                    InterzoneFlow(
+                        id="STR>STO",
+                        from_zone="STR",
+                        to_zone="STO",
+                        flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE,
+                        bidirectional=True
+                    ),
+                ]
+            ),
+            measurements=MeasurementCollection(
+                beg_date='2000-01-01',
+                end_date='2000-01-10',
+                series=[
+                    MeasurementSeries(id="sto", values=[100, 120, 150, 200, 195, 190, 180, 160, 140, 100]),
+                    MeasurementSeries(id="div", values=[ 50,  50,  50,  50,  50,  50,  50,  50,  50,  50]),
+                ]
+            ),
+            txns=[]
+        )
+
+    def test_trxn_cumulative_limit(self):
+        """The apportionments to a trxn should honor the cummulative limit."""
+
+        input = self._get_input()
+        input.txns = [
+            PathTrxn(
+                id='WR_1',
+                priority=2,
+                upper_limit=None,
+                cumulative_limit=60,
+                path=[
+                    TrxnPathItem(flow_id='STR>STO', expected_values=[ 20, 30, 10, 0, 0, 0, 0, 0, 0]),
+                ]
+            ),
+        ]
+        results = solve(input, check_expected_values=True)
+
+    def test_trxn_cumulative_limit_with_reset(self):
+        """The apportionments to a trxn should honor the cummulative limit
+        MM-DD reset:
+        Jan-02: apportion 10 of 20
+        Jan-03: apportion  0 of 30
+        Jan-04: reset! apportion 10 of 50
+        Jan-05: apportion 0
+        etc.
+
+        """
+
+        input = self._get_input()
+        input.txns = [
+            PathTrxn(
+                id='WR_1',
+                priority=2,
+                upper_limit=None,
+                cumulative_limit=10,
+                cumulative_reset_before_MMDD='0104',
+                path=[
+                    TrxnPathItem(flow_id='STR>STO', expected_values=[ 10, 0, 10, 0, 0, 0, 0, 0, 0]),
+                ]
+            ),
+        ]
+        results = solve(input, check_expected_values=True)
 
 
 class G_DocumentationExamples(unittest.TestCase):
@@ -2088,11 +2176,11 @@ class G_DocumentationExamples(unittest.TestCase):
                 MeasurementSeries(id="B>C", values=[0, 0]),
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1880, upper_limit=40, path=[TrxnPathItem(flow_id='B>1', expected_values=[40])]),
-                Trxn(id='TRXN_2', priority=1890, upper_limit=20, path=[TrxnPathItem(flow_id='B>1', expected_values=[10])]),
-                Trxn(id='TRXN_3', priority=1890, upper_limit=40, path=[TrxnPathItem(flow_id='B>2', expected_values=[20])]),
-                Trxn(id='TRXN_4', priority=1950, upper_limit=100, path=[TrxnPathItem(flow_id='A>STOR', expected_values=[0])]),
-                Trxn(id='TRXN_5', priority=9901, upper_limit=None, path=[
+                PathTrxn(id='TRXN_1', priority=1880, upper_limit=40, path=[TrxnPathItem(flow_id='B>1', expected_values=[40])]),
+                PathTrxn(id='TRXN_2', priority=1890, upper_limit=20, path=[TrxnPathItem(flow_id='B>1', expected_values=[10])]),
+                PathTrxn(id='TRXN_3', priority=1890, upper_limit=40, path=[TrxnPathItem(flow_id='B>2', expected_values=[20])]),
+                PathTrxn(id='TRXN_4', priority=1950, upper_limit=100, path=[TrxnPathItem(flow_id='A>STOR', expected_values=[0])]),
+                PathTrxn(id='TRXN_5', priority=9901, upper_limit=None, path=[
                     TrxnPathItem(flow_id='A>STOR', factor=-1),
                     TrxnPathItem(flow_id='A>B'),
                     TrxnPathItem(flow_id='B>2', expected_values=[30])
@@ -2254,13 +2342,13 @@ class I_TimeLags(unittest.TestCase):
                 MeasurementSeries(id="B>C", values=[ 0,  0,  0,  0,  0]), # same day impact
             ]),
             txns=[
-                Trxn(id='02-1', priority=1, upper_limit=10, path=[
+                PathTrxn(id='02-1', priority=1, upper_limit=10, path=[
                     TrxnPathItem(flow_id='A>1', factor=1, expected_values=[2,  3,  4]),
                 ]),
-                Trxn(id='02-2', priority=2, upper_limit=10, path=[
+                PathTrxn(id='02-2', priority=2, upper_limit=10, path=[
                     TrxnPathItem(flow_id='A>2', factor=1, expected_values=[ 5,  4,  5]),
                 ]),
-                Trxn(id='02-3', priority=3, upper_limit=10, path=[
+                PathTrxn(id='02-3', priority=3, upper_limit=10, path=[
                     TrxnPathItem(flow_id='A>B', factor=1, expected_values=[10,10,10]),
                     TrxnPathItem(flow_id='B>3', factor=1, expected_values=[10,10,10]),
                 ]),
@@ -2394,7 +2482,7 @@ class I_TimeLags(unittest.TestCase):
             ),
 
             txns=[
-                Trxn(
+                PathTrxn(
                     id="TRXN",
                     priority=1,
                     upper_limit=None,
@@ -2460,7 +2548,7 @@ class J_Losses(unittest.TestCase):
                 MeasurementSeries(id="B>DIV", values=[0, 10]),
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1, upper_limit=None, path=[
+                PathTrxn(id='TRXN_1', priority=1, upper_limit=None, path=[
                     TrxnPathItem(flow_id='A>STOR', factor=-1, expected_values=[-10]),
                     TrxnPathItem(flow_id='A>B', loss_before=0.2, loss_after=0.2, expected_values=[8]),
                     TrxnPathItem(flow_id='B>DIV', expected_values=[6.4])
@@ -2524,10 +2612,10 @@ class J_Losses(unittest.TestCase):
                 MeasurementSeries(id="B>DIV", values=[0, 10]),
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1, upper_limit=None, path=[
+                PathTrxn(id='TRXN_1', priority=1, upper_limit=None, path=[
                                     TrxnPathItem(flow_id='B>DIV', expected_values=[3.6]) # All the natural flow avaialbe to zone B
                                 ]),
-                Trxn(id='TRXN_2', priority=2, upper_limit=None, path=[
+                PathTrxn(id='TRXN_2', priority=2, upper_limit=None, path=[
                     TrxnPathItem(flow_id='A>STOR', factor=-1, expected_values=[-10]),
                     TrxnPathItem(flow_id='A>B', expected_values=[8]),
                     TrxnPathItem(flow_id='B>DIV', expected_values=[6.4])
@@ -2691,10 +2779,10 @@ class K_Accounting_Graph_Details(unittest.TestCase):
                 MeasurementSeries(id="B>C",      values=[  0]),
             ]),
             txns=[
-                Trxn(id='TRXN_1', priority=1, upper_limit=None, path=[
+                PathTrxn(id='TRXN_1', priority=1, upper_limit=None, path=[
                     TrxnPathItem(flow_id='B>DIV', expected_values=[20]) # This should be limited to the remaining natural flow
                 ]),
-                Trxn(id='TRXN_IMP', priority=2, upper_limit=None, path=[
+                PathTrxn(id='TRXN_IMP', priority=2, upper_limit=None, path=[
                     TrxnPathItem(flow_id='IMPORT>B', expected_values=[100]),
                     TrxnPathItem(flow_id='B>DIV', expected_values=[100])
                 ]),
@@ -2752,7 +2840,7 @@ class K_Accounting_Graph_Details(unittest.TestCase):
                 MeasurementSeries(id="B>DIV",    values=[10]),
             ]),
             txns=[
-                Trxn(
+                PathTrxn(
                     id='TRXN_1',
                     priority=1,
                     upper_limit=10,

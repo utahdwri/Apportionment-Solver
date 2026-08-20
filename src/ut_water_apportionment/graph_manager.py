@@ -13,6 +13,11 @@ class GraphManager:
         self.graph = graph
         self.lookup_zones_by_id = {z.id: z for z in graph.zones}
         self.lookup_flows_by_id = {f.id: f for f in graph.interzone_flows}
+        self.lookup_zone_accounts = {
+            (z.id, account.id): account
+            for z in graph.zones
+            for account in z.accounts
+        }
 
         self.lookup_zone_outflows = {z.id: [] for z in graph.zones}
         self.lookup_zone_inflows = {z.id: [] for z in graph.zones}
@@ -49,6 +54,15 @@ class GraphManager:
 
         valid_zones = set(zone_ids)
 
+        # Account ids only need to be unique within their zone. The same account
+        # id may therefore be reused in a different zone.
+        for zone in graph.zones:
+            account_ids = [account.id for account in zone.accounts]
+            if len(account_ids) != len(set(account_ids)):
+                raise ValueError(
+                    f"Zone {zone.id!r} contains duplicate ZoneAccount IDs."
+                )
+
         for flow in graph.interzone_flows:
             if flow.from_zone not in valid_zones:
                 raise ValueError(
@@ -71,6 +85,15 @@ class GraphManager:
         if flow_id not in self.lookup_flows_by_id:
             raise ValueError(f'Cannot find interzone-flow id {flow_id}')
         return self.lookup_flows_by_id[flow_id]
+
+    def get_zone_account(self, zone_id: str, account_id: str):
+        """Return an account by its zone-local id."""
+        key = (zone_id, account_id)
+        if key not in self.lookup_zone_accounts:
+            raise ValueError(
+                f"Cannot find ZoneAccount {account_id!r} in zone {zone_id!r}."
+            )
+        return self.lookup_zone_accounts[key]
 
     def get_zone_outflows(self, zone_id: str) -> list[InterzoneFlow]:
         return self.lookup_zone_outflows.get(zone_id, [])

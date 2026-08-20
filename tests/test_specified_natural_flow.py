@@ -17,7 +17,7 @@ from ut_water_apportionment import (
     FlowMeasurement,
     InterzoneFlow,
     SolverInput,
-    Trxn,
+    PathTrxn,
     TrxnPathItem,
     Zone,
     ZoneTypes,
@@ -168,7 +168,7 @@ class SpecifiedNaturalFlowContractTests(unittest.TestCase):
                 MeasurementSeries(id="B>DIV",     values=[5]),
             ]),
             txns=[
-                Trxn(
+                PathTrxn(
                     id="TRXN_DIV",
                     priority=1,
                     upper_limit=5.0,

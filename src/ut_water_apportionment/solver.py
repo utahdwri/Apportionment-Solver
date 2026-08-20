@@ -2,7 +2,7 @@ from copy import deepcopy
 from typing import Generator
 import logging
 from .models import (
-    SolverInput, SolverOutput, Trxn, TrxnPathItem, ZoneTypes
+    SolverInput, SolverOutput, PathTrxn, TrxnPathItem, ZoneTypes
 )
 from .graph_manager import GraphManager
 from .natural_flow_calculator import NaturalFlowCalculator
@@ -59,6 +59,7 @@ def solve(
 
         # A. Setup the state for the day
         data_manager.set_day(date)
+        trxn_manager.begin_day(date)
 
         #
         apportioner = Apportioner(
@@ -96,6 +97,10 @@ def solve(
 
         # D. Finalize unconstrained (nonpath) vars
         apportioner.solve_for_nonpath_vars()
+
+        # Commit cross-day transaction/account state only after the final daily
+        # solution is known.
+        trxn_manager.commit_day(apportioner.cur_trxn_value)
 
 
         # Collect results for this day
@@ -139,7 +144,7 @@ def assert_apportionments_equal_expected(results: SolverOutput, input: SolverInp
 
     cnt = 0
     for t in tm.traverse_vars(input.txns):
-        if type(t) == Trxn:
+        if type(t) == PathTrxn:
             for p in t.path:
                 if p.expected_values is not None:
                     idx = 0

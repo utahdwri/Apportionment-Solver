@@ -4,14 +4,50 @@
 
 [Apportionment Solver Documentation](https://github.com/utahdwri/Apportionment-Solver/blob/main/General%20Apportionment%20Solver%20Documentation.pdf)
 
-
 ## 1. After-the-fact distribution accounting
-In Utah, water is distributed by priority in accordance with water rights. Many water users have a portfolio of several water rights and storage water contracts. Distribution accounting subdivides the water actually diverted by each user into the components representing water diverted under each authorization. This accounting is used to verify that water is being distributed in accordance with priority or to identify water users who may have taken water out of turn. These results may also provide insights into the historical actual supply that a water right has recieved which may be much lower than the paper entitlement in river systems with variable supplies.
+In Utah, water is distributed by priority in accordance with water rights. Accounting for this distribution is done after-the-fact because, in all but the most trivial cases, we do not know how much water is available to be diverted until we know how much water was actually diverted. Water users generally have a portfolio comprising many water rights and perhaps contracts for storage water. So measurements is not enough. Distribution accounting subdivides the water actually diverted into the components representing water diverted under each authorization. It colors or names the water that was moved through the system.
 
-This tool performs after-the-fact accounting, calculating apportionments by water right or other authorizations for measured diversions. This accounting depends on:
+The primary purpose of this accounting is to assess the degree that water is being distributed in accordance with priority. These results may also provide insights into the historical actual supply that a water right has recieved; this may be much lower than the paper entitlement in river systems with variable supplies.
+
+## 2. Solver Input
+This tool performs after-the-fact accounting, calculating apportionments by water right or other authorizations for measured diversions. This accounting depends on the data described in the following subsections.
 - A stream network graph defining the known flows between zones
 - Measurements of diversions, imports, streamflow, and storage volumes
 - Transaction schedule that defines the priority ordering and limits of the water authorizations
+
+
+### 2.1. Stream Network Graph (Accounting Graph)
+
+- The `Accounting Graph` is a network graph composed of `Zones` (or nodes) and `Interzone-Flows` (or arcs which move water between zones).
+- There are different types of Zones, such as STREAM zones, USE zones, & STORAGE zones.
+
+...
+
+### 2.2. Measurements
+- The flow along all Interzone-Flows on the Accounting Graph are know, either because they are measured or because they can be calculated from a flow balance equation (INFLOW = OUTFLOW + ΔSTORAGE).
+- Storage measurements may be provided for STORAGE zones. These storage values represent end-of-day storage, meaning the change in storage for day t is ΔS(t) = S(t) - S(t-1)
+
+### 2.3. Transaction Schedule
+
+- Transaction: A Transaction traces a specific path from a source Zone to a destination Zone, traversing one or more Interzone-Flows. These represent authorized water rights (always originate at STREAM zones) and storage deliveries (always originate at STORAGE zones) or unauthorized movement through the Accounting Graph.
+
+- Transaction Component: A Transaction Component refers to the portion of a Transaction traversing a single, specific Interzone-Flow. It is possible for Transaction Components to mathematically flow in the opposite direction of the physical Interzone-Flow (e.g., an exchange). Ultimately, we want to solve exactly how much water was apportioned to each Transaction Component.
+
+- The measured, physical flow through an Interzone-Flow must equal the sum of the Transaction Components that pass through it.
+
+- Transaction Schedule: A prioritized list of Transactions from the most senior to the most junior.
+
+...
+
+### 2.4. Specified Time Period
+
+The solver runs on a daily interval for a specified time period. Sub-daily intervals are not supported, nor are intervals longer than a day.
+
+### 2.5. A Note on Units
+
+The solver does not prescribe what units should be used for measurements or transaction limits, but whatever is used must be consistent. For example, if you provide daily diversion measuements in cfs, you'd need to also provide storage measurements in cfs-days, storage limits in cfs-days, and transaction limits in cfs-days. Or everything in acre-feet. Or everything in whatever, so long as it's consistent across the provided input.
+
+### 2.6. Example Input
 
 Example:
 ```
@@ -83,36 +119,19 @@ input = SolverInput(
 
 ```
 
-## 2. Example
+## 3. Solver Output
+
+...
 
 
 
 
 
-# The Water Accounting Problem
+## 4. The Apportionment Process - The Water Accounting Problem
 
-Priority distribution of water rights can be complex and opaque, yet transparency is crucial for ensuring proper management of this vital public resource. In the financial world, bookkeeping rules are followed to give a name to every dollar recieved and spent and to ensure these transactions can be audited. Similarly, prudent management of water requires similar accounting. That is what this solver aims to provide.
+Priority distribution of water rights can be complex and opaque, yet transparency is crucial for ensuring proper management of this vital public resource. In the financial world, bookkeeping rules are followed to give a name to every dollar recieved and spent and to ensure these transactions can be audited. Similarly, prudent management of water requires similar accounting. That is exactly what this solver aims to provide.
 
-For this water accounting, we have a flow network (the Accounting Graph) and know the total flows measurements. We also know the set of authorized Transactions. The goal is to solve for the flows of each Transaction Component on an Accounting Graph given the total flow measurements. Put simply, we aim to name the water that we measured according to the individual water rights (and other transactions).
-
-
-# Definitions
-
-- Accounting Graph: A network graph composed of Zones and Interzone-Flows (which move water between zones).
-
-- Zone: A node on the Accounting Graph. There are STREAM zones, USE zones, & STORAGE zones.
-
-- Interzone Flow: an arc on the Accounting Graph with a measured flow. The measured, physical flow through an Interzone-Flow must equal the sum of the Transaction Components that pass through it.
-
-- Transaction: A Transaction traces a specific path from a source Zone to a destination Zone, traversing one or more Interzone-Flows. These represent authorized water rights (always originate at STREAM zones) and storage deliveries (always originate at STORAGE zones) or unauthorized movement through the Accounting Graph.
-
-- Transaction Component: A Transaction Component refers to the portion of a Transaction traversing a single, specific Interzone-Flow. It is possible for Transaction Components to mathematically flow in the opposite direction of the physical Interzone-Flow (e.g., an exchange). Ultimately, we want to solve exactly how much water was apportioned to each Transaction Component.
-
-- Transaction Schedule: A prioritized list of Transactions from the most senior to the most junior.
-
-
-
-# The Distribution and Accounting Game
+For this water accounting, we have a flow network (the Accounting Graph) and know the total flows measurements. We also know the set of authorized Transactions. The goal is to solve for the flows of each Transaction Component on an Accounting Graph given the total flow measurements. Put simply, we aim to name the water that we measured according to the individual water rights and other transactions.
 
 To understand the system, imagine a game with two players:
 
@@ -121,7 +140,7 @@ To understand the system, imagine a game with two players:
 2. Player 2 is the accountant (The Inverse Problem): This person only receives the final physical net flows, the list of transaction priorities, and the rulebook. Their job is to mathematically back-calculate the exact apportionments Player 1 made to each transaction. (This is an entirely impartial task depending only on the net flows, the transaction schedule, and the rules).
 
 
-# Forward Water Distribution Rules
+### Forward Water Distribution Rules
 
 For forward water distribution, we imagine a Water Distributor that has perfect knowledge of the available supply and is empowered to precisely distribute that supply in accordance with the following rules. The following rules define a procedural model of how water should be distributed.
 
@@ -139,7 +158,7 @@ For forward water distribution, we imagine a Water Distributor that has perfect 
 
 
 
-# Inverse Water Accounting
+### Inverse Water Accounting
 
 Forward Water Distribution is a conceptual model rather than an operational process because, in a natural system, diversions and storage impoundments obscure the true available supply. To manage and account for these transactions in the real world, we must solve the inverse problem.
 
@@ -153,7 +172,7 @@ It is possible that water may have been released from storage or imported into a
 
 Measurement error exist in the real world. However for after-the-fact accounting purposes the measured value is assumed to adaquately represent the actual total water delivery. Ensuring this is the case is a seperate data management problem.
 
-## Purpose of the Solver
+### Solver Objective
 
 The purpose of the software Solver is to do the work of Player 2. It calculates the exact apportionments for every transaction in the schedule given only the measured net flows, the transaction priority schedule, the accounting graph topology, and the system rules.
 
@@ -173,9 +192,11 @@ subject to:
 - Transaction limits
 
 
-## Logging
+## 5. Other Notes
 
-To show messages to the console:
+### Logging
+
+The solver uses the standard logging module for warnings and other messages. To print these messages to the console you could use something like:
 
 ```
 import logging
@@ -186,3 +207,4 @@ logging.basicConfig(
     force=True,
 )
 ```
+
