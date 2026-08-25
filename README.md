@@ -194,6 +194,18 @@ subject to:
 
 ## 5. Other Notes
 
+
+### Types of water right limits:
+
+1. Daily diversion limit - This is generaly expressed as a constant cfs over a specified period of use, but it may also vary over time.
+
+2. Annual diversion limit - The cummulative diversion cannot exceed this value.
+
+3. Duty limit - Does this really need to be different from the daily diversion limit? Yes, when we have an acres measurement: if they only used some of their acres, the juniormost right still in use will recieve a lesser duty according to the actual use.
+
+3. Annual depletion limit
+
+
 ### Logging
 
 The solver uses the standard logging module for warnings and other messages. To print these messages to the console you could use something like:

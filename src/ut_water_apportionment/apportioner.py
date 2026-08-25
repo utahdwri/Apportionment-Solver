@@ -15,6 +15,7 @@ from math import isclose
 from .models import (
     CorePropSchedule,
     CoreScheduleVariable, CoreSeqSchedule,
+    FlowComponentsTypes,
     SolverOutputApportionment,
     SolveStepResult,
     SolveStepVariableResult,
@@ -248,6 +249,13 @@ class Apportioner:
 
         # Update Measurement Constraints
         for f in self.gm.graph.interzone_flows:
+
+            # Remove the measurement constraint if the type is UNCONSTRAINED.
+            if f.flow_type == FlowComponentsTypes.UNCONSTRAINED:
+                self.engine.update_constraint_ub(name=PREFIX_MEASURE + f.id, ub=None)
+                continue
+
+            # Otherwise, set the meas constraint to the measured flow value.
             flow = self.dm.cur_flows_by_id[f.id].measured
             if flow is not None:
                 self.engine.update_constraint_lb(name=PREFIX_MEASURE + f.id, lb=flow)

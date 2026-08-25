@@ -374,6 +374,7 @@ class FlowComponentsTypes(Enum):
     FLOW_BALANCE_OF_DESTINATION_ZONE = 'DESTINATION ZONE'
     FLOW_BALANCE_OF_SOURCE_ZONE = 'SOURCE ZONE'
     OVERLAPPING_SERVICE_AREAS = 'OVERLAPPING SERVICE AREAS'
+    UNCONSTRAINED = 'UNCONSTRAINED' #
     EMPTY = 'EMPTY'                                                            # TODO - This should not be an option long-term...
                                                                                #      - It's here to support legacy techniques that should be updated.
 @dataclass

@@ -221,3 +221,16 @@ class GraphManager:
                     f"Zone {zone_id!r} must have exactly one residual "
                     f"loss route; found {[f.id for f in loss_routes]}."
                 )
+
+
+        # 3. Zones with residual flows cannot have unconstrained flows.
+        for zone_id, flows in residual_flows_by_zone.items():
+            for f in self.get_zone_outflows(zone_id) + self.get_zone_inflows(zone_id):
+                if f.flow_type == FlowComponentsTypes.UNCONSTRAINED:
+                    raise ValueError(
+                        f'Zone {zone_id} is connected to an UNCONSTRAINED '
+                        f'interzone flow ({f.id}) while also having a residual-'
+                        'calculated flow. This not yet supported because the '
+                        'unconstrained flow is unknown when it is needed to '
+                        'calculate the residual flow.'
+                    )
