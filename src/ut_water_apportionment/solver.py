@@ -23,6 +23,7 @@ def solve(
     check_expected_values: bool = False,
     solver_backend: SolverBackend | str = SolverBackend.AUTO,
     max_daily_apportionment: float | None = None,
+    generate_audit: bool = True,
 ) -> SolverOutput:
     """Build and solve the apportionment model.
 
@@ -68,6 +69,7 @@ def solve(
             data_manager,
             natural_flow_calculator,
             lp_solver_factory=resolved_backend.factory,
+            generate_audit=generate_audit
         )
 
         # B. Update Daily Bounds
@@ -77,7 +79,7 @@ def solve(
 
         # C. Rebuild Schedule & Solve
         schedule = trxn_manager.build_schedule(date)
-        logger.debug(f"\nSchedule: {schedule}")
+        #logger.debug(f"\nSchedule: {schedule}")
 
         # Solve sequentially with and without NF mass balance limits
         #apportioner.solve_phase = 'NATURAL_FLOW'

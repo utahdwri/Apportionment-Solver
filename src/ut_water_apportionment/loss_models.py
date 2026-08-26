@@ -226,6 +226,9 @@ class LossDefinition:
         negative movement selects the lower segment.
         """
 
+        if driver_flow < 0 and driver_flow > -1e-4:
+            driver_flow = 0
+
         if not isfinite(driver_flow) or driver_flow < 0:
             raise ValueError("driver_flow must be finite and non-negative")
 

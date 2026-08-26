@@ -60,11 +60,14 @@ class Apportioner:
         dm: DailyDataManager,
         nfc: NaturalFlowCalculator,
         lp_solver_factory: LPSolverFactory | None = None,
+        generate_audit: bool = False,
     ):
         self.gm = gm
         self.tm = tm
         self.dm = dm
         self.nfc = nfc
+        self.generate_audit = generate_audit
+
         self._lp_solver_factory = (
             lp_solver_factory
             if lp_solver_factory is not None
@@ -77,6 +80,36 @@ class Apportioner:
         self.engine = self._build_linear_equations()
 
         self.feasibility_slacks:list[str] = []
+
+
+    def _append_audit_record(
+            self,
+            variables: list[SolveStepVariableResult],
+            reason: str,
+            limited_by_natural_flow: bool = False,
+            date: str | None = None,
+            ):
+        """A single place for appending an solve-step result."""
+        if not self.generate_audit:
+            return #None
+
+        audit_date = date or self.dm.cur_date
+        if audit_date is None:
+            raise ValueError("Daily data date has not been set.")
+
+        self._audit_sequence += 1
+
+        audit_record = SolveStepResult(
+            date=audit_date,
+            sequence=self._audit_sequence,
+            variables=variables,
+            reason=reason,
+            limited_by_natural_flow=limited_by_natural_flow,
+            remaining_natural_flow=self.nfc.remaining_natural_at_zone.copy(),
+        )
+
+        self.apportionments_audit.append(audit_record)
+        #return audit_record
 
 
     def _build_linear_equations(self) -> LPSolverProtocol:
@@ -272,16 +305,11 @@ class Apportioner:
             boundary_values=self.dm.get_boundary_natural_flow_values(date),
         )
 
-        self._audit_sequence += 1
-        audit_record = SolveStepResult(
-            date=date,
-            sequence=self._audit_sequence,
+        self._append_audit_record(
             variables=[],
             reason='NF Calculations',
-            limited_by_natural_flow=False,
-            remaining_natural_flow=self.nfc.remaining_natural_at_zone.copy()
+            date=date,
         )
-        self.apportionments_audit.append(audit_record)
 
 
         # 1-B.
@@ -292,16 +320,11 @@ class Apportioner:
             boundary_values=self.dm.get_boundary_natural_flow_values(date)
         )
 
-        self._audit_sequence += 1
-        audit_record = SolveStepResult(
-            date=date,
-            sequence=self._audit_sequence,
+        self._append_audit_record(
             variables=[],
             reason='NF Boundary Adjustments',
-            limited_by_natural_flow=False,
-            remaining_natural_flow=self.nfc.remaining_natural_at_zone.copy()
+            date=date,
         )
-        self.apportionments_audit.append(audit_record)
 
 
         # 2. Complete the NF Constraints (these constraints were created in
@@ -345,6 +368,8 @@ class Apportioner:
         total_spill = 0
 
         natural_zones = {ZoneTypes.STREAM, ZoneTypes.SYSTEM_GAIN_LOSS}
+
+        previous_remaining_nf = self.nfc.remaining_natural_at_zone.copy()
 
         # Find all the spill vars...
         spill_vars:list[PathTrxn] = []
@@ -424,8 +449,7 @@ class Apportioner:
             # We can do this by comparing the current NF to that from the
             # latest audit record. The increase in each zone is what needs to
             # be added to the NF constraint.
-            latest = self.apportionments_audit[len(self.apportionments_audit) - 1]
-            for zone_id, prev_nf in latest.remaining_natural_flow.items():
+            for zone_id, prev_nf in previous_remaining_nf.items():
                 new_nf = self.nfc.remaining_natural_at_zone[zone_id]
                 delta = new_nf - prev_nf
 
@@ -439,10 +463,7 @@ class Apportioner:
 
 
             # Add to audit log
-            self._audit_sequence += 1
-            audit_record = SolveStepResult(
-                date=self.dm.cur_date or '',
-                sequence=self._audit_sequence,
+            self._append_audit_record(
                 variables=[
                     SolveStepVariableResult(
                         variable_name=varid,
@@ -452,10 +473,7 @@ class Apportioner:
                     for varid, value in solved_values.items()
                 ],
                 reason='Spills',
-                limited_by_natural_flow=False,
-                remaining_natural_flow=self.nfc.remaining_natural_at_zone.copy()
             )
-            self.apportionments_audit.append(audit_record)
 
 
         return total_spill
@@ -587,18 +605,19 @@ class Apportioner:
         self._apply_natural_flow_change(var, delta)
 
         # Add to audit history
-        solve_step, audit_context = self._snapshot_audit_step(
-            var=var,
-            target_var=target_var,
-            value_before=value_before,
-            value_after=new_value
-        )
-        audit_record = self._record_audit_iteration(
-            steps=[solve_step],
-            contexts=[audit_context],
-            limiting_txn_ids=[var.id],
-            is_proportional=False
-        )
+        if self.generate_audit:
+            solve_step, audit_context = self._capture_solve_step_data(
+                var=var,
+                target_var=target_var,
+                value_before=value_before,
+                value_after=new_value
+            )
+            self._record_audit_iteration(
+                steps=[solve_step],
+                contexts=[audit_context],
+                limiting_txn_ids=[var.id],
+                is_proportional=False
+            )
 
         logger.debug(f' - maxed {target_var} to {new_value}')
         self._reset_minus_vars(origional_ub)
@@ -689,17 +708,20 @@ class Apportioner:
 
                 var_obj = vars_by_name.get(var_name)
                 if var_obj:
-                    solve_step, audit_context = self._snapshot_audit_step(
-                        var=var_obj,
-                        target_var=var_name,
-                        value_before=values_before[var_name],
-                        value_after=var_value,
-                        proportion_factor=proportion_factors[var_name]
-                    )
-                    member_steps.append(solve_step)
-                    audit_contexts.append(audit_context)
+
+                    if self.generate_audit:
+                        solve_step, audit_context = self._capture_solve_step_data(
+                            var=var_obj,
+                            target_var=var_name,
+                            value_before=values_before[var_name],
+                            value_after=var_value,
+                            proportion_factor=proportion_factors[var_name]
+                        )
+                        member_steps.append(solve_step)
+                        audit_contexts.append(audit_context)
 
                     delta = var_value - values_before[var_name]
+
                     self._apply_natural_flow_change(var_obj, delta)
 
 
@@ -938,7 +960,7 @@ class Apportioner:
 
         return vars_output
 
-    def _snapshot_audit_step(
+    def _capture_solve_step_data(
             self,
             var: PathTrxn | TrxnGroup,
             target_var: str,
@@ -1006,9 +1028,12 @@ class Apportioner:
             contexts: list[dict],
             limiting_txn_ids: list[str],
             is_proportional: bool
-            ) -> SolveStepResult:
+            ):
         if self.dm.cur_date is None:
             raise ValueError("Daily data date has not been set.")
+
+        if not self.generate_audit:
+            return
 
         reason, limited_by_natural_flow = self._summarize_iteration_limit(
             contexts,
@@ -1016,17 +1041,12 @@ class Apportioner:
             is_proportional,
         )
 
-        self._audit_sequence += 1
-        audit_record = SolveStepResult(
-            date=self.dm.cur_date,
-            sequence=self._audit_sequence,
+        self._append_audit_record(
             variables=steps,
             reason=reason,
             limited_by_natural_flow=limited_by_natural_flow,
-            remaining_natural_flow=self.nfc.remaining_natural_at_zone.copy()
         )
-        self.apportionments_audit.append(audit_record)
-        return audit_record
+
 
     def _summarize_iteration_limit(
             self,
