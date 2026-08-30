@@ -2629,6 +2629,43 @@ class J_Losses(unittest.TestCase):
 
 class K_Accounting_Graph_Details(unittest.TestCase):
 
+    def test_percent_loss_on_residual_flow(self):
+        """Suppose we have a interzone-flow that we calculate from the
+        destination zone residual, and there is also a 50% to-zone loss.
+        We expect the reported flow to be 2x the residual.
+        """
+        input = SolverInput(
+            beg_date='2000-01-01',
+            end_date='2000-01-01',
+            accounting_graph=AccountingGraph(
+                zones=[
+                    Zone(id="REACH-A", type=ZoneTypes.STREAM),
+                    Zone(id="DIV", type=ZoneTypes.USE),
+                    Zone(id="ET", type=ZoneTypes.DEPLETION),
+                ],
+                interzone_flows=[
+                    InterzoneFlow(id="A>DIV", from_zone="REACH-A", to_zone="DIV", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, loss_to_zone=LossDefinition.linear(0.5) ),
+                    InterzoneFlow(id="DIV>ET", from_zone="DIV", to_zone="ET", flow_measurements=[FlowMeasurement('ET')]),
+                ]
+            ),
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id="ET",   values=[10]),
+            ]),
+            txns=[],
+        )
+
+        results = solve(input, check_expected_values=False)
+        results.print_solve_steps()
+
+        for result in results.get_result_value(flow_id="A>DIV"):
+            self.assertEqual(result.value, 20, 'Solver did not include the to-zone loss in the residual flow calculation!')
+
+
+
+
+
+
+
     @unittest.skip('tests not complete yet')
     def test_fraction_div_loss(self):
         """Suppose we have a interzone-flow that we know looses 50% of it's

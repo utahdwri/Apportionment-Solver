@@ -259,19 +259,45 @@ class DailyDataManager:
             # Now assign the residual flow to the the interzone-flow term(s)
             for f in calcs:
 
-                factor = 0
-                if f.to_zone == zone_id:
-                    factor = 1
-                elif f.from_zone == zone_id:
-                    factor = -1
-                else:
-                    raise ValueError('Unexpected error - Cannot set the direction factor...')
-
                 if residual_flow >= 0 and f.residual_for_gains:
-                    total_flow_by_id[f.id] = residual_flow * factor
+                    if f.to_zone == zone_id:
+                        # Forward flow into the zone. The residual is the amount
+                        # that must remain after the to-zone loss.
+                        total_flow_by_id[f.id] = (
+                            f.loss_to_zone.inflow_for_remaining(
+                                residual_flow,
+                                date=date,
+                            )
+                        )
+                    else:
+                        # Reverse flow into the source zone.
+                        total_flow_by_id[f.id] = -(
+                            f.loss_from_zone.inflow_for_remaining(
+                                residual_flow,
+                                date=date,
+                            )
+                        )
 
                 if residual_flow < 0 and f.residual_for_losses:
-                    total_flow_by_id[f.id] = residual_flow * factor
+                    required_outflow = -residual_flow
+
+                    if f.from_zone == zone_id:
+                        # Forward flow leaving the zone. The reported flow is what
+                        # remains after the from-zone loss.
+                        total_flow_by_id[f.id] = (
+                            f.loss_from_zone.transform_total_flow(
+                                required_outflow,
+                                date=date,
+                            )
+                        )
+                    else:
+                        # Reverse flow leaving the destination zone.
+                        total_flow_by_id[f.id] = -(
+                            f.loss_to_zone.transform_total_flow(
+                                required_outflow,
+                                date=date,
+                            )
+                        )
 
 
         # 3. Checks
