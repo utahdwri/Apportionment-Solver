@@ -1,0 +1,44 @@
+[
+  {
+    "reaches": 20,
+    "rights": 10,
+    "days": 30,
+    "backend": "highspy",
+    "audit": false,
+    "proportional": false,
+    "repeat": 3,
+    "output": "/tmp/constant-before_piecewise.json",
+    "profile": null,
+    "simplex_strategy": null,
+    "seconds": [
+      1.678665060999947,
+      1.6296099109999886,
+      1.6795841269999983
+    ],
+    "median_seconds": 1.678665060999947,
+    "apportionments": 8940,
+    "python": "3.12.13",
+    "checkout": "before_piecewise"
+  },
+  {
+    "reaches": 20,
+    "rights": 10,
+    "days": 30,
+    "backend": "highspy",
+    "audit": false,
+    "proportional": false,
+    "repeat": 3,
+    "output": "/tmp/constant-with_piecewise.json",
+    "profile": null,
+    "simplex_strategy": null,
+    "seconds": [
+      1.6561970889999884,
+      1.4587757150000016,
+      1.4857346810001673
+    ],
+    "median_seconds": 1.4857346810001673,
+    "apportionments": 8940,
+    "python": "3.12.13",
+    "checkout": "with_piecewise"
+  }
+]

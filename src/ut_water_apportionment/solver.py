@@ -1,4 +1,6 @@
 from copy import deepcopy
+from dataclasses import replace
+from datetime import date as Date, timedelta
 from typing import Generator
 import logging
 from .models import (
@@ -11,6 +13,7 @@ from .trxn_schedule import TrxnSchedule
 from .apportioner import Apportioner
 from .lp_solver import SolverBackend, resolve_solver_backend
 from .lag_utils import unlag_apportionments
+from .signed_losses import needs_cohort_backend
 
 logger = logging.getLogger(__name__)
 
@@ -27,16 +30,25 @@ def solve(
 ) -> SolverOutput:
     """Build and solve the apportionment model.
 
-    ``solver_backend`` may be ``"auto"``, ``"highspy"``, ``"glop"``, or
-    ``"scipy"``. Automatic selection prefers native HiGHS, then GLOP, then
+    ``solver_backend`` may be ``"auto"``, ``"highspy"``, ``"scip"``, ``"glop"``, or
+    ``"scipy"``. Automatic selection ordinarily prefers native HiGHS, then GLOP, then
     SciPy's HiGHS interface. An explicitly requested unavailable backend raises
     an error rather than silently using a different implementation.
+
+    Allocation-dependent piecewise losses use exact mixed-integer segment
+    selection with native HiGHS or SCIP. Equal-priority paths sharing a curve
+    require SCIP for delivery-weighted nonlinear sharing; ``"auto"`` selects
+    it for those inputs. ``input.loss_attribution_method`` chooses ``"depletion"``
+    (default) or ``"buildup"`` for signed priority attribution. Fixed exogenous
+    curves and constant-only models retain their existing LP backend support.
     """
-    resolved_backend = resolve_solver_backend(solver_backend)
-    logger.info("Using LP backend: %s", resolved_backend.name.value)
+    if input.loss_attribution_method not in {"buildup", "depletion"}:
+        raise ValueError("loss_attribution_method must be 'buildup' or 'depletion'")
 
     apportionment_results = []
     apportionments_audit = []
+    loss_allocations = []
+    loss_events = []
 
     # 1. Initialize Network Topology
     graph_manager = GraphManager(deepcopy(input.accounting_graph))
@@ -53,6 +65,12 @@ def solve(
 
     # 3.
     trxn_manager = TrxnSchedule(graph_manager, input.txns, max_daily_apportionment)
+    backend = solver_backend
+    if str(getattr(backend, 'value', backend)).strip().lower() == "auto":
+        if needs_cohort_backend(graph_manager, trxn_manager, input.beg_date, input.end_date):
+            backend = "scip"
+    resolved_backend = resolve_solver_backend(backend)
+    logger.info("Using solver backend: %s", resolved_backend.name.value)
 
     # 4. Run for each day.
     for date in _loop_through_date_range(input.beg_date, input.end_date):
@@ -69,7 +87,8 @@ def solve(
             data_manager,
             natural_flow_calculator,
             lp_solver_factory=resolved_backend.factory,
-            generate_audit=generate_audit
+            generate_audit=generate_audit,
+            loss_attribution_method=input.loss_attribution_method,
         )
 
         # B. Update Daily Bounds
@@ -108,6 +127,14 @@ def solve(
         # Collect results for this day
         apportionment_results.extend(apportioner.get_variables(date))
         apportionments_audit.extend(apportioner.apportionments_audit)
+        if apportioner.loss_model is not None:
+            apportioner.loss_model.validate_solution()
+            loss_allocations.extend(
+                replace(record, date=(Date.fromisoformat(record.date)-timedelta(
+                    days=round(data_manager.flow_lags[record.interzone_flow_id]))).isoformat())
+                for record in apportioner.loss_model.loss_allocations()
+            )
+            loss_events.extend(apportioner.loss_model.events)
 
 
     unlagged_apportionments = unlag_apportionments(
@@ -119,6 +146,8 @@ def solve(
         apportionments=unlagged_apportionments,
         solve_steps=apportionments_audit,
         solver_backend=resolved_backend.name.value,
+        loss_allocations=loss_allocations,
+        loss_events=loss_events,
     )
 
     if check_expected_values:
@@ -244,4 +273,3 @@ def system_report_str(
                     out += warn_if_value_is_incorrect(path_item, i.value)
 
     return out
-

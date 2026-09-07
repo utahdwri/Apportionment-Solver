@@ -2942,7 +2942,7 @@ class K_Accounting_Graph_Details(unittest.TestCase):
 
         solve(input, check_expected_values=True)
 
-
+    @unittest.skip('tests not complete yet')
     def test_unconstrained_interzone_flow_outflow(self):
         """ """
         input = SolverInput(

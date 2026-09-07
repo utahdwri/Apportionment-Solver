@@ -28,7 +28,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install -e .
+        python -m pip install -e '.[scip,dev]'
 
     - name: Verify package import
       run: |
@@ -36,4 +36,4 @@ jobs:
 
     - name: Run tests
       run: |
-        python -m unittest discover -v -s tests -t .
+        python -m pytest -q

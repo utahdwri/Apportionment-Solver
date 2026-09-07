@@ -1,0 +1,78 @@
+[
+  {
+    "reaches": 20,
+    "rights": 10,
+    "days": 7,
+    "sites": 0,
+    "repeat": 3,
+    "audit": false,
+    "proportional": false,
+    "output": null,
+    "seconds": [
+      0.42225179100000787,
+      0.34998337199999696,
+      0.3547689890001493
+    ],
+    "median_seconds": 0.3547689890001493,
+    "apportionments": 2086,
+    "python": "3.12.13",
+    "highspy": "1.15.1"
+  },
+  {
+    "reaches": 20,
+    "rights": 10,
+    "days": 7,
+    "sites": 1,
+    "repeat": 3,
+    "audit": false,
+    "proportional": false,
+    "output": null,
+    "seconds": [
+      3.2287421819999054,
+      3.2337281430000075,
+      3.308319472999983
+    ],
+    "median_seconds": 3.2337281430000075,
+    "apportionments": 2086,
+    "python": "3.12.13",
+    "highspy": "1.15.1"
+  },
+  {
+    "reaches": 20,
+    "rights": 10,
+    "days": 7,
+    "sites": 5,
+    "repeat": 3,
+    "audit": false,
+    "proportional": false,
+    "output": null,
+    "seconds": [
+      4.885861464000072,
+      4.892527041999983,
+      5.072555492999982
+    ],
+    "median_seconds": 4.892527041999983,
+    "apportionments": 2086,
+    "python": "3.12.13",
+    "highspy": "1.15.1"
+  },
+  {
+    "reaches": 20,
+    "rights": 10,
+    "days": 7,
+    "sites": 1,
+    "repeat": 3,
+    "audit": false,
+    "proportional": true,
+    "output": null,
+    "seconds": [
+      2.2135972350001794,
+      2.386789312000019,
+      2.368824386999904
+    ],
+    "median_seconds": 2.368824386999904,
+    "apportionments": 2086,
+    "python": "3.12.13",
+    "highspy": "1.15.1"
+  }
+]

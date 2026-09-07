@@ -25,6 +25,7 @@ class SolverBackend(str, Enum):
     HIGHSPY = "highspy"
     GLOP = "glop"
     SCIPY = "scipy"
+    SCIP = "scip"
 
 
 class LPSolverProtocol(Protocol):
@@ -144,7 +145,19 @@ def _load_scipy() -> LPSolverFactory:
     return LPSolver
 
 
+def _load_scip() -> LPSolverFactory:
+    from .lp_solver_SCIP import LPSolver
+
+    return LPSolver
+
+
 _BACKEND_SPECS: dict[SolverBackend, _BackendSpec] = {
+    SolverBackend.SCIP: _BackendSpec(
+        backend=SolverBackend.SCIP,
+        required_module="pyscipopt",
+        install_hint="pip install 'ut-water-apportionment[scip]'",
+        loader=_load_scip,
+    ),
     SolverBackend.HIGHSPY: _BackendSpec(
         backend=SolverBackend.HIGHSPY,
         required_module="highspy",
@@ -181,6 +194,7 @@ _BACKEND_ALIASES = {
     "or-tools": SolverBackend.GLOP,
     "glop": SolverBackend.GLOP,
     "scipy": SolverBackend.SCIPY,
+    "scip": SolverBackend.SCIP,
     "auto": SolverBackend.AUTO,
 }
 
@@ -252,10 +266,10 @@ def resolve_solver_backend(
 
 
 def available_solver_backends() -> list[str]:
-    """Return installed backends in automatic preference order."""
+    """Return installed LP backends in preference order, followed by optional SCIP."""
 
     available: list[str] = []
-    for backend in AUTO_BACKEND_ORDER:
+    for backend in (*AUTO_BACKEND_ORDER, SolverBackend.SCIP):
         try:
             _load_backend(backend)
         except SolverBackendUnavailableError:

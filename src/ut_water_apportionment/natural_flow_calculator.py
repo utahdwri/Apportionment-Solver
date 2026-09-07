@@ -34,6 +34,17 @@ class NaturalFlowCalculator:
         self.natural_at_zone: dict[str, float] = {}
         self.remaining_natural_at_zone: dict[str, float] = {}
         self._calculated_outflow_by_zone: dict[str, InterzoneFlow] = {}
+        self._nf_coefficients: dict[str, dict[str, float]] = {}
+        self.piecewise_routing = False
+
+    def invalidate_nf_coefficients(self) -> None:
+        """Discard routing coefficients after a date, route, or loss change.
+
+        Constant-fraction routing is stable within a day. Piecewise routing
+        invalidates after every commitment because its local derivatives
+        depend on the remaining flow.
+        """
+        self._nf_coefficients.clear()
 
 
     def _transform_value(
@@ -286,6 +297,7 @@ class NaturalFlowCalculator:
         """
 
         self.date = date
+        self.invalidate_nf_coefficients()
         self.flows_by_id = daily_flows
         self.natural_at_zone = {
             zone.id: 0.0
@@ -302,6 +314,11 @@ class NaturalFlowCalculator:
         # resulting data object.
         self._prepare_calculated_routes(
             set(boundary_values)
+        )
+        self.piecewise_routing = any(
+            not loss.is_constant_fraction(date)
+            for flow in self._calculated_outflow_by_zone.values()
+            for loss in (flow.loss_from_zone, flow.loss_to_zone)
         )
 
 
@@ -387,16 +404,24 @@ class NaturalFlowCalculator:
             # The boundary value is expressed at the flow itself. Move the
             # adjustment through any loss at the downstream endpoint before
             # applying it to the first in-domain stream zone.
-            amount_at_entry_zone = self._transform_value(
-                flow.loss_to_zone,
-                already_apportioned,
-            )
+            if flow.loss_to_zone.is_constant_fraction(self.date):
+                amount_at_entry_zone = self._transform_value(flow.loss_to_zone, already_apportioned)
+            else:
+                amount_at_entry_zone = (self._transform_value(flow.loss_to_zone, specified_nf)
+                                       - self._transform_value(flow.loss_to_zone, measured_flow))
 
             self.apply_committed_allocation(flow.to_zone, amount_at_entry_zone)
 
 
 
     def get_nf_constraint_coefficients(
+        self,
+        source_zone_id: str,
+    ) -> dict[str, float]:
+        """Return an independent copy of the source's routing coefficients."""
+        return dict(self._get_nf_constraint_coefficients(source_zone_id))
+
+    def _get_nf_constraint_coefficients(
         self,
         source_zone_id: str,
     ) -> dict[str, float]:
@@ -407,6 +432,9 @@ class NaturalFlowCalculator:
         Keys are stream zone ids. Values are the amount by which
         one unit allocated at the source consumes natural-flow
         availability at that zone.
+
+        With piecewise routing these are local derivatives only. Use the
+        exact loss graph for allocations that may cross a breakpoint.
         """
 
         if self.date is None:
@@ -414,6 +442,10 @@ class NaturalFlowCalculator:
                 "calculate() must be called before requesting "
                 "natural-flow coefficients."
             )
+
+        cached = self._nf_coefficients.get(source_zone_id)
+        if cached is not None:
+            return cached
 
         source_zone = self.gm.get_zone_by_id(source_zone_id)
 
@@ -433,6 +465,19 @@ class NaturalFlowCalculator:
         while zone_id in self._calculated_outflow_by_zone:
             flow = self._calculated_outflow_by_zone[zone_id]
 
+            if self.piecewise_routing:
+                driver = max(0.0, self.remaining_natural_at_zone[zone_id])
+                remaining_factor *= flow.loss_from_zone.resolve(
+                    driver, date=self.date, movement=-1).remaining_slope
+                midway = flow.loss_from_zone.transform_total_flow(driver, date=self.date)
+                remaining_factor *= flow.loss_to_zone.resolve(
+                    midway, date=self.date, movement=-1).remaining_slope
+                zone_id = flow.to_zone
+                if remaining_factor <= SOLVER_TOL:
+                    break
+                coefficients[zone_id] = remaining_factor
+                continue
+
             # Loss immediately after leaving the upstream zone.
             remaining_factor *= (
                 1.0 - flow.loss_from_zone.get_fraction(self.date)
@@ -450,6 +495,7 @@ class NaturalFlowCalculator:
 
             coefficients[zone_id] = remaining_factor
 
+        self._nf_coefficients[source_zone_id] = coefficients
         return coefficients
 
 
@@ -465,7 +511,24 @@ class NaturalFlowCalculator:
         if abs(amount) <= SOLVER_TOL:
             return
 
-        coefficients = self.get_nf_constraint_coefficients(source_zone_id)
+        if self.piecewise_routing:
+            self.invalidate_nf_coefficients()
+            zone_id = source_zone_id
+            while True:
+                old = self.remaining_natural_at_zone[zone_id]
+                new = old - amount
+                self.remaining_natural_at_zone[zone_id] = 0.0 if abs(new) <= SOLVER_TOL else new
+                flow = self._calculated_outflow_by_zone.get(zone_id)
+                if flow is None:
+                    return
+                def delivered(value):
+                    value = max(0.0, value) if not flow.bidirectional else value
+                    return self._transform_value(flow.loss_to_zone,
+                        self._transform_value(flow.loss_from_zone, value))
+                amount = delivered(old) - delivered(new)
+                zone_id = flow.to_zone
+
+        coefficients = self._get_nf_constraint_coefficients(source_zone_id)
 
         for zone_id, coefficient in coefficients.items():
 
@@ -489,7 +552,12 @@ class NaturalFlowCalculator:
         """
         #return False
 
-        coefficients = self.get_nf_constraint_coefficients(source_zone_id)
+        # A dry downstream reach need not block an upstream withdrawal when
+        # the intervening marginal loss is 100%. Let the exact model decide.
+        if self.piecewise_routing:
+            return self.remaining_natural_at_zone[source_zone_id] <= SOLVER_TOL
+
+        coefficients = self._get_nf_constraint_coefficients(source_zone_id)
 
         return any(
             coefficient > SOLVER_TOL

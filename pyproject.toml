@@ -42,6 +42,10 @@ highs = [
     "numpy>=1.26",
     "highspy>=1.7",
 ]
+scip = [
+    "highspy>=1.7",
+    "pyscipopt>=6.0,<7",
+]
 dev = [
     "build>=1.2",
     "pytest>=8",
@@ -51,6 +55,7 @@ all = [
     "numpy>=1.26",
     "scipy>=1.13",
     "highspy>=1.7",
+    "pyscipopt>=6.0,<7",
 ]
 
 [tool.setuptools]

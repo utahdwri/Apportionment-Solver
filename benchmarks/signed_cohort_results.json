@@ -1,0 +1,127 @@
+{
+  "date": "2026-09-07",
+  "description": "Sequential synthetic end-to-end solve timings, audit disabled. Each workload has a separate interpreter; the first repetition includes backend import. Input construction and JSON serialization are excluded. Workloads change priority or loss physics, so differences are not equivalent-problem speedups.",
+  "environment": {
+    "python": "3.12.13",
+    "highspy": "1.15.1",
+    "pyscipopt": "6.2.1",
+    "threads": 1
+  },
+  "common_workload": {
+    "workload": "path",
+    "reaches": 2,
+    "days": 7,
+    "repeat": 3
+  },
+  "runs": [
+    {
+      "rights": 25,
+      "sites": 0,
+      "proportional": false,
+      "loss_attribution_method": "depletion",
+      "backend": "highspy",
+      "seconds": [
+        0.10654077799972583,
+        0.04883813000014925,
+        0.04509169399989332
+      ],
+      "median_seconds": 0.04883813000014925
+    },
+    {
+      "rights": 25,
+      "sites": 1,
+      "proportional": false,
+      "loss_attribution_method": "depletion",
+      "backend": "highspy",
+      "seconds": [
+        1.7234664020006676,
+        1.5919375269995726,
+        1.6077436339992346
+      ],
+      "median_seconds": 1.6077436339992346
+    },
+    {
+      "rights": 25,
+      "sites": 1,
+      "proportional": false,
+      "loss_attribution_method": "buildup",
+      "backend": "highspy",
+      "seconds": [
+        2.044208102000084,
+        2.1406850909997956,
+        2.213448704000257
+      ],
+      "median_seconds": 2.1406850909997956
+    },
+    {
+      "rights": 25,
+      "sites": 1,
+      "proportional": true,
+      "loss_attribution_method": "depletion",
+      "backend": "scip",
+      "seconds": [
+        1.100531723000131,
+        1.0399640510004247,
+        1.0314473019998331
+      ],
+      "median_seconds": 1.0399640510004247
+    },
+    {
+      "rights": 25,
+      "sites": 1,
+      "proportional": true,
+      "loss_attribution_method": "buildup",
+      "backend": "scip",
+      "seconds": [
+        1.1033632689996011,
+        1.094050900000184,
+        1.1281997530004446
+      ],
+      "median_seconds": 1.1033632689996011
+    },
+    {
+      "rights": 100,
+      "sites": 1,
+      "proportional": true,
+      "loss_attribution_method": "depletion",
+      "backend": "scip",
+      "seconds": [
+        3.2668540240001676,
+        3.466612530999555,
+        3.353389791000154
+      ],
+      "median_seconds": 3.353389791000154
+    }
+  ],
+  "differential_regressions": [
+    {
+      "baseline": "f026fbe2434028719a98acdbdc93e08e10b807e6",
+      "workload": "constant, 20 reaches, 10 rights per reach, 30 days",
+      "before_seconds": [
+        1.5635641070000474,
+        1.565568968999969,
+        1.5759303990000717
+      ],
+      "after_seconds": [
+        1.4801755629999889,
+        1.4389015530000506,
+        1.5828568330000508
+      ],
+      "apportionments": 8940,
+      "all_output_fields_identical": true
+    },
+    {
+      "baseline": "f026fbe2434028719a98acdbdc93e08e10b807e6",
+      "workload": "piecewise, 2 reaches, 25 shared-path rights, distinct priorities, 7 days",
+      "before_seconds": [
+        1.6182451619999938
+      ],
+      "after_seconds": [
+        1.710453105000056
+      ],
+      "apportionments": 581,
+      "all_output_fields_identical": true,
+      "note": "Single-run output regression, not a timing comparison."
+    }
+  ]
+}

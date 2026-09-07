@@ -20,11 +20,6 @@ class LossCurvePoint:
             raise ValueError("inflow must be finite and non-negative")
         if not isfinite(self.loss) or not 0 <= self.loss <= self.inflow:
             raise ValueError("loss must be finite and between 0 and inflow")
-        if self.loss > self.inflow:
-            raise ValueError(
-                'LossCurvePoint.loss cannot exceed its inflow. '
-                f'Got inflow={self.inflow}, loss={self.loss}.'
-                )
 
 
 @dataclass(frozen=True)
@@ -112,6 +107,27 @@ class LossDefinition:
             segments = (
                 ResolvedLossRelation(0, 0.0, None, 0.0, 0.0),
             )
+
+        for i, segment in enumerate(segments):
+            lo, hi = segment.min_driver_flow, segment.max_driver_flow
+            if not all(isfinite(v) for v in (lo, segment.loss_slope, segment.loss_intercept)):
+                raise ValueError("loss segments must have finite bounds and coefficients")
+            if lo < 0 or (hi is not None and (not isfinite(hi) or hi <= lo)):
+                raise ValueError("loss segment must have an increasing non-negative domain")
+            if segment.loss_slope > 1 + TOLERANCE:
+                raise ValueError("remaining flow must be non-decreasing")
+            if i == 0 and (lo != 0 or abs(segment.loss_at(0)) > TOLERANCE):
+                raise ValueError("loss curve must start at (0, 0)")
+            if i and (segments[i-1].max_driver_flow != lo or not isclose(
+                    segments[i-1].loss_at(lo), segment.loss_at(lo), abs_tol=TOLERANCE)):
+                raise ValueError("loss segments must be contiguous and continuous")
+            if (hi is None) != (i == len(segments) - 1):
+                raise ValueError("only the final loss segment must be unbounded")
+            for q in (lo,) if hi is None else (lo, hi):
+                if not -TOLERANCE <= segment.loss_at(q) <= q + TOLERANCE:
+                    raise ValueError("loss must remain between zero and inflow")
+            if hi is None and segment.loss_slope < 0:
+                raise ValueError("an unbounded segment cannot have decreasing absolute loss")
 
         object.__setattr__(self, "segments", segments)
         object.__setattr__(self, "intervals", intervals)
@@ -283,26 +299,37 @@ class LossDefinition:
         driver_flow: float,
         date: str | None = None,
     ) -> float:
-        """Apply the active segment's marginal remaining-flow factor."""
+        """Return the exact change in delivery, including crossed segments.
 
-        movement = 1 if component_increment > 0 else -1
-        relation = self.resolve(
-            driver_flow,
-            date=date,
-            movement=movement,
-        )
-        return component_increment * relation.remaining_slope
+        A negative increment removes water from the reference flow; e.g.
+        removing 90 from 100 returns R(10) - R(100), not -90 times one slope.
+        """
+        return (self.transform_total_flow(driver_flow + component_increment, date=date)
+                - self.transform_total_flow(driver_flow, date=date))
+
+    def is_constant_fraction(self, date: str | None = None) -> bool:
+        definition = self._static(date)
+        return (len(definition.segments) == 1
+                and definition.segments[0].loss_intercept == 0)
 
     def inflow_for_remaining(
         self,
         remaining_flow: float,
         *,
         date: str | None = None,
+        require_unique: bool = False,
     ) -> float:
         """Invert the monotone remaining-flow relation."""
 
         if not isfinite(remaining_flow) or remaining_flow < 0:
             raise ValueError("remaining_flow must be finite and non-negative")
+
+        if require_unique:
+            for relation in self._static(date).segments:
+                if (abs(relation.remaining_slope) <= TOLERANCE
+                        and isclose(relation.remaining_at(relation.min_driver_flow),
+                                    remaining_flow, abs_tol=TOLERANCE)):
+                    raise ValueError("post-loss flow does not uniquely identify pre-loss inflow (100% marginal loss)")
 
         for relation in self._static(date).segments:
             if isclose(relation.remaining_slope, 0.0, abs_tol=TOLERANCE):
@@ -353,7 +380,7 @@ class LossDefinition:
             or not isclose(relation.loss_intercept, 0.0, abs_tol=1e-6)
         ):
             raise NotImplementedError(
-                "Transaction allocation across piecewise-linear losses requires "
-                "the active-segment LP implementation."
+                "A piecewise loss has no single fractional coefficient; "
+                "use total-flow or incremental evaluation."
             )
         return relation.loss_slope

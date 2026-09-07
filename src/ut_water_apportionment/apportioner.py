@@ -25,6 +25,7 @@ from .graph_manager import GraphManager
 from .timeseries_manager import DailyDataManager
 from .trxn_schedule import TrxnSchedule
 from .natural_flow_calculator import NaturalFlowCalculator
+from .piecewise_losses import PiecewiseLossModel, piecewise_allocation_sites
 from .lp_solver import (
     LPSolverError,
     LPSolverFactory,
@@ -61,12 +62,14 @@ class Apportioner:
         nfc: NaturalFlowCalculator,
         lp_solver_factory: LPSolverFactory | None = None,
         generate_audit: bool = False,
+        loss_attribution_method: str = "depletion",
     ):
         self.gm = gm
         self.tm = tm
         self.dm = dm
         self.nfc = nfc
         self.generate_audit = generate_audit
+        self.loss_attribution_method = loss_attribution_method
 
         self._lp_solver_factory = (
             lp_solver_factory
@@ -78,6 +81,17 @@ class Apportioner:
         self._audit_sequence = 0
         self.all_trxns = tm.all_trxns
         self.engine = self._build_linear_equations()
+        self.loss_model = None
+        loss_sites = piecewise_allocation_sites(self.gm, self.tm, self.dm)
+        if loss_sites:
+            if not callable(getattr(self.engine, 'add_binary_variable', None)):
+                raise ValueError("Piecewise-linear allocation requires native highspy or SCIP; use solver_backend='auto'.")
+            from .signed_losses import SignedLossModel, needs_signed_loss_model
+            if needs_signed_loss_model(self.tm, loss_sites, loss_attribution_method):
+                self.update_daily_bounds()
+                self.loss_model = SignedLossModel(self, loss_sites)
+            else:
+                self.loss_model = PiecewiseLossModel(self, loss_sites)
 
         self.feasibility_slacks:list[str] = []
 
@@ -176,6 +190,12 @@ class Apportioner:
                     date = self.dm.cur_date
                     if date is None:
                         raise ValueError("Daily data date has not been set.")
+
+                    if (not l1_exit.is_constant_fraction(date)
+                            or not l2_enter.is_constant_fraction(date)):
+                        # PiecewiseLossModel compiles exact incremental
+                        # endpoint equations after the base model is built.
+                        continue
 
                     rem_factor = (
                         (1.0 - l1_exit.get_fraction(date))
@@ -284,11 +304,8 @@ class Apportioner:
         for f in self.gm.graph.interzone_flows:
 
             # Remove the measurement constraint if the type is UNCONSTRAINED.
-            # But we still know the flow is non-negative (unless it's bidirectional)
             if f.flow_type == FlowComponentsTypes.UNCONSTRAINED:
                 self.engine.update_constraint_ub(name=PREFIX_MEASURE + f.id, ub=None)
-                if not f.bidirectional:
-                    self.engine.update_constraint_lb(name=PREFIX_MEASURE + f.id, lb=0)
                 continue
 
             # Otherwise, set the meas constraint to the measured flow value.
@@ -332,6 +349,10 @@ class Apportioner:
 
         # 2. Complete the NF Constraints (these constraints were created in
         #    init but we didn't have all the info to complete them)
+        if self.loss_model is not None:
+            self.loss_model.initialize_natural_flow()
+            return
+
         for z in self.gm.graph.zones:
             if z.type == ZoneTypes.STREAM:
 
@@ -373,6 +394,7 @@ class Apportioner:
         natural_zones = {ZoneTypes.STREAM, ZoneTypes.SYSTEM_GAIN_LOSS}
 
         previous_remaining_nf = self.nfc.remaining_natural_at_zone.copy()
+        spill_credits = {}
 
         # Find all the spill vars...
         spill_vars:list[PathTrxn] = []
@@ -441,7 +463,12 @@ class Apportioner:
                     value,
                     date=self.dm.cur_date,
                 )
+                if callable(getattr(self.loss_model, 'get_spill_credit', None)):
+                    assigned_credit = self.loss_model.get_spill_credit(spill_trxn)
+                    if assigned_credit is not None:
+                        credit_at_zone = assigned_credit
                 self.nfc.apply_committed_allocation(to_zone_id, -credit_at_zone)
+                spill_credits[to_zone_id] = spill_credits.get(to_zone_id, 0) + credit_at_zone
 
                 # 3. Add it to the output
                 total_spill += credit_at_zone
@@ -452,7 +479,7 @@ class Apportioner:
             # We can do this by comparing the current NF to that from the
             # latest audit record. The increase in each zone is what needs to
             # be added to the NF constraint.
-            for zone_id, prev_nf in previous_remaining_nf.items():
+            for zone_id, prev_nf in (previous_remaining_nf.items() if self.loss_model is None else []):
                 new_nf = self.nfc.remaining_natural_at_zone[zone_id]
                 delta = new_nf - prev_nf
 
@@ -463,6 +490,9 @@ class Apportioner:
                     name=con_name,
                     ub=ub+delta
                 )
+
+            if self.loss_model is not None:
+                self.loss_model.credit_natural_flow(spill_credits)
 
 
             # Add to audit log
@@ -543,6 +573,8 @@ class Apportioner:
     def _minimize_minus_vars(self, vars: list[PathTrxn | TrxnGroup]) -> dict[str, float]:
         origional_ub: dict[str, float] = {}
         minus_vars = self.tm.get_minus_vars(vars)
+        if callable(getattr(self.loss_model, 'filter_counterflow_minimization', None)):
+            minus_vars = self.loss_model.filter_counterflow_minimization(vars, minus_vars)
 
         if not minus_vars:
             return origional_ub
@@ -592,6 +624,15 @@ class Apportioner:
 
         if not target_var:
             return
+
+        # A variable fixed at its committed value cannot increase under any
+        # reallocation of the other variables. Use exact equality: solver
+        # tolerances must not turn a nearly full right into a fully used one.
+        # With auditing enabled, retain the solve and its objective evidence.
+        if not self.generate_audit:
+            lower, upper = self.engine.get_variable_bounds(target_var)
+            if lower == upper == self.cur_trxn_value.get(target_var, 0.0):
+                return
 
         origional_ub = self._minimize_minus_vars([var])
         value_before = self.cur_trxn_value.get(target_var, 0.0)
@@ -725,8 +766,14 @@ class Apportioner:
 
                     delta = var_value - values_before[var_name]
 
-                    self._apply_natural_flow_change(var_obj, delta)
+                    if not getattr(self.loss_model, 'joint_commit', False):
+                        self._apply_natural_flow_change(var_obj, delta)
 
+            if getattr(self.loss_model, 'joint_commit', False):
+                self.loss_model.commit_cohort(
+                    [(vars_by_name[name], value - values_before[name])
+                     for name, value in var_values.items()],
+                )
 
             # Identify every member that can no longer increase. This uses
             # batched objectives so one solve can classify many variables.
@@ -1093,6 +1140,14 @@ class Apportioner:
                     + ", ".join(f"'{txn_id}'" for txn_id in txn_ids)
                 )
 
+        if self.loss_model is not None:
+            # MIP solutions have no LP dual certificate. In particular, the
+            # new NF equalities being tight does not establish an NF limit.
+            # Do not present structural segment rows as limiting resources.
+            if not reasons:
+                reasons.append("Reached the optimum under piecewise-loss and accounting constraints; no unique limiting constraint identified")
+            return ". ".join(reasons), False
+
         selected_blockers: dict[str, dict] = {}
         for context in limiting_contexts:
             var_obj = context['var']
@@ -1201,6 +1256,10 @@ class Apportioner:
         var: PathTrxn | TrxnGroup,
         delta: float,
     ):
+        if getattr(self, 'loss_model', None) is not None:
+            self.loss_model.commit_allocation(var, delta)
+            return
+
         if type(var) != PathTrxn:
             return
 
@@ -1219,6 +1278,9 @@ class Apportioner:
         self,
         var: PathTrxn | TrxnGroup,
     ) -> bool:
+
+        if self.loss_model is not None:
+            return False  # Exact coupled availability is inside the model.
 
         if type(var) == PathTrxn:
             from_zone_id = self.tm.get_nf_zone_id(var)
@@ -1307,7 +1369,7 @@ class Apportioner:
 
         # Add vars to each constraint:
         for con_name in engine.get_constraint_names():
-            if con_name == 'FEAS_TOTAL':
+            if con_name == 'FEAS_TOTAL' or con_name.startswith('PWL_'):
                 continue
             add_feasibility_slack(con_name, 1)
             add_feasibility_slack(con_name, -1)

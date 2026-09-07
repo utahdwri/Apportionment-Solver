@@ -30,8 +30,13 @@ class SolverInput:
 
     # 2026-07-17: Maps flow_id -> list of daily natural flow values matching the date range
     external_natural_flows: dict[str, dict[str, float]] = field(default_factory=dict)
+    # Priority attribution at endogenous piecewise loss sites. Physical loss
+    # evaluation and natural-flow routing retain their own reference flows.
+    loss_attribution_method: str = "depletion"
 
     def __post_init__(self):
+        if self.loss_attribution_method not in {"buildup", "depletion"}:
+            raise ValueError("loss_attribution_method must be 'buildup' or 'depletion'")
         try:
             beg = date.fromisoformat(self.beg_date)
             end = date.fromisoformat(self.end_date)
@@ -70,6 +75,8 @@ class SolverOutput:
     apportionments: list['SolverOutputApportionment']
     solve_steps: list['SolveStepResult']
     solver_backend: str | None = None
+    loss_allocations: list['SolverOutputLossAllocation'] = field(default_factory=list)
+    loss_events: list['SolverOutputLossEvent'] = field(default_factory=list)
 
     def get_result_value(self,
                          date:str|None=None,
@@ -305,6 +312,31 @@ class SolverOutput:
 
         for row in rows:
             print(render(row))
+
+
+@dataclass
+class SolverOutputLossEvent:
+    """Breakpoints crossed by a committed allocation, in accounting time."""
+    date: str
+    objective_id: str
+    interzone_flow_id: str
+    endpoint: str
+    driver_kind: str
+    flow_before: float
+    flow_after: float
+    breakpoints: list[float]
+
+
+@dataclass
+class SolverOutputLossAllocation:
+    """Incremental loss attributed at an endpoint of a piecewise-loss flow."""
+    date: str
+    txn_id: str
+    interzone_flow_id: str
+    endpoint: str
+    inflow: float
+    remaining: float
+    loss: float
 
 
 @dataclass
@@ -886,5 +918,3 @@ class CorePropScheduleItem:
 
     def __str__(self):
         return f'PropScheduleItem: factor={self.factor}, item={self.item}'
-
-

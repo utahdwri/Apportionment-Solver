@@ -16,15 +16,15 @@ Install the public ``highspy`` package to use this backend::
 
 from __future__ import annotations
 
-from .lp_solver import LPSolverError
-
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from math import inf, isclose, isnan
 from typing import Any
 
+import highspy as _highs_module
 import numpy as np
 
-import highspy as _highs_module
+from .lp_solver import LPSolverError
 
 _HighsClass = _highs_module.Highs
 _ObjSense = _highs_module.ObjSense
@@ -32,6 +32,27 @@ _HighsModelStatus = _highs_module.HighsModelStatus
 _HighsStatus = _highs_module.HighsStatus
 _kHighsInf = _highs_module.kHighsInf
 HIGHS_BINDING_SOURCE = "highspy"
+
+
+class _IndexedValues(Mapping[str, float]):
+    """Read a saved native solution by name without rebuilding a dictionary."""
+
+    def __init__(self, objects, values):
+        self.objects = objects
+        self.values = values
+
+    def __getitem__(self, name):
+        index = self.objects[name].index
+        if index >= len(self.values):
+            raise KeyError(name)
+        return self.values[index]
+
+    def __iter__(self):
+        return (name for name, obj in self.objects.items()
+                if obj.index < len(self.values))
+
+    def __len__(self):
+        return len(self.values)
 
 
 @dataclass
@@ -147,13 +168,12 @@ class LPSolver:
         self._constraint_vars: dict[str, list[str]] = {}
         self._variable_constraints: dict[str, list[str]] = {}
 
-        self._last_solution_values: dict[str, float] = {}
-        self._last_variable_reduced_costs: dict[str, float | None] = {}
-        self._last_constraint_activities: dict[str, float] = {}
-        self._last_constraint_bounds: dict[str, tuple[float, float]] = {}
-        self._last_constraint_dual_values: dict[str, float | None] = {}
-        self._last_constraint_coefficients: dict[str, dict[str, float]] = {}
+        self._last_solution_values: Mapping[str, float] = {}
+        self._last_variable_reduced_costs: Mapping[str, float] = {}
+        self._last_constraint_activities: Mapping[str, float] = {}
+        self._last_constraint_dual_values: Mapping[str, float] = {}
         self._last_variable_constraints: dict[str, list[str]] = {}
+        self._saved_rows: dict[str, tuple[float, float, dict[str, float]]] = {}
 
         self._objective_costs: dict[str, float] = {}
         self._objective_variable_names: list[str] = []
@@ -164,6 +184,7 @@ class LPSolver:
         self.perminant_minus_var: str | None = None
 
         self.solve_count = 0
+        self.has_integer_variables = False
         self.total_iterations = 0
         self.last_iterations = 0
         self.last_run_time = 0.0
@@ -233,6 +254,18 @@ class LPSolver:
         variable = self.vars[name]
         return variable.lb(), variable.ub()
 
+    def add_binary_variable(self, name: str) -> None:
+        """Add an exact segment selector; continuous models retain simplex."""
+        self.add_variable(name, lb=0, ub=1)
+        self._check_status(self.solver.changeColIntegrality(
+            self.vars[name].index, _highs_module.HighsVarType.kInteger), "set integrality")
+        if not self.has_integer_variables:
+            self._set_option("solver", "choose")
+            self._set_option("mip_rel_gap", 0.0)
+            self._set_option("mip_abs_gap", 1e-8)
+            self._set_option("mip_feasibility_tolerance", self.tolerance or 1e-7)
+        self.has_integer_variables = True
+
     def get_constraint_bounds(
         self,
         name: str,
@@ -284,6 +317,15 @@ class LPSolver:
             coefficient,
             f"Coefficient {constraint._name}/{variable._name}",
         )
+        previous_coefficient = constraint.GetCoefficient(variable)
+        if previous_coefficient == coefficient:
+            return
+        self._preserve_solved_row(constraint)
+        if (variable._name in self._last_solution_values
+                and variable._name not in self._last_variable_constraints):
+            self._last_variable_constraints[variable._name] = list(
+                self._variable_constraints.get(variable._name, [])
+            )
         status = self.solver.changeCoeff(
             constraint.index,
             variable.index,
@@ -304,9 +346,8 @@ class LPSolver:
                 constraint_names.remove(constraint._name)
         else:
             constraint.coefficients[variable._name] = coefficient
-            if variable._name not in variable_names:
+            if previous_coefficient == 0.0:
                 variable_names.append(variable._name)
-            if constraint._name not in constraint_names:
                 constraint_names.append(constraint._name)
 
     def set_coefficient(
@@ -361,6 +402,9 @@ class LPSolver:
             raise ValueError(
                 f"Constraint {constraint._name} has lb > ub: {lb} > {ub}"
             )
+        if lb == constraint.lb() and ub == constraint.ub():
+            return
+        self._preserve_solved_row(constraint)
         status = self.solver.changeRowBounds(
             constraint.index,
             self._native_bound(lb),
@@ -414,6 +458,18 @@ class LPSolver:
         self._objective_variable_names = list(variable_names)
         self._objective_maximization = maximization
 
+    def _preserve_solved_row(self, constraint: _Constraint) -> None:
+        """Copy evidence only when a row changes after the last solve.
+
+        This also preserves temporary proportional rows when they are cleared.
+        Rows not changed since the solve can be read directly when auditing.
+        """
+        name = constraint._name
+        if name not in self._saved_rows and name in self._last_constraint_activities:
+            self._saved_rows[name] = (
+                constraint.lb(), constraint.ub(), dict(constraint.coefficients)
+            )
+
     def _snapshot_solution(self) -> None:
         solution = self.solver.getSolution()
         info = self.solver.getInfo()
@@ -424,35 +480,16 @@ class LPSolver:
         col_dual = list(solution.col_dual)
         row_value = list(solution.row_value)
         row_dual = list(solution.row_dual)
+        if not solution.dual_valid:
+            col_dual = [None] * len(col_value)
+            row_dual = [None] * len(row_value)
 
-        self._last_solution_values = {
-            name: float(col_value[variable.index])
-            for name, variable in self.vars.items()
-        }
-        self._last_variable_reduced_costs = {
-            name: float(col_dual[variable.index])
-            for name, variable in self.vars.items()
-        }
-        self._last_constraint_activities = {
-            name: float(row_value[constraint.index])
-            for name, constraint in self.cons.items()
-        }
-        self._last_constraint_dual_values = {
-            name: float(row_dual[constraint.index])
-            for name, constraint in self.cons.items()
-        }
-        self._last_constraint_bounds = {
-            name: (constraint.lb(), constraint.ub())
-            for name, constraint in self.cons.items()
-        }
-        self._last_constraint_coefficients = {
-            name: dict(constraint.coefficients)
-            for name, constraint in self.cons.items()
-        }
-        self._last_variable_constraints = {
-            name: list(constraint_names)
-            for name, constraint_names in self._variable_constraints.items()
-        }
+        self._last_solution_values = _IndexedValues(self.vars, col_value)
+        self._last_variable_reduced_costs = _IndexedValues(self.vars, col_dual)
+        self._last_constraint_activities = _IndexedValues(self.cons, row_value)
+        self._last_constraint_dual_values = _IndexedValues(self.cons, row_dual)
+        self._saved_rows.clear()
+        self._last_variable_constraints.clear()
 
         self.last_iterations = int(getattr(info, "simplex_iteration_count", 0) or 0)
         self.total_iterations += self.last_iterations
@@ -655,11 +692,23 @@ class LPSolver:
         tolerance: float = 1e-6,
     ) -> list[dict]:
         output = []
-        for constraint_name in self._last_variable_constraints.get(variable_name, []):
-            coefficients = self._last_constraint_coefficients[constraint_name]
+        if variable_name not in self._last_solution_values:
+            return output
+        constraint_names = self._last_variable_constraints.get(
+            variable_name, self._variable_constraints.get(variable_name, [])
+        )
+        for constraint_name in constraint_names:
+            if constraint_name not in self._last_constraint_activities:
+                continue
+            saved = self._saved_rows.get(constraint_name)
+            if saved is None:
+                constraint = self.cons[constraint_name]
+                lower_bound, upper_bound = constraint.lb(), constraint.ub()
+                coefficients = constraint.coefficients
+            else:
+                lower_bound, upper_bound, coefficients = saved
             coefficient = coefficients[variable_name]
             activity = self._last_constraint_activities[constraint_name]
-            lower_bound, upper_bound = self._last_constraint_bounds[constraint_name]
             lower_slack = None if lower_bound == -inf else activity - lower_bound
             upper_slack = None if upper_bound == inf else upper_bound - activity
             lower_is_tight = lower_slack is not None and isclose(

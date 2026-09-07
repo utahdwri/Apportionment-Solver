@@ -1,0 +1,122 @@
+[
+  {
+    "reaches": 20,
+    "rights": 10,
+    "days": 7,
+    "sites": 0,
+    "repeat": 3,
+    "audit": false,
+    "proportional": false,
+    "output": null,
+    "seconds": [
+      0.395440686000029,
+      0.3345800770000551,
+      0.3583875369999987
+    ],
+    "median_seconds": 0.3583875369999987,
+    "apportionments": 2086,
+    "python": "3.12.13",
+    "highspy": "1.15.1",
+    "workload": "routing"
+  },
+  {
+    "reaches": 20,
+    "rights": 10,
+    "days": 7,
+    "sites": 1,
+    "repeat": 3,
+    "audit": false,
+    "proportional": false,
+    "output": null,
+    "seconds": [
+      2.1682308839999678,
+      1.90757160499993,
+      1.8966065619999881
+    ],
+    "median_seconds": 1.90757160499993,
+    "apportionments": 2086,
+    "python": "3.12.13",
+    "highspy": "1.15.1",
+    "workload": "routing"
+  },
+  {
+    "reaches": 20,
+    "rights": 10,
+    "days": 7,
+    "sites": 5,
+    "repeat": 3,
+    "audit": false,
+    "proportional": false,
+    "output": null,
+    "seconds": [
+      3.771406909999996,
+      3.8335338469998987,
+      3.855688199999804
+    ],
+    "median_seconds": 3.8335338469998987,
+    "apportionments": 2086,
+    "python": "3.12.13",
+    "highspy": "1.15.1",
+    "workload": "routing"
+  },
+  {
+    "reaches": 20,
+    "rights": 10,
+    "days": 7,
+    "sites": 1,
+    "repeat": 3,
+    "audit": false,
+    "proportional": true,
+    "output": null,
+    "seconds": [
+      0.6365167009998913,
+      0.5985163610000654,
+      0.5737613090000195
+    ],
+    "median_seconds": 0.5985163610000654,
+    "apportionments": 2086,
+    "python": "3.12.13",
+    "highspy": "1.15.1",
+    "workload": "routing"
+  },
+  {
+    "workload": "path",
+    "reaches": 2,
+    "rights": 25,
+    "days": 7,
+    "sites": 0,
+    "repeat": 3,
+    "audit": false,
+    "proportional": false,
+    "output": null,
+    "seconds": [
+      0.10371402800001306,
+      0.0543743230000473,
+      0.04400654300002316
+    ],
+    "median_seconds": 0.0543743230000473,
+    "apportionments": 581,
+    "python": "3.12.13",
+    "highspy": "1.15.1"
+  },
+  {
+    "workload": "path",
+    "reaches": 2,
+    "rights": 25,
+    "days": 7,
+    "sites": 1,
+    "repeat": 3,
+    "audit": false,
+    "proportional": false,
+    "output": "/tmp/piecewise-path-output.json",
+    "seconds": [
+      1.773360034999996,
+      1.6053784020000421,
+      1.6858391599998868
+    ],
+    "median_seconds": 1.6858391599998868,
+    "apportionments": 581,
+    "python": "3.12.13",
+    "highspy": "1.15.1"
+  }
+]

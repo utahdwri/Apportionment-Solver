@@ -4,6 +4,17 @@
 
 [Apportionment Solver Documentation](https://github.com/utahdwri/Apportionment-Solver/blob/main/General%20Apportionment%20Solver%20Documentation.pdf)
 
+[Performance benchmarks and scaling recommendations](benchmarks/PERFORMANCE.md)
+
+[Piecewise-linear losses: usage, accounting rules, and benchmarks](documentation/PIECEWISE_LOSSES.md)
+
+Piecewise loss attribution supports signed and scaled transaction components.
+Set `SolverInput.loss_attribution_method` to `"depletion"` (the default) or
+`"buildup"`. Equal-priority paths sharing a curve are optimized jointly, with
+incremental loss divided in proportion to delivery at that endpoint. Install
+`python -m pip install -e '.[scip]'` from this checkout; `solve(input)` selects
+SCIP automatically when joint sharing is needed.
+
 ## 1. After-the-fact distribution accounting
 In Utah, water is distributed by priority in accordance with water rights. Accounting for this distribution is done after-the-fact because, in all but the most trivial cases, we do not know how much water is available to be diverted until we know how much water was actually diverted. Water users generally have a portfolio comprising many water rights and perhaps contracts for storage water. So measurements is not enough. Distribution accounting subdivides the water actually diverted into the components representing water diverted under each authorization. It colors or names the water that was moved through the system.
 
@@ -219,4 +230,3 @@ logging.basicConfig(
     force=True,
 )
 ```
-

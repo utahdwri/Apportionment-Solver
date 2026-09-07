@@ -1,4 +1,5 @@
 from .solver import solve
+from .loss_models import LossDefinition, LossCurvePoint, LossInterval
 from .lp_solver import (
     SolverBackend,
     SolverBackendUnavailableError,
@@ -16,6 +17,8 @@ from .models import (
     NaturalFlowMode,
     SolverInput,
     SolverOutput,
+    SolverOutputLossAllocation,
+    SolverOutputLossEvent,
     PathTrxn,
     TrxnGroup,
     TrxnPathItem,
@@ -25,6 +28,11 @@ from .models import (
 )
 
 __all__ = [
+    "LossDefinition",
+    "LossCurvePoint",
+    "LossInterval",
+    "SolverOutputLossAllocation",
+    "SolverOutputLossEvent",
     "solve",
     "SolverBackend",
     "SolverBackendUnavailableError",
