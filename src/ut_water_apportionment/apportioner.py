@@ -284,8 +284,11 @@ class Apportioner:
         for f in self.gm.graph.interzone_flows:
 
             # Remove the measurement constraint if the type is UNCONSTRAINED.
+            # But we still know the flow is non-negative (unless it's bidirectional)
             if f.flow_type == FlowComponentsTypes.UNCONSTRAINED:
                 self.engine.update_constraint_ub(name=PREFIX_MEASURE + f.id, ub=None)
+                if not f.bidirectional:
+                    self.engine.update_constraint_lb(name=PREFIX_MEASURE + f.id, lb=0)
                 continue
 
             # Otherwise, set the meas constraint to the measured flow value.

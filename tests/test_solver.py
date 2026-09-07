@@ -2943,6 +2943,45 @@ class K_Accounting_Graph_Details(unittest.TestCase):
         solve(input, check_expected_values=True)
 
 
+    def test_unconstrained_interzone_flow_outflow(self):
+        """ """
+        input = SolverInput(
+            beg_date='2000-01-01',
+            end_date='2000-01-01',
+            accounting_graph=AccountingGraph(
+                zones=[
+                    Zone(id="REACH-A", type=ZoneTypes.STREAM),
+                    Zone(id="REACH-B", type=ZoneTypes.STREAM),
+                    Zone(id="SYS", type=ZoneTypes.SYSTEM_GAIN_LOSS),
+                    Zone(id="DIV1", type=ZoneTypes.USE),
+                    Zone(id="DIV2", type=ZoneTypes.USE),
+                ],
+                interzone_flows=[
+                    InterzoneFlow(id="A>DIV1", from_zone="REACH-A", to_zone="DIV1", flow_measurements=[FlowMeasurement(measurement_id="A>DIV1")]),
+                    InterzoneFlow(id="B>DIV2", from_zone="REACH-B", to_zone="DIV2", flow_measurements=[FlowMeasurement(measurement_id="B>DIV2")]),
+                    InterzoneFlow(id="GainsA", from_zone="SYS", to_zone="REACH-A", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
+                    InterzoneFlow(id="GainsB", from_zone="SYS", to_zone="REACH-B", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
+                    InterzoneFlow(id="A>B", from_zone="REACH-A", to_zone="REACH-B", flow_type=FlowComponentsTypes.UNCONSTRAINED),
+                ]
+            ),
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01', series=[
+                MeasurementSeries(id="A>DIV1", values=[ 12]),
+                MeasurementSeries(id="B>DIV2", values=[ 8]),
+            ]),
+            txns=[
+                PathTrxn(id='TRXN_1', priority=1, upper_limit=6, path=[
+                    TrxnPathItem(flow_id='A>DIV1', expected_values=[6]),
+                ]),
+                PathTrxn(id='TRXN_2', priority=2, upper_limit=8, path=[
+                    TrxnPathItem(flow_id='A>B', expected_values=[8]),
+                    TrxnPathItem(flow_id='B>DIV2', expected_values=[8]),
+                ]),
+            ]
+        )
+
+        solve(input, check_expected_values=True)
+
+
 class RealProblems(unittest.TestCase):
     """When the solver doesn't work in the wild, copy the inputs and add a
     test case here before fixing it."""
