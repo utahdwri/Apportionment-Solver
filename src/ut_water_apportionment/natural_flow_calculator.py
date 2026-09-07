@@ -34,6 +34,16 @@ class NaturalFlowCalculator:
         self.natural_at_zone: dict[str, float] = {}
         self.remaining_natural_at_zone: dict[str, float] = {}
         self._calculated_outflow_by_zone: dict[str, InterzoneFlow] = {}
+        self._nf_coefficients: dict[str, dict[str, float]] = {}
+
+    def invalidate_nf_coefficients(self) -> None:
+        """Discard routing coefficients after a date, route, or loss change.
+
+        Current allocation uses constant fractional losses within each day.
+        A future active-segment implementation must also call this when it
+        changes a loss segment, before rebuilding the affected LP rows.
+        """
+        self._nf_coefficients.clear()
 
 
     def _transform_value(
@@ -286,6 +296,7 @@ class NaturalFlowCalculator:
         """
 
         self.date = date
+        self.invalidate_nf_coefficients()
         self.flows_by_id = daily_flows
         self.natural_at_zone = {
             zone.id: 0.0
@@ -400,6 +411,13 @@ class NaturalFlowCalculator:
         self,
         source_zone_id: str,
     ) -> dict[str, float]:
+        """Return an independent copy of the source's routing coefficients."""
+        return dict(self._get_nf_constraint_coefficients(source_zone_id))
+
+    def _get_nf_constraint_coefficients(
+        self,
+        source_zone_id: str,
+    ) -> dict[str, float]:
         """
         Return the natural-flow constraint coefficients for one
         unit of natural flow allocated from source_zone_id.
@@ -414,6 +432,10 @@ class NaturalFlowCalculator:
                 "calculate() must be called before requesting "
                 "natural-flow coefficients."
             )
+
+        cached = self._nf_coefficients.get(source_zone_id)
+        if cached is not None:
+            return cached
 
         source_zone = self.gm.get_zone_by_id(source_zone_id)
 
@@ -450,6 +472,7 @@ class NaturalFlowCalculator:
 
             coefficients[zone_id] = remaining_factor
 
+        self._nf_coefficients[source_zone_id] = coefficients
         return coefficients
 
 
@@ -465,7 +488,7 @@ class NaturalFlowCalculator:
         if abs(amount) <= SOLVER_TOL:
             return
 
-        coefficients = self.get_nf_constraint_coefficients(source_zone_id)
+        coefficients = self._get_nf_constraint_coefficients(source_zone_id)
 
         for zone_id, coefficient in coefficients.items():
 
@@ -489,7 +512,7 @@ class NaturalFlowCalculator:
         """
         #return False
 
-        coefficients = self.get_nf_constraint_coefficients(source_zone_id)
+        coefficients = self._get_nf_constraint_coefficients(source_zone_id)
 
         return any(
             coefficient > SOLVER_TOL

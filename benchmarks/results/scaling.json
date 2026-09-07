@@ -1,0 +1,379 @@
+{
+  "baseline_commit": "882704a86ea56bcd536aa9fd25d4374b1016a859",
+  "cache_only_commit": "7f68ce0",
+  "optimized_code_commit": "90c3b83",
+  "environment": {
+    "python": "3.12.13",
+    "platform": "Linux-6.18.35-x86_64-with-glibc2.39",
+    "cpu": "AMD EPYC 9V74",
+    "packages": {
+      "numpy": "2.3.5",
+      "scipy": "1.17.0",
+      "highspy": "1.15.1",
+      "ortools": "9.15.6755",
+      "pytest": "9.1.1"
+    }
+  },
+  "runs": [
+    {
+      "reaches": 20,
+      "rights": 10,
+      "days": 365,
+      "backend": "highspy",
+      "audit": false,
+      "proportional": false,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        28.96028654099996,
+        29.335842254,
+        29.992820020999943
+      ],
+      "median_seconds": 29.335842254,
+      "apportionments": 108770,
+      "python": "3.12.13",
+      "case": "year",
+      "version": "original"
+    },
+    {
+      "reaches": 20,
+      "rights": 10,
+      "days": 365,
+      "backend": "highspy",
+      "audit": false,
+      "proportional": false,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        25.08951063099994,
+        25.260654450000175,
+        26.398660131000042
+      ],
+      "median_seconds": 25.260654450000175,
+      "apportionments": 108770,
+      "python": "3.12.13",
+      "case": "year",
+      "version": "cache_only"
+    },
+    {
+      "reaches": 20,
+      "rights": 10,
+      "days": 365,
+      "backend": "highspy",
+      "audit": false,
+      "proportional": false,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        18.120042194000007,
+        18.470702803999984,
+        18.431343274000028
+      ],
+      "median_seconds": 18.431343274000028,
+      "apportionments": 108770,
+      "python": "3.12.13",
+      "case": "year",
+      "version": "optimized"
+    },
+    {
+      "reaches": 100,
+      "rights": 20,
+      "days": 7,
+      "backend": "highspy",
+      "audit": false,
+      "proportional": false,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        64.88543213499997,
+        67.53496153399988,
+        68.47377017600002
+      ],
+      "median_seconds": 67.53496153399988,
+      "apportionments": 17486,
+      "python": "3.12.13",
+      "case": "large",
+      "version": "original"
+    },
+    {
+      "reaches": 100,
+      "rights": 20,
+      "days": 7,
+      "backend": "highspy",
+      "audit": false,
+      "proportional": false,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        25.099250505999862,
+        25.486813475999952,
+        27.003853187000004
+      ],
+      "median_seconds": 25.486813475999952,
+      "apportionments": 17486,
+      "python": "3.12.13",
+      "case": "large",
+      "version": "optimized"
+    },
+    {
+      "reaches": 20,
+      "rights": 10,
+      "days": 30,
+      "backend": "highspy",
+      "audit": true,
+      "proportional": false,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        2.518456333999893,
+        2.489555302000099,
+        2.5786937379998562
+      ],
+      "median_seconds": 2.518456333999893,
+      "apportionments": 8940,
+      "python": "3.12.13",
+      "case": "audit",
+      "version": "original"
+    },
+    {
+      "reaches": 20,
+      "rights": 10,
+      "days": 30,
+      "backend": "highspy",
+      "audit": true,
+      "proportional": false,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        1.6220575459997235,
+        1.7144978080000328,
+        1.658461349999925
+      ],
+      "median_seconds": 1.658461349999925,
+      "apportionments": 8940,
+      "python": "3.12.13",
+      "case": "audit",
+      "version": "optimized"
+    },
+    {
+      "reaches": 20,
+      "rights": 10,
+      "days": 30,
+      "backend": "highspy",
+      "audit": true,
+      "proportional": true,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        1.3447356990000117,
+        1.3705052199998136,
+        1.4728832800001328
+      ],
+      "median_seconds": 1.3705052199998136,
+      "apportionments": 8940,
+      "python": "3.12.13",
+      "case": "proportional",
+      "version": "original"
+    },
+    {
+      "reaches": 20,
+      "rights": 10,
+      "days": 30,
+      "backend": "highspy",
+      "audit": true,
+      "proportional": true,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        0.9305798460000005,
+        0.9650194109999575,
+        0.8779829929999323
+      ],
+      "median_seconds": 0.9305798460000005,
+      "apportionments": 8940,
+      "python": "3.12.13",
+      "case": "proportional",
+      "version": "optimized"
+    },
+    {
+      "reaches": 20,
+      "rights": 10,
+      "days": 7,
+      "backend": "glop",
+      "audit": false,
+      "proportional": false,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        2.5880226149997725,
+        2.6148735490000945,
+        2.559886321999784
+      ],
+      "median_seconds": 2.5880226149997725,
+      "apportionments": 2086,
+      "python": "3.12.13",
+      "case": "glop",
+      "version": "original"
+    },
+    {
+      "reaches": 20,
+      "rights": 10,
+      "days": 7,
+      "backend": "glop",
+      "audit": false,
+      "proportional": false,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        2.4793354619996535,
+        2.4556219400001282,
+        2.5683146330002273
+      ],
+      "median_seconds": 2.4793354619996535,
+      "apportionments": 2086,
+      "python": "3.12.13",
+      "case": "glop",
+      "version": "optimized"
+    },
+    {
+      "reaches": 20,
+      "rights": 10,
+      "days": 7,
+      "backend": "scipy",
+      "audit": false,
+      "proportional": false,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        5.255221282000093,
+        5.423001531999944,
+        5.329903525999725
+      ],
+      "median_seconds": 5.329903525999725,
+      "apportionments": 2086,
+      "python": "3.12.13",
+      "case": "scipy",
+      "version": "original"
+    },
+    {
+      "reaches": 20,
+      "rights": 10,
+      "days": 7,
+      "backend": "scipy",
+      "audit": false,
+      "proportional": false,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        5.255665702999977,
+        5.208749386999898,
+        5.303433337000115
+      ],
+      "median_seconds": 5.255665702999977,
+      "apportionments": 2086,
+      "python": "3.12.13",
+      "case": "scipy",
+      "version": "optimized"
+    },
+    {
+      "reaches": 20,
+      "rights": 10,
+      "days": 7,
+      "backend": "highspy",
+      "audit": false,
+      "proportional": false,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        0.5576916650002204,
+        0.544042793999779,
+        0.5403036790003171
+      ],
+      "median_seconds": 0.544042793999779,
+      "apportionments": 2086,
+      "python": "3.12.13",
+      "case": "highspy",
+      "version": "original"
+    },
+    {
+      "reaches": 20,
+      "rights": 10,
+      "days": 7,
+      "backend": "highspy",
+      "audit": false,
+      "proportional": false,
+      "repeat": 3,
+      "simplex_strategy": null,
+      "seconds": [
+        0.34125882099988303,
+        0.34055927500003236,
+        0.3408416509996641
+      ],
+      "median_seconds": 0.3408416509996641,
+      "apportionments": 2086,
+      "python": "3.12.13",
+      "case": "highspy",
+      "version": "optimized"
+    }
+  ],
+  "comparisons": [
+    {
+      "case": "year",
+      "full_output_exact_match": true,
+      "apportionments": 108770,
+      "independently_verified_transaction_values": 73000,
+      "max_abs_error": 1.7763568394002505e-15
+    },
+    {
+      "case": "large",
+      "full_output_exact_match": true,
+      "apportionments": 17486,
+      "independently_verified_transaction_values": 14000,
+      "max_abs_error": 1.7763568394002505e-15
+    },
+    {
+      "case": "audit",
+      "full_output_exact_match": true,
+      "apportionments": 8940,
+      "independently_verified_transaction_values": 6000,
+      "max_abs_error": 1.7763568394002505e-15
+    },
+    {
+      "case": "proportional",
+      "full_output_exact_match": true,
+      "apportionments": 8940,
+      "independently_verified_transaction_values": 6000,
+      "max_abs_error": 1.7763568394002505e-15
+    },
+    {
+      "case": "highspy",
+      "full_output_exact_match": true,
+      "apportionments": 2086,
+      "independently_verified_transaction_values": 1400,
+      "max_abs_error": 1.7763568394002505e-15
+    },
+    {
+      "case": "glop",
+      "full_output_exact_match": true,
+      "apportionments": 2086,
+      "independently_verified_transaction_values": 1400,
+      "max_abs_error": 2.3092638912203256e-14
+    },
+    {
+      "case": "scipy",
+      "full_output_exact_match": true,
+      "apportionments": 2086,
+      "independently_verified_transaction_values": 1400,
+      "max_abs_error": 1.7763568394002505e-15
+    }
+  ],
+  "existing_suite_comparisons": {
+    "backends": [
+      "highspy",
+      "glop",
+      "scipy"
+    ],
+    "captured_solve_outputs_per_backend": 58,
+    "all_exact_matches": true
+  }
+}

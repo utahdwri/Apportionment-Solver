@@ -593,6 +593,15 @@ class Apportioner:
         if not target_var:
             return
 
+        # A variable fixed at its committed value cannot increase under any
+        # reallocation of the other variables. Use exact equality: solver
+        # tolerances must not turn a nearly full right into a fully used one.
+        # With auditing enabled, retain the solve and its objective evidence.
+        if not self.generate_audit:
+            lower, upper = self.engine.get_variable_bounds(target_var)
+            if lower == upper == self.cur_trxn_value.get(target_var, 0.0):
+                return
+
         origional_ub = self._minimize_minus_vars([var])
         value_before = self.cur_trxn_value.get(target_var, 0.0)
         new_value = self._with_feasibility_fallback(
