@@ -185,6 +185,7 @@ class LPSolver:
 
         self.solve_count = 0
         self.has_integer_variables = False
+        self.binary_variables = set()
         self.total_iterations = 0
         self.last_iterations = 0
         self.last_run_time = 0.0
@@ -265,6 +266,7 @@ class LPSolver:
             self._set_option("mip_abs_gap", 1e-8)
             self._set_option("mip_feasibility_tolerance", self.tolerance or 1e-7)
         self.has_integer_variables = True
+        self.binary_variables.add(name)
 
     def get_constraint_bounds(
         self,

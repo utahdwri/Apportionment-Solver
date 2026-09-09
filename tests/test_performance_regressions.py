@@ -110,6 +110,7 @@ def test_fixed_variable_shortcut_matches_audited_allocation(backend):
 ])
 def test_fixed_shortcut_requires_exact_bounds_and_retains_audit(upper, audit, should_solve):
     apportioner = Apportioner.__new__(Apportioner)
+    apportioner.loss_model = None
     apportioner.tm = Mock()
     apportioner.tm.get_anchor_var.return_value = "x"
     apportioner.engine = Mock()

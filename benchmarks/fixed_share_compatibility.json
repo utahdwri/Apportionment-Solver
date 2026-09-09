@@ -1,0 +1,12 @@
+[
+  {
+    "case": "constant_200_rights",
+    "existing_output_fields_exactly_equal": true,
+    "apportionments": 8940
+  },
+  {
+    "case": "distinct_priority_piecewise",
+    "existing_output_fields_exactly_equal": true,
+    "apportionments": 581
+  }
+]

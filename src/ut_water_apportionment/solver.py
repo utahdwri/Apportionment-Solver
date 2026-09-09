@@ -13,7 +13,6 @@ from .trxn_schedule import TrxnSchedule
 from .apportioner import Apportioner
 from .lp_solver import SolverBackend, resolve_solver_backend
 from .lag_utils import unlag_apportionments
-from .signed_losses import needs_cohort_backend
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +36,9 @@ def solve(
 
     Allocation-dependent piecewise losses use exact mixed-integer segment
     selection with native HiGHS or SCIP. Equal-priority paths sharing a curve
-    require SCIP for delivery-weighted nonlinear sharing; ``"auto"`` selects
-    it for those inputs. ``input.loss_attribution_method`` chooses ``"depletion"``
+    share each committed increment's loss using predetermined allocation
+    weights. These equations are linear, even across curve breakpoints;
+    ``"auto"`` prefers HiGHS. ``input.loss_attribution_method`` chooses ``"depletion"``
     (default) or ``"buildup"`` for signed priority attribution. Fixed exogenous
     curves and constant-only models retain their existing LP backend support.
     """
@@ -49,6 +49,7 @@ def solve(
     apportionments_audit = []
     loss_allocations = []
     loss_events = []
+    loss_increments = []
 
     # 1. Initialize Network Topology
     graph_manager = GraphManager(deepcopy(input.accounting_graph))
@@ -66,9 +67,6 @@ def solve(
     # 3.
     trxn_manager = TrxnSchedule(graph_manager, input.txns, max_daily_apportionment)
     backend = solver_backend
-    if str(getattr(backend, 'value', backend)).strip().lower() == "auto":
-        if needs_cohort_backend(graph_manager, trxn_manager, input.beg_date, input.end_date):
-            backend = "scip"
     resolved_backend = resolve_solver_backend(backend)
     logger.info("Using solver backend: %s", resolved_backend.name.value)
 
@@ -135,6 +133,11 @@ def solve(
                 for record in apportioner.loss_model.loss_allocations()
             )
             loss_events.extend(apportioner.loss_model.events)
+            loss_increments.extend(
+                replace(record, date=(Date.fromisoformat(record.date)-timedelta(
+                    days=round(data_manager.flow_lags[record.interzone_flow_id]))).isoformat())
+                for record in getattr(apportioner.loss_model, 'increments', [])
+            )
 
 
     unlagged_apportionments = unlag_apportionments(
@@ -148,6 +151,7 @@ def solve(
         solver_backend=resolved_backend.name.value,
         loss_allocations=loss_allocations,
         loss_events=loss_events,
+        loss_increments=loss_increments,
     )
 
     if check_expected_values:

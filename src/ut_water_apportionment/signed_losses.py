@@ -2,38 +2,17 @@
 
 Physical flow stays nonnegative. Intermediate accounting states may have either
 sign; their loss is L(max(0, q)) and their signed delivery is q - L(max(0, q)).
-For a cohort, loss_i * sum(delivery) == total_loss * delivery_i is enforced
-inside the optimization model. Delivery means the nonnegative magnitude leaving
-this endpoint in the member's transaction direction, in physical flow units.
+This base model handles distinct priorities. Shared sites use the incremental
+subclass, which assigns loss using predetermined allocation weights.
 """
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, timedelta
 from math import inf, isfinite
 
 from .lp_solver import LPSolverError
 from .models import FlowComponentsTypes, PathTrxn, SolverOutputLossAllocation
 from .piecewise_losses import PiecewiseLossModel
-
-
-def needs_cohort_backend(gm, tm, beg, end):
-    for flow in gm.graph.interzone_flows:
-        priorities = [
-            t.priority for t, _ in tm.lookup_flow_trxns[flow.id] if not t.is_slack
-        ]
-        if len(priorities) == len(set(priorities)):
-            continue
-        for loss in (flow.loss_from_zone, flow.loss_to_zone):
-            dates = {beg}
-            for interval in loss.intervals:
-                after = date.fromisoformat(interval.end_date)
-                if after < date.max:
-                    dates.add((after + timedelta(days=1)).isoformat())
-                dates.add(interval.beg_date)
-            if any(not loss.is_constant_fraction(d) for d in dates if beg <= d <= end):
-                return True
-    return False
 
 
 def needs_signed_loss_model(tm, flows, method):
@@ -86,7 +65,6 @@ class SignedLossModel(PiecewiseLossModel):
         self.method = apportioner.loss_attribution_method
         self.sites = []
         self._path_binaries = set()
-        self._cohort_checks = []
         self._evaluation_omit_rows = set()
         self._evaluated_values = {}
         super().__init__(apportioner, sites)
@@ -121,7 +99,7 @@ class SignedLossModel(PiecewiseLossModel):
                     if segment.max_driver_flow is not None
                     else upper,
                 )
-                if hi > lo or (lower == upper == lo):
+                if hi > lo or (lower == upper == lo == hi):
                     pieces.append(
                         (lo, hi, segment.remaining_slope, -segment.loss_intercept)
                     )
@@ -176,11 +154,10 @@ class SignedLossModel(PiecewiseLossModel):
             cohorts = [
                 sorted(grouped[k], key=lambda x: x[0].id) for k in sorted(grouped)
             ]
-            if any(len(c) > 1 and not c[0][0].is_slack for c in cohorts):
-                if not callable(getattr(self.engine, "add_quadratic_constraint", None)):
-                    raise ValueError(
-                        "Delivery-weighted equal-priority losses require solver_backend='scip' (install ut-water-apportionment[scip])"
-                    )
+            if not getattr(self, "incremental", False) and any(
+                len(c) > 1 and not c[0][0].is_slack for c in cohorts
+            ):
+                raise ValueError("Shared loss sites require IncrementalLossModel")
             real = [t for cohort in cohorts for t, _ in cohort if not t.is_slack]
             for side, loss in (
                 ("from_zone", flow.loss_from_zone),
@@ -402,20 +379,6 @@ class SignedLossModel(PiecewiseLossModel):
                 # This bound concerns magnitude in either transaction direction.
                 self.engine.vars[variable].SetBounds(0, component_cap)
             self.row("cohort_increment", aggregate)
-            if len(members) > 1 and not slack:
-                total = self.variable("cohort_loss", lb=None)
-                delivery = self.variable("cohort_delivery")
-                self.row("cohort_loss", {total: -1, **{m.loss: 1 for m in members}})
-                self.row(
-                    "cohort_delivery",
-                    {delivery: -1, **{m.delivery: 1 for m in members}},
-                )
-                for m in members[:-1]:
-                    self.engine.add_quadratic_constraint(
-                        self._name("delivery_share"),
-                        [(m.loss, delivery, 1), (total, m.delivery, -1)],
-                    )
-                self._cohort_checks.append(members)
             if slack and len(members) == 2:
                 # Residuals are one signed component, not two unbounded
                 # opposing slack components that can manufacture attribution.
@@ -498,10 +461,6 @@ class SignedLossModel(PiecewiseLossModel):
             engine.add_constraint(name, original.lb(), original.ub())
             for v, coefficient in original.coefficients.items():
                 engine.set_coefficient(name, v, coefficient)
-        for name, (terms, linear, rhs) in getattr(
-            self.engine, "quadratic_rows", {}
-        ).items():
-            engine.add_quadratic_constraint(name, terms, linear, rhs)
         return engine
 
     def commit_allocation(self, trxn, delta):
@@ -561,16 +520,6 @@ class SignedLossModel(PiecewiseLossModel):
             expected = self.remaining(loss, values[driver], self.date)
             if abs(values[result] - expected) > 1e-5:
                 raise RuntimeError(f"Signed loss graph failed validation for {driver}")
-        for members in self._cohort_checks:
-            total_loss = sum(values[m.loss] for m in members)
-            delivery = sum(max(0, values[m.delivery]) for m in members)
-            if delivery > 1e-7:
-                for m in members:
-                    expected = total_loss * max(0, values[m.delivery]) / delivery
-                    if abs(values[m.loss] - expected) > 1e-5:
-                        raise RuntimeError(
-                            f"Delivery-weighted loss failed validation for {m.trxn.id}"
-                        )
 
     def loss_allocations(self):
         values = self.engine._last_solution_values

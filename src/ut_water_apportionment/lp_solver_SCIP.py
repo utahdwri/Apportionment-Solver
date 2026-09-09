@@ -46,6 +46,12 @@ class LPSolver(LinearModel):
         model.setRealParam("limits/absgap", 0.0)
         # One serial solver per accounting problem, as in the HiGHS backend.
         model.setIntParam("parallel/maxnthreads", 1)
+        # Rebuilt increments retire old auxiliary variables by fixing them at
+        # zero. Substitute that known value instead of copying an ever-growing
+        # set of inactive columns into each new SCIP model.
+        fixed_zero = {
+            name for name, var in self.vars.items() if var.lb() == var.ub() == 0
+        }
         variables = {
             name: model.addVar(
                 name=name,
@@ -54,11 +60,15 @@ class LPSolver(LinearModel):
                 ub=None if var.ub() == inf else var.ub(),
             )
             for name, var in self.vars.items()
+            if name not in fixed_zero
         }
+        expressions = variables | dict.fromkeys(fixed_zero, 0.0)
         for name, row in self.cons.items():
             if row.lb() == -inf and row.ub() == inf:
                 continue
-            expression = quicksum(c * variables[v] for v, c in row.coefficients.items())
+            expression = quicksum(
+                c * expressions[v] for v, c in row.coefficients.items()
+            )
             if row.lb() == row.ub():
                 model.addCons(expression == row.lb(), name=name)
             else:
@@ -67,11 +77,13 @@ class LPSolver(LinearModel):
                 if row.ub() != inf:
                     model.addCons(expression <= row.ub(), name=name + "_ub")
         for name, (terms, linear, rhs) in self.quadratic_rows.items():
-            expression = quicksum(c * variables[x] * variables[y] for x, y, c in terms)
-            expression += quicksum(c * variables[v] for v, c in linear.items())
+            expression = quicksum(
+                c * expressions[x] * expressions[y] for x, y, c in terms
+            )
+            expression += quicksum(c * expressions[v] for v, c in linear.items())
             model.addCons(expression == rhs, name=name)
         model.setObjective(
-            quicksum(c * variables[v] for v, c in self._objective_costs.items()),
+            quicksum(c * expressions[v] for v, c in self._objective_costs.items()),
             "maximize" if maximization else "minimize",
         )
         model.optimize()
@@ -89,6 +101,7 @@ class LPSolver(LinearModel):
             )
             for name, v in variables.items()
         }
+        values.update(dict.fromkeys(fixed_zero, 0.0))
         self._last_solution_values = values
         self._last_variable_reduced_costs = {}
         self._last_constraint_dual_values = {}

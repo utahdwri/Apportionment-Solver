@@ -11,6 +11,7 @@ Is there anything left in the gemini file that could be useful to me? Any constr
 
 
 from typing import Generator
+from contextlib import nullcontext
 from math import isclose
 from .models import (
     CorePropSchedule,
@@ -89,7 +90,15 @@ class Apportioner:
             from .signed_losses import SignedLossModel, needs_signed_loss_model
             if needs_signed_loss_model(self.tm, loss_sites, loss_attribution_method):
                 self.update_daily_bounds()
-                self.loss_model = SignedLossModel(self, loss_sites)
+                shared = any(
+                    len(priorities) != len(set(priorities))
+                    for priorities in ([t.priority for t, _ in self.tm.lookup_flow_trxns[f.id] if not t.is_slack] for f in loss_sites)
+                )
+                if shared:
+                    from .incremental_losses import IncrementalLossModel
+                    self.loss_model = IncrementalLossModel(self, loss_sites)
+                else:
+                    self.loss_model = SignedLossModel(self, loss_sites)
             else:
                 self.loss_model = PiecewiseLossModel(self, loss_sites)
 
@@ -386,6 +395,11 @@ class Apportioner:
                 self.engine.update_constraint_ub(name=PREFIX_NF_ZONE + z.id, ub=None)
 
     def calculate_spills(self) -> float:
+        context = self.loss_model.committed_solution() if getattr(self.loss_model, 'incremental', False) else nullcontext()
+        with context:
+            return self._calculate_spills()
+
+    def _calculate_spills(self) -> float:
         """Find all the variables that flow to a stream, and add a constraint
         to prevent them from increasing. """
 
@@ -546,6 +560,11 @@ class Apportioner:
             logger.info(f"Completed iteration for priority: {priority}")
 
     def solve_for_nonpath_vars(self):
+        context = self.loss_model.committed_solution() if getattr(self.loss_model, 'incremental', False) else nullcontext()
+        with context:
+            return self._solve_for_nonpath_vars()
+
+    def _solve_for_nonpath_vars(self):
         # NOTE: I get away with not bothering to seperate the non-path variables
         #       from the path variables in this code because the path variables
         #       have already been maximized and updated so they can not be less
@@ -617,6 +636,8 @@ class Apportioner:
         """My earlier version of this function used _minimize_minus_vars and
         _reset_minus_vars to prevent apportionments from forcing a reservoir
         spill to increase the divertible natural flow."""
+        if getattr(self.loss_model, 'incremental', False):
+            return self._maximize_incremental_var(var)
         if type(var) == PathTrxn:
             target_var = self.tm.get_anchor_var(var)
         else:
@@ -665,6 +686,31 @@ class Apportioner:
 
         logger.debug(f' - maxed {target_var} to {new_value}')
         self._reset_minus_vars(origional_ub)
+
+    def _maximize_incremental_var(self, var):
+        target = self.tm.get_anchor_var(var) if isinstance(var, PathTrxn) else var.id
+        if not target:
+            return
+        self.loss_model.prepare_increment([var])
+        original = self._minimize_minus_vars([var])
+        before = self.cur_trxn_value.get(target, 0.0)
+        after = self._with_feasibility_fallback(
+            'maximize incremental var ' + var.id,
+            lambda: self.loss_model.maximize_variable(target),
+        )
+        self.cur_trxn_value[target] = after
+        self.loss_model.commit_cohort([(var, after-before)])
+        if self.generate_audit:
+            step, context = self._capture_solve_step_data(
+                var=var, target_var=target, value_before=before, value_after=after,
+            )
+            self._record_audit_iteration(
+                steps=[step], contexts=[context],
+                limiting_txn_ids=[var.id],
+                is_proportional=False,
+            )
+        self._reset_minus_vars(original)
+        self.loss_model.prepare_increment([])
 
     def maximize_series(self, series: CorePropSchedule | CoreSeqSchedule):
         """Maximize the given series of variables (either a sequential or
@@ -721,6 +767,9 @@ class Apportioner:
                 break
 
             ## minimize all minus vars
+            if getattr(self.loss_model, 'incremental', False):
+                self.loss_model.prepare_increment(vars_list, proportion_factors)
+                self.loss_model.prepare_proportions(var_names, proportion_factors)
             origional_ub = self._minimize_minus_vars(vars_list)
             values_before = {
                 var_name: self.cur_trxn_value.get(var_name, 0.0)
@@ -730,7 +779,7 @@ class Apportioner:
             # Solve
             var_values = self._with_feasibility_fallback(
                 'solve to maximize series',
-                lambda: self.engine.maximize_group_by_proportions(
+                lambda: (self.loss_model.maximize_proportional if getattr(self.loss_model, 'incremental', False) else self.engine.maximize_group_by_proportions)(
                     var_names,
                     proportion_factors
                 )
@@ -747,7 +796,13 @@ class Apportioner:
                 if abs(var_value) < SOLVER_TOL:
                     var_value = 0.0
 
-                self.engine.update_variable_bounds(var_name, lb=var_value)
+                if getattr(self.loss_model, 'incremental', False):
+                    # Keep the physical cap: the generic LP helper snaps a
+                    # nearby upper bound down, which can freeze a reservation
+                    # before its children commit their final increment.
+                    self.engine.vars[var_name].SetLb(var_value)
+                else:
+                    self.engine.update_variable_bounds(var_name, lb=var_value)
                 self.cur_trxn_value[var_name] = var_value
 
                 var_obj = vars_by_name.get(var_name)
@@ -816,6 +871,8 @@ class Apportioner:
         for var_obj in deferred_vars:
             logger.warning(f"Processing deferred tiny-factor variable sequentially: {var_obj.id}")
             self._maximize_var(var_obj)
+        if getattr(self.loss_model, 'incremental', False):
+            self.loss_model.prepare_increment([])
 
 
     def _get_newly_maxed_vars(self, vars: list[PathTrxn | TrxnGroup]):
@@ -858,13 +915,26 @@ class Apportioner:
             remaining[target_var] = var
             current_values[target_var] = current_value
 
+        if getattr(self.loss_model, 'incremental', False):
+            # A dropout changes the sharing weights. Test each member as a
+            # legal next increment; the previous cohort's weights no longer
+            # describe these probes.
+            for target, var in remaining.items():
+                self.loss_model.prepare_increment([var])
+                _, values = self._with_feasibility_fallback(
+                    'check incremental capacity ' + var.id,
+                    lambda target=target: self.loss_model.solve_increment_objective([target]),
+                )
+                if values[target] <= current_values[target] + SOLVER_TOL:
+                    maxed_ids.add(var.id)
+            return [var for var in vars if var.id in maxed_ids]
+
         while remaining:
             target_vars = list(remaining.keys())
             _, solved_values = self._with_feasibility_fallback(
                 'check newly maxed vars',
-                lambda: self.engine.solve_objective(
+                lambda: (self.loss_model.solve_increment_objective if getattr(self.loss_model, 'incremental', False) else self.engine.solve_objective)(
                     target_vars,
-                    maximization=True
                 )
             )
 

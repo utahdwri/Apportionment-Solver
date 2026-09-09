@@ -1,5 +1,10 @@
 # Signed and shared piecewise losses
 
+Historical delivery notes for commit `6b5f39b`. The current implementation shares
+losses separately for each committed increment; see
+[INCREMENTAL_LOSSES_DELIVERY.md](INCREMENTAL_LOSSES_DELIVERY.md) for the update.
+The results and patch names below describe the earlier download.
+
 This checkout includes selectable priority attribution and joint equal-priority
 loss sharing, built on the earlier piecewise implementation at `f026fbe`.
 

@@ -1,0 +1,285 @@
+{
+  "date": "2026-09-07",
+  "comparison_base_commit": "6b5f39b9482a00ab22f40c74da4467605f26575e",
+  "platform": "Linux-6.18.35-x86_64-with-glibc2.39",
+  "source_sha256": {
+    "incremental_losses.py": "0b58116556b3c6993bb873f404b2cf3d84e834890f57fb536ba09d720b5ed3a5",
+    "signed_losses.py": "e24ccdad90f0032e83172fff74e51de7ddeabd9e739f8a2acad91f7f8718ccb7",
+    "apportioner.py": "be48335cb51ff38b5f3e30f0f961d10af9e0edf919cc89ece143daae513f098a",
+    "solver.py": "f07f844c8aae3bbb60456475d56bec3454788294b8d1d7e2c5cacee805caff89",
+    "models.py": "9a2f7d691ad8a5f441092b624b60c4e80243c774b2aa37b4e431b64741090d09",
+    "lp_solver_SCIP.py": "8c79c3d8260b85c9e75ee7e43261d8f7f4827e3e47147840cbc380be15b0ca01",
+    "__init__.py": "7cc77569515c61f33cacce9b7275a557f0cf271eeb515e540f011e9e65fa6787"
+  },
+  "methodology": [
+    "Three sequential end-to-end solve() calls per scenario; one process per scenario.",
+    "Seven accounting days; audit disabled; input creation and serialization excluded.",
+    "The first repetition includes backend import.",
+    "Whole-cohort and per-increment accounting semantics differ. This is a cost comparison, not an equivalent-problem speedup.",
+    "No claim of statewide capacity or statistical significance."
+  ],
+  "whole_cohort_baseline": [
+    {
+      "implementation": "whole_cohort",
+      "workload": "path",
+      "reaches": 2,
+      "rights": 25,
+      "days": 7,
+      "sites": 1,
+      "repeat": 3,
+      "audit": false,
+      "proportional": true,
+      "loss_attribution_method": "depletion",
+      "backend": "auto",
+      "output": null,
+      "seconds": [
+        1.15882060200056,
+        1.303821756000616,
+        1.052112549999947
+      ],
+      "median_seconds": 1.15882060200056,
+      "apportionments": 581,
+      "python": "3.12.13",
+      "highspy": "1.15.1",
+      "solver_backend": "scip",
+      "pyscipopt": "6.2.1"
+    },
+    {
+      "implementation": "whole_cohort",
+      "workload": "path",
+      "reaches": 2,
+      "rights": 25,
+      "days": 7,
+      "sites": 1,
+      "repeat": 3,
+      "audit": false,
+      "proportional": true,
+      "loss_attribution_method": "buildup",
+      "backend": "auto",
+      "output": null,
+      "seconds": [
+        1.3619784570000775,
+        1.1288092650002,
+        1.0292410689999087
+      ],
+      "median_seconds": 1.1288092650002,
+      "apportionments": 581,
+      "python": "3.12.13",
+      "highspy": "1.15.1",
+      "solver_backend": "scip",
+      "pyscipopt": "6.2.1"
+    },
+    {
+      "implementation": "whole_cohort",
+      "workload": "path",
+      "reaches": 2,
+      "rights": 100,
+      "days": 7,
+      "sites": 1,
+      "repeat": 3,
+      "audit": false,
+      "proportional": true,
+      "loss_attribution_method": "depletion",
+      "backend": "auto",
+      "output": null,
+      "seconds": [
+        3.8577095450000343,
+        4.938051415999325,
+        3.6074028399998497
+      ],
+      "median_seconds": 3.8577095450000343,
+      "apportionments": 2156,
+      "python": "3.12.13",
+      "highspy": "1.15.1",
+      "solver_backend": "scip",
+      "pyscipopt": "6.2.1"
+    }
+  ],
+  "initial_per_increment": [
+    {
+      "implementation": "per_increment",
+      "workload": "path",
+      "reaches": 2,
+      "rights": 25,
+      "days": 7,
+      "sites": 1,
+      "repeat": 3,
+      "audit": false,
+      "proportional": true,
+      "loss_attribution_method": "depletion",
+      "backend": "auto",
+      "output": null,
+      "seconds": [
+        6.354589148999366,
+        5.707302018000519,
+        5.134640915000091
+      ],
+      "median_seconds": 5.707302018000519,
+      "apportionments": 581,
+      "python": "3.12.13",
+      "highspy": "1.15.1",
+      "solver_backend": "scip",
+      "pyscipopt": "6.2.1"
+    },
+    {
+      "implementation": "per_increment",
+      "workload": "path",
+      "reaches": 2,
+      "rights": 25,
+      "days": 7,
+      "sites": 1,
+      "repeat": 3,
+      "audit": false,
+      "proportional": true,
+      "loss_attribution_method": "buildup",
+      "backend": "auto",
+      "output": null,
+      "seconds": [
+        4.807473386000311,
+        4.727991763000318,
+        5.052464570999291
+      ],
+      "median_seconds": 4.807473386000311,
+      "apportionments": 581,
+      "python": "3.12.13",
+      "highspy": "1.15.1",
+      "solver_backend": "scip",
+      "pyscipopt": "6.2.1"
+    },
+    {
+      "implementation": "per_increment",
+      "workload": "path",
+      "reaches": 2,
+      "rights": 100,
+      "days": 7,
+      "sites": 1,
+      "repeat": 3,
+      "audit": false,
+      "proportional": true,
+      "loss_attribution_method": "depletion",
+      "backend": "auto",
+      "output": null,
+      "seconds": [
+        20.276942585999677,
+        19.29343765900012,
+        20.613506508000683
+      ],
+      "median_seconds": 20.276942585999677,
+      "apportionments": 2156,
+      "python": "3.12.13",
+      "highspy": "1.15.1",
+      "solver_backend": "scip",
+      "pyscipopt": "6.2.1"
+    }
+  ],
+  "final_per_increment": [
+    {
+      "implementation": "per_increment_optimized",
+      "workload": "path",
+      "reaches": 2,
+      "rights": 25,
+      "days": 7,
+      "sites": 1,
+      "repeat": 3,
+      "audit": false,
+      "proportional": true,
+      "loss_attribution_method": "depletion",
+      "backend": "auto",
+      "output": null,
+      "seconds": [
+        2.9217948750001597,
+        2.8475418870002613,
+        2.8119052319998445
+      ],
+      "median_seconds": 2.8475418870002613,
+      "apportionments": 581,
+      "python": "3.12.13",
+      "highspy": "1.15.1",
+      "solver_backend": "scip",
+      "pyscipopt": "6.2.1"
+    },
+    {
+      "implementation": "per_increment_optimized",
+      "workload": "path",
+      "reaches": 2,
+      "rights": 25,
+      "days": 7,
+      "sites": 1,
+      "repeat": 3,
+      "audit": false,
+      "proportional": true,
+      "loss_attribution_method": "buildup",
+      "backend": "auto",
+      "output": null,
+      "seconds": [
+        3.0980964560003486,
+        4.024438507999548,
+        3.0435030859998733
+      ],
+      "median_seconds": 3.0980964560003486,
+      "apportionments": 581,
+      "python": "3.12.13",
+      "highspy": "1.15.1",
+      "solver_backend": "scip",
+      "pyscipopt": "6.2.1"
+    },
+    {
+      "implementation": "per_increment_optimized",
+      "workload": "path",
+      "reaches": 2,
+      "rights": 100,
+      "days": 7,
+      "sites": 1,
+      "repeat": 3,
+      "audit": false,
+      "proportional": true,
+      "loss_attribution_method": "depletion",
+      "backend": "auto",
+      "output": null,
+      "seconds": [
+        13.191290323999965,
+        13.608578646999376,
+        13.696661021000182
+      ],
+      "median_seconds": 13.608578646999376,
+      "apportionments": 2156,
+      "python": "3.12.13",
+      "highspy": "1.15.1",
+      "solver_backend": "scip",
+      "pyscipopt": "6.2.1"
+    }
+  ],
+  "compatibility": [
+    {
+      "case": "constant_200_rights_30_days",
+      "all_preexisting_output_fields_identical": true,
+      "loss_increments_empty": true,
+      "apportionments": 8940,
+      "single_run_seconds_before_after": [
+        2.7943576759998905,
+        2.02005853799983
+      ]
+    },
+    {
+      "case": "distinct_priority_piecewise_25_rights_7_days",
+      "all_preexisting_output_fields_identical": true,
+      "loss_increments_empty": true,
+      "apportionments": 581,
+      "single_run_seconds_before_after": [
+        2.331279758999699,
+        2.312611141999696
+      ]
+    }
+  ],
+  "verification": {
+    "pytest_passed": 185,
+    "pytest_skipped": 6,
+    "pytest_subtests_passed": 7,
+    "skip_reasons": [
+      "Five unchanged upstream skips.",
+      "One installed GLOP/highspy native-library symbol conflict in the same process."
+    ],
+    "incremental_analytical_cases": 10,
+    "incremental_analytical_cases_forbid_accounting_fallback": true
+  }
+}

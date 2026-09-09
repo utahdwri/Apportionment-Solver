@@ -77,6 +77,7 @@ class SolverOutput:
     solver_backend: str | None = None
     loss_allocations: list['SolverOutputLossAllocation'] = field(default_factory=list)
     loss_events: list['SolverOutputLossEvent'] = field(default_factory=list)
+    loss_increments: list['SolverOutputLossIncrement'] = field(default_factory=list)
 
     def get_result_value(self,
                          date:str|None=None,
@@ -337,6 +338,15 @@ class SolverOutputLossAllocation:
     inflow: float
     remaining: float
     loss: float
+
+
+@dataclass
+class SolverOutputLossIncrement(SolverOutputLossAllocation):
+    """One committed member increment; sequence groups simultaneous members."""
+    sequence: int
+    driver_before: float
+    driver_after: float
+    allocation_weight: float = 1.0
 
 
 @dataclass

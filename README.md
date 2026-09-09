@@ -11,9 +11,13 @@
 Piecewise loss attribution supports signed and scaled transaction components.
 Set `SolverInput.loss_attribution_method` to `"depletion"` (the default) or
 `"buildup"`. Equal-priority paths sharing a curve are optimized jointly, with
-incremental loss divided in proportion to delivery at that endpoint. Install
-`python -m pip install -e '.[scip]'` from this checkout; `solve(input)` selects
-SCIP automatically when joint sharing is needed.
+loss shared separately for each increment using the allocator's predetermined
+weights. Increments can cross curve breakpoints; later allocations preserve
+earlier loss shares. With `generate_audit=True`, `result.loss_increments`
+records the steps and their weights. Install `python -m pip install -e '.[highs]'`
+from this checkout; `solve(input)` prefers native HiGHS. SCIP is optional.
+See the piecewise-loss documentation for the explicit limitation on parent
+reservations with interleaved outside priorities at a shared loss site.
 
 ## 1. After-the-fact distribution accounting
 In Utah, water is distributed by priority in accordance with water rights. Accounting for this distribution is done after-the-fact because, in all but the most trivial cases, we do not know how much water is available to be diverted until we know how much water was actually diverted. Water users generally have a portfolio comprising many water rights and perhaps contracts for storage water. So measurements is not enough. Distribution accounting subdivides the water actually diverted into the components representing water diverted under each authorization. It colors or names the water that was moved through the system.

@@ -319,11 +319,13 @@ def test_bidirectional_site_with_positive_physical_flow_is_supported():
     assert value(result, "downstream", "B>V") == pytest.approx(5)
 
 
-def test_shared_site_equal_priority_requires_a_nonlinear_backend():
+def test_shared_site_equal_priority_uses_highs():
     problem = path_problem()
     problem.txns[1].priority = problem.txns[0].priority
-    with pytest.raises(ValueError, match="solver_backend='scip'"):
-        solve(problem, solver_backend="highspy")
+    result = solve(problem, solver_backend="highspy")
+    assert result.solver_backend == "highspy"
+    assert value(result, "T0", "I>A") == pytest.approx(60)
+    assert value(result, "T1", "I>A") == pytest.approx(30)
 
 
 def test_discontinuous_raw_segments_rejected():

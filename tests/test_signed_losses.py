@@ -1,7 +1,6 @@
 """Analytical acceptance tests for signed conventions and joint loss sharing."""
 
 from dataclasses import asdict
-from math import sqrt
 
 import pytest
 
@@ -28,7 +27,6 @@ from ut_water_apportionment import (
 @pytest.fixture(autouse=True)
 def dependencies(caplog):
     pytest.importorskip("highspy")
-    pytest.importorskip("pyscipopt")
     yield
     assert "Adding feasibility slacks" not in caplog.text
 
@@ -39,6 +37,23 @@ def losses_at(result, flow="A>B", endpoint="to_zone"):
         for r in result.loss_allocations
         if r.interzone_flow_id == flow and r.endpoint == endpoint
     }
+
+
+def test_fixed_positive_graph_domain_excludes_disjoint_segments():
+    from ut_water_apportionment.lp_solver_HIGHSPY import LPSolver
+    from ut_water_apportionment.signed_losses import SignedLossModel
+
+    model = object.__new__(SignedLossModel)
+    model.engine = LPSolver()
+    model.date = "2000-01-01"
+    model._serial = 0
+    model._tracking_nf = False
+    model._path_binaries = set()
+    model._graphs = []
+    driver = model.variable("fixed_driver", 50, 50)
+    remaining = model.remaining_graph(curve(), driver, 50, "fixed", lower=50)
+    _, values = model.engine.solve_objective([remaining])
+    assert values[remaining] == pytest.approx(15)
 
 
 def signed_site(
@@ -125,7 +140,7 @@ def test_equal_priority_forward_cohort_is_delivery_weighted(method):
     for t in problem.txns:
         t.priority = 1
     result = solve(problem)
-    assert result.solver_backend == "scip"
+    assert result.solver_backend == "highspy"
     records = losses_at(result)
     total = 34 if method == "depletion" else 43
     assert records["T0"].loss == pytest.approx(total * 2 / 3, abs=1e-5)
@@ -138,12 +153,13 @@ def test_equal_priority_forward_cohort_is_delivery_weighted(method):
 def test_mixed_direction_equal_priority_cohort(method):
     result = solve(signed_site(method, priorities=(1, 1)))
     records = losses_at(result)
-    # Directional deliveries: reverse delivers 20 upstream, forward delivers
-    # 40 downstream. Split the aggregate loss of 30 in the ratio 20:40.
-    assert records["reverse"].loss == pytest.approx(10, abs=1e-5)
-    assert records["forward"].loss == pytest.approx(20, abs=1e-5)
-    assert records["reverse"].remaining == pytest.approx(-30, abs=1e-5)
-    assert records["forward"].remaining == pytest.approx(40, abs=1e-5)
+    # One increment uses the predetermined anchor ratio 20:60.
+    reverse_loss = 30 / 4
+    forward_delivery = 60 - 30 * 3 / 4
+    assert records["reverse"].loss == pytest.approx(reverse_loss, abs=1e-5)
+    assert records["forward"].loss == pytest.approx(30 - reverse_loss, abs=1e-5)
+    assert records["reverse"].remaining == pytest.approx(-20 - reverse_loss, abs=1e-5)
+    assert records["forward"].remaining == pytest.approx(forward_delivery, abs=1e-5)
 
 
 @pytest.mark.parametrize("method", ["buildup", "depletion"])
@@ -199,7 +215,7 @@ def test_setting_validates_and_serializes():
         solve(problem)
 
 
-def test_delivery_cap_changes_the_joint_optimum():
+def test_delivery_cap_preserves_the_completed_increment():
     problem = path_problem(limits=(60, 30))
     graph = problem.accounting_graph
     graph.zones.extend([Zone("U0", ZoneTypes.USE), Zone("U1", ZoneTypes.USE)])
@@ -226,14 +242,14 @@ def test_delivery_cap_changes_the_joint_optimum():
         ],
     )
     result = solve(problem)
-    # Joint sharing gives 10 = x*(0.5 + 16/(x+30)).
-    assert value(result, "T0", "I>A") == pytest.approx(sqrt(1041) - 21, abs=1e-5)
+    # The first increment has 10% loss. T0 stops at its delivery cap and
+    # keeps that loss while T1 continues through the next breakpoint.
+    assert value(result, "T0", "I>A") == pytest.approx(100 / 9, abs=1e-5)
     assert value(result, "T1", "I>A") == pytest.approx(30)
     assert value(result, "T0", "B>U0") == pytest.approx(10)
     records = losses_at(result)
-    assert records["T0"].loss / records["T0"].remaining == pytest.approx(
-        records["T1"].loss / records["T1"].remaining,
-    )
+    assert records["T0"].loss == pytest.approx(10 / 9)
+    assert value(result, "T1", "B>U1") == pytest.approx(239 / 9)
 
 
 def test_buildup_spill_credits_the_incremental_residual_delivery():
@@ -306,7 +322,7 @@ def test_mixed_cohort_gross_delivery_can_exceed_its_net_delivery():
     )
     result = solve(problem)
     records = losses_at(result)
-    forward_delivery = (9.9 + sqrt(9.9**2 + 400)) / 2
+    forward_delivery = 100 - 0.9 * (100 - 1) * 100 / 101
     assert value(result, "forward", "A>B") == pytest.approx(100)
     assert value(result, "reverse", "A>B") == pytest.approx(-1)
     assert records["forward"].remaining == pytest.approx(forward_delivery, abs=1e-5)
@@ -376,9 +392,8 @@ def test_signed_post_loss_gauge_uses_the_inverse_curve(method, shared):
     assert sum(r.inflow for r in records.values()) == pytest.approx(50)
     assert sum(r.loss for r in records.values()) == pytest.approx(10)
     if shared:
-        # Let upstream reverse delivery be d. Its signed loss is 20-d,
-        # and delivery-weighted sharing gives (20-d)*(d+60) = 10*d.
-        d = (-50 + sqrt(7300)) / 2
+        # Fixed anchor weights 20:60 split aggregate loss 10 as 2.5:7.5.
+        d = 20 - 10 / 4
         assert records["reverse"].inflow == pytest.approx(-d, abs=1e-5)
         assert records["reverse"].loss == pytest.approx(20 - d, abs=1e-5)
     else:
@@ -451,7 +466,7 @@ def test_automatic_backend_covers_later_piecewise_dates_and_audit_modes():
     )
     audited = solve(problem)
     unaudited = solve(problem, generate_audit=False)
-    assert audited.solver_backend == unaudited.solver_backend == "scip"
+    assert audited.solver_backend == unaudited.solver_backend == "highspy"
     assert value(audited, "T0", "B>U") == pytest.approx(48)
     assert value(audited, "T0", "B>U", "2000-01-02") == pytest.approx(112 / 3)
     assert audited.apportionments == unaudited.apportionments
