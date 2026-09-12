@@ -1,3 +1,4 @@
+from .compiled import CompilationOptions, CompiledSolver, compile_solver_input
 from .solver import solve
 from .lp_solver import (
     SolverBackend,
@@ -26,6 +27,9 @@ from .models import (
 
 __all__ = [
     "solve",
+    "CompilationOptions",
+    "CompiledSolver",
+    "compile_solver_input",
     "SolverBackend",
     "SolverBackendUnavailableError",
     "available_solver_backends",

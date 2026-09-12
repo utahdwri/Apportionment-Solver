@@ -24,6 +24,40 @@ def solve(
     solver_backend: SolverBackend | str = SolverBackend.AUTO,
     max_daily_apportionment: float | None = None,
     generate_audit: bool = True,
+    method: str = "lp",
+    compilation_options=None,
+) -> SolverOutput:
+    """Solve using the ordinary LP method or compiled equations with LP fallback.
+
+    ``method="compiled"`` preserves the production accounting schedule and
+    output format. Small objective systems use cached MIN/MAX programs. A day
+    requiring LP is restarted before any cross-day state is committed.
+    ``solver_backend`` selects that fallback backend. Detailed production audit
+    evidence currently requires an LP day; use ``generate_audit=False`` for
+    compiled execution and inspect ``result.compilation_report`` for coverage.
+    Use ``compile_solver_input`` to retain a plan and inspect its formulas.
+    """
+    if method not in {"lp", "compiled"}:
+        raise ValueError("method must be 'lp' or 'compiled'")
+    session = None
+    if method == "compiled":
+        from .compiled.runtime import CompilationSession
+        session = CompilationSession(compilation_options)
+    elif compilation_options is not None:
+        raise ValueError("compilation_options requires method='compiled'")
+    return _solve(input, check_expected_values=check_expected_values,
+                  solver_backend=solver_backend, max_daily_apportionment=max_daily_apportionment,
+                  generate_audit=generate_audit, compiled_session=session)
+
+
+def _solve(
+    input: SolverInput,
+    *,
+    check_expected_values: bool = False,
+    solver_backend: SolverBackend | str = SolverBackend.AUTO,
+    max_daily_apportionment: float | None = None,
+    generate_audit: bool = True,
+    compiled_session=None,
 ) -> SolverOutput:
     """Build and solve the apportionment model.
 
@@ -62,43 +96,31 @@ def solve(
         data_manager.set_day(date)
         trxn_manager.begin_day(date)
 
-        #
-        apportioner = Apportioner(
-            graph_manager,
-            trxn_manager,
-            data_manager,
-            natural_flow_calculator,
-            lp_solver_factory=resolved_backend.factory,
-            generate_audit=generate_audit
-        )
-
-        # B. Update Daily Bounds
-        apportioner.update_daily_bounds()
-
-
-
-        # C. Rebuild Schedule & Solve
-        schedule = trxn_manager.build_schedule(date)
-        #logger.debug(f"\nSchedule: {schedule}")
-
-        # Solve sequentially with and without NF mass balance limits
-        #apportioner.solve_phase = 'NATURAL_FLOW'
-        apportioner.apply_nf_mass_balance_constraints(date)
-        apportioner.calculate_apportionments(schedule)
-
-        #apportioner.solve_phase = 'SPILL_REALLOCATION'
-        #apportioner.remove_nf_mass_balance_constraints()
-        total_spill = apportioner.calculate_spills()
-
-        # NOTE - I would like to make this 2nd pass conditional, but even if
-        # there is no spill released, there may be some storage delivery that
-        # is freed up. If I make the following conditional,
-        # test_storage_deliveries_and_diversions_and_losses fails.
-        if total_spill > 0 or True:
-            apportioner.calculate_apportionments(schedule)
-
-        # D. Finalize unconstrained (nonpath) vars
-        apportioner.solve_for_nonpath_vars()
+        if compiled_session is None:
+            apportioner = _solve_day(graph_manager, trxn_manager, data_manager,
+                                     natural_flow_calculator, resolved_backend.factory,
+                                     generate_audit, date)
+        else:
+            from .compiled.projection import CannotCompile
+            from .compiled.runtime import compiled_factory
+            compiled_session.begin_day(date)
+            fallback_reason = None
+            try:
+                if generate_audit:
+                    raise CannotCompile("detailed audit requires native LP evidence")
+                apportioner = _solve_day(
+                    graph_manager, trxn_manager, data_manager, natural_flow_calculator,
+                    compiled_factory(resolved_backend.factory, compiled_session), False, date)
+            except CannotCompile as error:
+                fallback_reason = str(error)
+                # Restart the entire tentative day. In particular, do not retain
+                # reservations or NF spill credits from an abandoned formula run.
+                # Accounts/cumulative use are committed only once below.
+                natural_flow_calculator = NaturalFlowCalculator(graph_manager)
+                apportioner = _solve_day(
+                    graph_manager, trxn_manager, data_manager, natural_flow_calculator,
+                    resolved_backend.factory, generate_audit, date)
+            compiled_session.finish_day(fallback_reason)
 
         # Commit cross-day transaction/account state only after the final daily
         # solution is known.
@@ -119,6 +141,8 @@ def solve(
         apportionments=unlagged_apportionments,
         solve_steps=apportionments_audit,
         solver_backend=resolved_backend.name.value,
+        solve_method="compiled" if compiled_session is not None else "lp",
+        compilation_report=compiled_session.report() if compiled_session is not None else None,
     )
 
     if check_expected_values:
@@ -129,6 +153,24 @@ def solve(
 
     return results
 
+
+
+def _solve_day(graph_manager, trxn_manager, data_manager, natural_flow_calculator,
+               factory, generate_audit, date):
+    """One tentative day. Only the caller commits cross-day account state."""
+    apportioner = Apportioner(
+        graph_manager, trxn_manager, data_manager, natural_flow_calculator,
+        lp_solver_factory=factory, generate_audit=generate_audit,
+    )
+    apportioner.update_daily_bounds()
+    schedule = trxn_manager.build_schedule(date)
+    apportioner.apply_nf_mass_balance_constraints(date)
+    apportioner.calculate_apportionments(schedule)
+    apportioner.calculate_spills()
+    # Even a zero spill can free storage deliveries: retain main's second pass.
+    apportioner.calculate_apportionments(schedule)
+    apportioner.solve_for_nonpath_vars()
+    return apportioner
 
 def assert_apportionments_equal_expected(results: SolverOutput, input: SolverInput, gm:GraphManager, dm:DailyDataManager, tm:TrxnSchedule) -> None:
     """Check if each of the apportionment results match the expected value

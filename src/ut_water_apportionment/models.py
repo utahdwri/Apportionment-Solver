@@ -70,6 +70,8 @@ class SolverOutput:
     apportionments: list['SolverOutputApportionment']
     solve_steps: list['SolveStepResult']
     solver_backend: str | None = None
+    solve_method: str = "lp"
+    compilation_report: dict | None = None
 
     def get_result_value(self,
                          date:str|None=None,

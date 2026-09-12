@@ -221,3 +221,22 @@ logging.basicConfig(
     force=True,
 )
 ```
+
+
+## Alternate compiled-equation method
+
+```python
+from ut_water_apportionment import compile_solver_input
+
+plan = compile_solver_input(solver_input)
+print(plan.formulas())       # Actual symbolic MIN/MAX expressions.
+result = plan.solve()       # Complete SolverOutput; LP fallback when needed.
+print(plan.report())        # Which days used formulas or LP, and why.
+print(plan.code())          # Executable Python for cached objective programs.
+```
+
+For one-shot use: `solve(solver_input, method="compiled", generate_audit=False)`.
+The existing LP method remains the default. Detailed audit requests use LP to
+preserve native evidence. Large/ambiguous systems also fall back without rejecting
+otherwise supported inputs. See [the compiled-equation guide](docs/compiled-equations.md)
+for preparation versus on-demand compilation, budgets, examples, and limitations.
