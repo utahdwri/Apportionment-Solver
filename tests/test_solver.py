@@ -2999,6 +2999,12 @@ class RealProblems(unittest.TestCase):
         input = parse_solver_input_from_dict(input_dict)
         solve(input)
 
+        '''from ut_water_apportionment import compile_solver_input
+        plan = compile_solver_input(input)
+        print(plan.formulas())       # Actual symbolic MIN/MAX expressions.
+        result = plan.solve()'''
+
+
     def test_lake_fork_02(self):
         """Can this problem be solved w/o an exception?
 

@@ -1,0 +1,725 @@
+diff --git a/docs/compiled-equations.md b/docs/compiled-equations.md
+index 0b4bc0d..6f9e8d9 100644
+--- a/docs/compiled-equations.md
++++ b/docs/compiled-equations.md
+@@ -10,6 +10,22 @@ This integration starts from `main` at
+ `df099710e7e83077c5a07bdc27dc6888ebb795a0`. It does not import the earlier
+ standalone prototype or reproduce its separate accounting-graph adapter.
+ 
++## Residual constraint state
++
++Senior allocations are not carried forward as live decision variables. Once a
++transaction is committed, its contribution is absorbed into each affected
++constraint bound. Junior formulas therefore consume parameters such as
++`constraint[MEAS_diversion].remaining` and
++`constraint[NF_ZONE_RIVER].remaining_upper`. Algebraically, for
++`a1*x1 + a2*x2 <= b`, after `x1` is committed the compiled state is
++`a2*x2 <= b - a1*x1`. Signed coefficients work naturally: a negative
++coefficient can increase the residual capacity when that variable is committed.
++
++`compile_solver_input()` traces the production schedule once over the supplied
++date range, compiling every objective pattern it encounters, then freezes the
++program cache. `plan.solve()` performs no symbolic compilation.
++
++
+ ## Usage
+ 
+ ```python
+@@ -115,9 +131,9 @@ upper = MIN(
+     variable[right_a___diversion].upper,
+     -variable[right_b___diversion].lower
+       -variable[SLACK_river_TO_farm_diversion___diversion].lower
+-      +constraint[MEAS_diversion].value,
++      +constraint[MEAS_diversion].remaining,
+     -variable[right_b___diversion].lower
+-      +constraint[NF_ZONE_river].upper,
++      +constraint[NF_ZONE_river].remaining_upper,
+ )
+ ```
+ 
+diff --git a/src/ut_water_apportionment/apportioner.py b/src/ut_water_apportionment/apportioner.py
+index f06e29a..115b2cd 100644
+--- a/src/ut_water_apportionment/apportioner.py
++++ b/src/ut_water_apportionment/apportioner.py
+@@ -516,7 +516,14 @@ class Apportioner:
+                     stop_priority
+                 )
+             elif type(item) is CoreScheduleVariable:
+-                if self._source_nf_is_exhausted(item.var):
++                if (
++                    self._source_nf_is_exhausted(item.var)
++                    and not getattr(
++                        self.engine,
++                        "force_explicit_priority_solves",
++                        False,
++                    )
++                ):
+                     continue
+ 
+                 self._maximize_var(item.var)
+diff --git a/src/ut_water_apportionment/compiled/__init__.py b/src/ut_water_apportionment/compiled/__init__.py
+index 1b39147..d8373bc 100644
+--- a/src/ut_water_apportionment/compiled/__init__.py
++++ b/src/ut_water_apportionment/compiled/__init__.py
+@@ -7,13 +7,15 @@ from .runtime import CompilationSession
+ 
+ 
+ class CompiledSolver:
+-    """An isolated SolverInput plus a bounded cache of symbolic LP programs.
+-
+-    Preparation derives the first day's most-senior objective without
+-    optimizing. Additional priority/active-set/dated patterns are compiled
+-    on demand, within the same budgets. Repeated solve() calls reset accounting
+-    state but reuse the equations. This is a hybrid executable plan, not a claim
+-    that every possible daily branch has been symbolically enumerated.
++    """A fully prepared cache of symbolic accounting objective programs.
++
++    Construction traces the supplied SolverInput through its complete date
++    range once and compiles every objective pattern encountered. Senior solved
++    values are absorbed into residual constraint capacities, so junior formulas
++    depend on ``constraint[...].remaining`` state rather than earlier
++    transaction variables. The cache is frozen before ``solve()`` returns to
++    the caller: runtime may evaluate cached formulas or safely fall back to LP,
++    but it never performs new symbolic compilation.
+     """
+ 
+     def __init__(
+@@ -31,55 +33,24 @@ class CompiledSolver:
+         self._prepare()
+ 
+     def _prepare(self):
+-        from ..apportioner import Apportioner
+-        from ..graph_manager import GraphManager
+-        from ..lp_solver import resolve_solver_backend
+-        from ..models import PathTrxn
+-        from ..natural_flow_calculator import NaturalFlowCalculator
+-        from ..timeseries_manager import DailyDataManager
+-        from ..trxn_schedule import TrxnSchedule
+-        from .projection import CannotCompile
+-
+-        backend = resolve_solver_backend(self.solver_backend)
+-        gm = GraphManager(deepcopy(self._input.accounting_graph))
+-        dm = DailyDataManager(
+-            gm, self._input.measurements, self._input.external_natural_flows
+-        )
+-        tm = TrxnSchedule(gm, self._input.txns, self.max_daily_apportionment)
+-        day = self._input.beg_date
+-        dm.set_day(day)
+-        tm.begin_day(day)
+-        apportioner = Apportioner(
+-            gm,
+-            tm,
+-            dm,
+-            NaturalFlowCalculator(gm),
+-            lp_solver_factory=backend.factory,
++        """Trace the supplied input once so the complete formula cache is built."""
++        from ..solver import _solve
++
++        # This is a compilation/warm-up pass. It deliberately executes the
++        # production accounting schedule so temporary counterflow caps,
++        # proportional active sets, spill locks, and finalization objectives are
++        # encountered in the same order as a real solve. No result from this
++        # pass is exposed; only the compiled programs and fallback coverage are
++        # retained.
++        _solve(
++            deepcopy(self._input),
++            solver_backend=self.solver_backend,
++            max_daily_apportionment=self.max_daily_apportionment,
+             generate_audit=False,
++            check_expected_values=False,
++            compiled_session=self._session,
+         )
+-        apportioner.update_daily_bounds()
+-        apportioner.apply_nf_mass_balance_constraints(day)
+-        engine = apportioner.engine
+-
+-        # Eagerly prepare only the most-senior ordinary transaction. Later
+-        # objectives are compiled on first encounter, after the production
+-        # priority loop has committed senior lower bounds. This is important:
+-        # objective-specific reduction can then move those commitments to the
+-        # RHS instead of compiling every junior objective against the untouched
+-        # full model.
+-        candidates = [
+-            t for t in tm.all_trxns if not getattr(t, "is_slack", False)
+-        ]
+-        candidates.sort(key=lambda t: t.priority)
+-        for t in candidates:
+-            target = tm.get_anchor_var(t) if isinstance(t, PathTrxn) else t.id
+-            if not target:
+-                continue
+-            try:
+-                self._session.program(engine, [target])
+-            except CannotCompile as error:
+-                self._session.warmup_reasons[str(error)] += 1
+-            break
++        self._session.finish_preparation()
+ 
+     def solve(
+         self, *, measurements=None, generate_audit=False, check_expected_values=False
+diff --git a/src/ut_water_apportionment/compiled/runtime.py b/src/ut_water_apportionment/compiled/runtime.py
+index 6e2e604..8a79642 100644
+--- a/src/ut_water_apportionment/compiled/runtime.py
++++ b/src/ut_water_apportionment/compiled/runtime.py
+@@ -311,6 +311,29 @@ def _substitute_bound(
+             row.parameters[parameter_label] = updated
+ 
+ 
++def _substitute_constant_bound(
++    rows: list[_SparseRow],
++    variable: str,
++    value: float,
++) -> None:
++    """Substitute a compile-time constant bound without creating a parameter."""
++
++    for row in rows:
++        if row.bound_var == variable:
++            row.coefficients.clear()
++            row.parameters.clear()
++            row.bound_var = None
++            continue
++        coefficient = row.coefficients.pop(variable, None)
++        if coefficient is None or value == 0.0:
++            continue
++        # row is coefficients @ x <= parameters @ values. Moving c*value to
++        # the RHS requires a constant parameter. This helper is currently used
++        # for zero-based increments, so retain a defensive assertion rather
++        # than silently baking a nonzero constant into the symbolic program.
++        raise CannotCompile("nonzero constant bound substitution is unsupported")
++
++
+ def snapshot(engine, options, targets=(), target_preferences=None):
+     """Capture an objective-specific, symbolically reduced LP snapshot.
+ 
+@@ -334,6 +357,14 @@ def snapshot(engine, options, targets=(), target_preferences=None):
+ 
+     parameter_values: dict[str, float] = {}
+     variable_bounds: dict[str, tuple[float, float]] = {}
++    bound_labels: dict[tuple[str, str], str | None] = {}
++    # Every non-target variable with a finite lower bound is represented as an
++    # increment above that bound: x = baseline + delta, delta >= 0. The baseline
++    # contribution is absorbed into each constraint's residual RHS. This makes
++    # committed senior allocations disappear from junior formulas even when a
++    # senior has not reached its own upper limit.
++    baseline_values: dict[str, float] = {}
++    fixed_increment_variables: set[str] = set()
+     inequalities: list[_SparseRow] = []
+     equations: list[_SparseRow] = []
+ 
+@@ -343,31 +374,70 @@ def snapshot(engine, options, targets=(), target_preferences=None):
+         parameter_values[label] = float(value)
+         return label
+ 
+-    # Variable bounds are kept symbolic. Exact fixed bounds become equalities,
+-    # which makes them essentially free to substitute before projection.
++    # Targets remain in absolute-value coordinates because the caller requests
++    # their value. Every finite-lower-bound non-target is shifted to a zero-based
++    # increment. Its current lower-bound allocation becomes part of the residual
++    # state, not a formula parameter.
+     for name, var in engine.vars.items():
+         lb, ub = var.lb(), var.ub()
+-        variable_bounds[name] = (lb, ub)
+         finite_lb, finite_ub = isfinite(lb), isfinite(ub)
++
++        if name not in protected and finite_lb:
++            baseline_values[name] = float(lb)
++            remaining_upper = float(ub - lb) if finite_ub else inf
++            variable_bounds[name] = (0.0, remaining_upper)
++            bound_labels[(name, "lower")] = None
++            if remaining_upper == 0.0:
++                fixed_increment_variables.add(name)
++                bound_labels[(name, "upper")] = None
++                continue
++
++            inequalities.append(
++                _SparseRow({name: -1.0}, {}, bound_var=name)
++            )
++            if finite_ub:
++                label = parameter(
++                    f"variable[{name}].remaining_upper",
++                    remaining_upper,
++                )
++                bound_labels[(name, "upper")] = label
++                inequalities.append(
++                    _SparseRow({name: 1.0}, {label: 1.0}, bound_var=name)
++                )
++            else:
++                bound_labels[(name, "upper")] = None
++            continue
++
++        variable_bounds[name] = (lb, ub)
+         if finite_lb and finite_ub and lb == ub:
+             label = parameter(f"variable[{name}].value", lb)
++            bound_labels[(name, "lower")] = label
++            bound_labels[(name, "upper")] = label
+             equations.append(
+                 _SparseRow({name: 1.0}, {label: 1.0}, preserve=True)
+             )
+             continue
+         if finite_lb:
+             label = parameter(f"variable[{name}].lower", lb)
++            bound_labels[(name, "lower")] = label
+             inequalities.append(
+                 _SparseRow({name: -1.0}, {label: -1.0}, bound_var=name)
+             )
++        else:
++            bound_labels[(name, "lower")] = None
+         if finite_ub:
+             label = parameter(f"variable[{name}].upper", ub)
++            bound_labels[(name, "upper")] = label
+             inequalities.append(
+                 _SparseRow({name: 1.0}, {label: 1.0}, bound_var=name)
+             )
++        else:
++            bound_labels[(name, "upper")] = None
+ 
+     # Constraint equalities are represented once during the cheap substitution
+-    # phase instead of as two dense inequalities.
++    # phase instead of as two dense inequalities. Contributions from committed
++    # variables are subtracted before the row is built. The resulting parameter
++    # is the live residual capacity available to the unsolved variables.
+     for name, con in engine.cons.items():
+         lb, ub = con.lb(), con.ub()
+         if not isfinite(lb) and not isfinite(ub):
+@@ -376,13 +446,32 @@ def snapshot(engine, options, targets=(), target_preferences=None):
+         if not all(isfinite(value) for value in coefficients.values()):
+             raise CannotCompile("nonfinite matrix coefficient")
+ 
++        committed_activity = sum(
++            coefficients.get(variable, 0.0) * value
++            for variable, value in baseline_values.items()
++        )
++        if fixed_increment_variables:
++            coefficients = {
++                variable: value
++                for variable, value in coefficients.items()
++                if variable not in fixed_increment_variables
++            }
++
+         finite_lb, finite_ub = isfinite(lb), isfinite(ub)
++        residual_lb = lb - committed_activity if finite_lb else -inf
++        residual_ub = ub - committed_activity if finite_ub else inf
+         if finite_lb and finite_ub and lb == ub:
+-            label = parameter(f"constraint[{name}].value", lb)
++            label = parameter(
++                f"constraint[{name}].remaining",
++                residual_ub,
++            )
+             equations.append(_SparseRow(coefficients, {label: 1.0}))
+         else:
+             if finite_lb:
+-                label = parameter(f"constraint[{name}].lower", lb)
++                label = parameter(
++                    f"constraint[{name}].remaining_lower",
++                    residual_lb,
++                )
+                 inequalities.append(
+                     _SparseRow(
+                         {variable: -value for variable, value in coefficients.items()},
+@@ -390,7 +479,10 @@ def snapshot(engine, options, targets=(), target_preferences=None):
+                     )
+                 )
+             if finite_ub:
+-                label = parameter(f"constraint[{name}].upper", ub)
++                label = parameter(
++                    f"constraint[{name}].remaining_upper",
++                    residual_ub,
++                )
+                 inequalities.append(_SparseRow(coefficients.copy(), {label: 1.0}))
+ 
+     # Eliminate every non-objective variable that has an exact defining
+@@ -449,13 +541,13 @@ def snapshot(engine, options, targets=(), target_preferences=None):
+                 if not isfinite(ub):
+                     bounded = False
+                     break
+-                label = f"variable[{variable}].upper"
++                label = bound_labels.get((variable, "upper"))
+                 bound = ub
+             else:
+                 if not isfinite(lb):
+                     bounded = False
+                     break
+-                label = f"variable[{variable}].lower"
++                label = bound_labels.get((variable, "lower"))
+                 bound = lb
+             maximum_terms.append((label, coefficient, bound))
+             maximum_value += coefficient * bound
+@@ -469,6 +561,12 @@ def snapshot(engine, options, targets=(), target_preferences=None):
+         if maximum_value > rhs_value + 1e-9 * redundancy_scale:
+             continue
+         for label, coefficient, bound in maximum_terms:
++            if label is None:
++                if bound != 0.0:
++                    raise CannotCompile(
++                        "nonzero constant redundancy proof is unsupported"
++                    )
++                continue
+             parameter(label, bound)
+             updated = row.parameters.get(label, 0.0) - coefficient
+             if updated == 0.0:
+@@ -501,27 +599,36 @@ def snapshot(engine, options, targets=(), target_preferences=None):
+             lb, ub = variable_bounds[variable]
+             label = None
+             value = None
++            side = None
+             if not relevant:
+                 if preference == "upper" and isfinite(ub):
+-                    label, value = f"variable[{variable}].upper", ub
++                    side, value = "upper", ub
+                 elif preference == "lower" and isfinite(lb):
+-                    label, value = f"variable[{variable}].lower", lb
++                    side, value = "lower", lb
+                 elif not is_target and isfinite(lb):
+-                    label, value = f"variable[{variable}].lower", lb
++                    side, value = "lower", lb
+                 elif not is_target and isfinite(ub):
+-                    label, value = f"variable[{variable}].upper", ub
++                    side, value = "upper", ub
+             elif all(coefficient > 0 for coefficient in relevant) and isfinite(lb):
+                 if not is_target or preference == "lower":
+-                    label, value = f"variable[{variable}].lower", lb
++                    side, value = "lower", lb
+             elif all(coefficient < 0 for coefficient in relevant) and isfinite(ub):
+                 if not is_target or preference == "upper":
+-                    label, value = f"variable[{variable}].upper", ub
++                    side, value = "upper", ub
+ 
+-            if label is not None and value is not None:
+-                parameter(label, value)
+-                _substitute_bound(inequalities, variable, label)
++            if side is not None and value is not None:
++                label = bound_labels.get((variable, side))
++                if label is None:
++                    _substitute_constant_bound(inequalities, variable, value)
++                else:
++                    parameter(label, value)
++                    _substitute_bound(inequalities, variable, label)
+                 bound_eliminated += 1
+                 if is_target:
++                    if label is None:
++                        raise CannotCompile(
++                            "target resolved to an unnamed constant bound"
++                        )
+                     protected.remove(variable)
+                     resolved_targets[variable] = label
+                 eliminated = True
+@@ -993,7 +1100,9 @@ class CompilationSession:
+         self.stats = Counter()
+         self.events = []
+         self.last_events = []
++        self.preparation_events = []
+         self.warmup_reasons = Counter()
++        self.frozen = False
+ 
+     def program(
+         self,
+@@ -1023,6 +1132,10 @@ class CompilationSession:
+         if key in self.failures:
+             raise CannotCompile(self.failures[key])
+         if key not in self.programs:
++            if self.frozen:
++                raise CannotCompile(
++                    "objective pattern was not compiled during plan preparation"
++                )
+             if len(self.programs) + len(self.failures) >= self.options.max_plans:
+                 raise CannotCompile("program cache budget reached")
+             remaining = self.options.max_total_compile_seconds - self.compile_seconds
+@@ -1158,6 +1271,19 @@ class CompilationSession:
+         }
+         return value + fixed_objective, values
+ 
++    def freeze(self):
++        """Prevent runtime execution from compiling previously unseen programs."""
++        self.frozen = True
++
++    def finish_preparation(self):
++        """Keep compile coverage but reset execution statistics for plan.solve()."""
++        self.preparation_events = list(self.last_events)
++        self.stats.clear()
++        self.events.clear()
++        self.last_events.clear()
++        self.date = None
++        self.freeze()
++
+     def begin_day(self, date):
+         self.date, self.events = date, []
+ 
+@@ -1192,37 +1318,64 @@ class CompilationSession:
+                 for p in self.programs.values()
+             },
+             "days": list(self.last_events),
++            "preparation_days": list(self.preparation_events),
+             "preparation_fallbacks": dict(self.warmup_reasons),
++            "frozen": self.frozen,
+         }
+ 
+     def formulas(self):
+         prelude = (
+-            "Parameters are live LP bounds: measurements, NF, account capacity, and committed allocations.\n"
++            "Parameters are live residual constraint capacities plus unsolved variable bounds.\n"
++            "Solved senior allocations are absorbed into constraint[...].remaining values; they are not live variables.\n"
++            "All objective patterns encountered across the supplied date range are compiled during plan preparation.\n"
++            "Runtime execution uses only cached formulas; an unseen branch restarts that day with LP instead of compiling.\n"
+             "Programs include parent/path equalities and active counterflow/proportional/spill constraints.\n"
+-            "Daily execution follows the production priority loop; it selects programs by matrix and objective.\n"
+-            "Equal-priority active sets are visited iteratively; subsets are not enumerated in advance.\n"
+-            "On ambiguity, invalid domain, audit request, or budget limit: RESTART_DAY_WITH_LP.\n"
++            "On ambiguity, invalid domain, audit request, unseen branch, or budget limit: RESTART_DAY_WITH_LP.\n"
+         )
++        sequence_lines = []
++        if self.preparation_events:
++            sequence_lines.append("PREPARED EXECUTION SEQUENCES")
++            for event in self.preparation_events:
++                calls = " -> ".join(event["formula_calls"]) or "(no formulas)"
++                suffix = (
++                    f"  [LP fallback: {event['fallback_reason']}]"
++                    if event.get("fallback_reason")
++                    else ""
++                )
++                sequence_lines.append(
++                    f"{event['date']}: {calls}{suffix}"
++                )
++            sequence_lines.append("")
+         programs = "\n\n".join(p.text() for p in self.programs.values())
+         reasons = "\n".join(
+             "LP FALLBACK: " + s
+             for s in dict.fromkeys([*self.failures.values(), *self.warmup_reasons])
+         )
+-        return prelude + "\n" + programs + "\n" + reasons
++        return (
++            prelude
++            + "\n"
++            + "\n".join(sequence_lines)
++            + programs
++            + "\n"
++            + reasons
++        )
+ 
+     def execution_outline(self):
+         # This is a faithful execution outline, not a portable standalone export
+         # of graph preprocessing or state objects. formulas() gives actual bounds.
+-        return """# Execution outline; plan.solve() is the executable routine.
++        return """# compile_solver_input() has already traced this schedule and frozen the formula cache.
++# plan.solve() performs numeric execution only; it never compiles a new objective.
+ for day in dates:
+     initialize_daily_measurements_accounts_and_natural_flow()
++    initialize_residual_constraint_state()
+     try:
+         for allocation_pass in (1, 2):
+             for priority_group in production_schedule:
+                 while active_members_remain(priority_group):
+                     apply_counterflow_caps_using_compiled_objectives()
+                     increment = evaluate_compiled_common_increment_or_single_maximum()
+-                    commit_allocations_and_update_remaining_natural_flow(increment)
++                    commit_allocations_and_update_residual_constraints(increment)
++                    update_remaining_natural_flow(increment)
+                     remove_blocked_members_using_compiled_objectives()
+                     release_temporary_caps()
+             if allocation_pass == 1:
+@@ -1263,6 +1416,13 @@ def _compiled_interval(p, upper, lower, conditions):
+ 
+ def compiled_factory(base, session):
+     class CompiledEngine(base):
++        # In compiled execution, keep explicit priority solves even when the
++        # natural-flow helper already knows a source is exhausted. The residual
++        # NF constraint then evaluates the transaction formula to its committed
++        # value (normally zero headroom), which keeps the generated routine
++        # complete and inspectable without changing the allocation.
++        force_explicit_priority_solves = True
++
+         def solve_objective(self, variable_names, maximization=True, weights=None):
+             return session.evaluate(self, variable_names, maximization, weights)
+ 
+diff --git a/tests/test_compiled_solver.py b/tests/test_compiled_solver.py
+index 67d7dde..29c2ee9 100644
+--- a/tests/test_compiled_solver.py
++++ b/tests/test_compiled_solver.py
+@@ -69,7 +69,7 @@ class CompiledSolverTests(unittest.TestCase):
+             self.assertEqual(engine.solve_objective(["forward"])[0], 28)
+             self.assertEqual(len(session.programs), 2)  # Matrix changes invalidate the key.
+         self.assertIn("upper = MIN(", session.formulas())
+-        self.assertIn("constraint[net].value", session.formulas())
++        self.assertIn("constraint[net].remaining", session.formulas())
+ 
+     def test_signed_target_variable_compiles_without_lp(self):
+         session = CompilationSession()
+@@ -121,7 +121,8 @@ class CompiledSolverTests(unittest.TestCase):
+         self.assertEqual(reduction["source_variables"], 52)
+         self.assertEqual(reduction["active_variables"], 1)
+         self.assertEqual(reduction["bound_eliminated"], 51)
+-        self.assertIn("variable[senior].lower", session.formulas())
++        self.assertIn("constraint[water].remaining_upper", session.formulas())
++        self.assertNotIn("variable[senior].lower", session.formulas())
+ 
+     def test_mixed_sign_counterflow_stays_live_until_projection(self):
+         from ut_water_apportionment.compiled.runtime import snapshot
+@@ -161,8 +162,27 @@ class CompiledSolverTests(unittest.TestCase):
+                 pass  # Also check the exported ambiguity guard below.
+         namespace = {}
+         exec(session.code(), namespace)
+-        state = snapshot(engine, session.options)
+         for program in session.programs.values():
++            preferences = {
++                target: (
++                    "upper"
++                    if (cost > 0) == program.maximization
++                    else "lower"
++                )
++                for target, cost in zip(
++                    program.targets,
++                    program.costs,
++                    strict=True,
++                )
++                if cost != 0
++            }
++            state = snapshot(
++                engine,
++                session.options,
++                program.targets,
++                target_preferences=preferences,
++            )
++            self.assertEqual(state.labels, program.labels)
+             params = dict(zip(state.labels, state.parameters, strict=True))
+             try:
+                 expected = program.evaluate(state.parameters)
+@@ -288,19 +308,136 @@ class CompiledSolverTests(unittest.TestCase):
+         with patch(
+             "ut_water_apportionment.lp_solver_SCIPY.linprog",
+             side_effect=AssertionError("unexpected LP"),
++        ), patch(
++            "ut_water_apportionment.compiled.runtime.compile_objective",
++            side_effect=AssertionError("runtime compilation"),
+         ):
+             first = plan.solve()
+             self.assertEqual(first.compilation_report["compiled_days"], 3)
+-            with patch(
+-                "ut_water_apportionment.compiled.runtime.compile_objective",
+-                side_effect=AssertionError("recompiled"),
+-            ):
+-                second = plan.solve()
++            second = plan.solve()
+         assert_same(first, expected)
+         assert_same(second, expected)
+         self.assertEqual(problem, original)
+         self.assertEqual(second.compilation_report["compiled_days"], 3)  # Per-run counters.
+ 
++    def test_plan_eagerly_compiles_complete_residual_priority_routine(self):
++        from ut_water_apportionment import (
++            AccountingGraph,
++            FlowComponentsTypes,
++            FlowMeasurement,
++            InterzoneFlow,
++            MeasurementCollection,
++            MeasurementSeries,
++            PathTrxn,
++            SolverInput,
++            TrxnPathItem,
++            Zone,
++            ZoneTypes,
++        )
++
++        problem = SolverInput(
++            beg_date="2000-01-01",
++            end_date="2000-01-01",
++            accounting_graph=AccountingGraph(
++                zones=[
++                    Zone(id="RIVER", type=ZoneTypes.STREAM),
++                    Zone(id="SYS", type=ZoneTypes.SYSTEM_GAIN_LOSS),
++                    Zone(id="USER", type=ZoneTypes.USE),
++                ],
++                interzone_flows=[
++                    InterzoneFlow(
++                        id="RIVER>USER",
++                        from_zone="RIVER",
++                        to_zone="USER",
++                        flow_measurements=[FlowMeasurement(measurement_id="1")],
++                    ),
++                    InterzoneFlow(
++                        id="SYS>RIVER",
++                        from_zone="SYS",
++                        to_zone="RIVER",
++                        flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE,
++                        bidirectional=True,
++                    ),
++                ],
++            ),
++            measurements=MeasurementCollection(
++                beg_date="2000-01-01",
++                end_date="2000-01-01",
++                series=[MeasurementSeries(id="1", values=[12])],
++            ),
++            txns=[
++                PathTrxn(
++                    id="TRXN_1",
++                    priority=1,
++                    upper_limit=3,
++                    path=[TrxnPathItem(flow_id="RIVER>USER", expected_values=[3])],
++                ),
++                PathTrxn(
++                    id="TRXN_2",
++                    priority=2,
++                    upper_limit=6,
++                    path=[TrxnPathItem(flow_id="RIVER>USER", expected_values=[6])],
++                ),
++                PathTrxn(
++                    id="TRXN_3",
++                    priority=3,
++                    upper_limit=12,
++                    path=[TrxnPathItem(flow_id="RIVER>USER", expected_values=[3])],
++                ),
++                PathTrxn(
++                    id="TRXN_4",
++                    priority=4,
++                    upper_limit=4,
++                    path=[TrxnPathItem(flow_id="RIVER>USER", expected_values=[0])],
++                ),
++            ],
++        )
++
++        plan = compile_solver_input(problem, solver_backend="scipy")
++        formulas = plan.formulas()
++        report = plan.report()
++
++        # Compilation is complete before the first public execution. Every
++        # transaction gets its own priority formula, including TRXN_4 whose
++        # remaining natural flow is already zero.
++        for transaction in ("TRXN_1", "TRXN_2", "TRXN_3", "TRXN_4"):
++            self.assertIn(
++                f"MAXIMIZE (1.0) * {transaction}___RIVER>USER",
++                formulas,
++            )
++        self.assertTrue(report["frozen"])
++        self.assertEqual(report["days"], [])
++        self.assertEqual(report["preparation_days"][0]["method"], "compiled")
++
++        # Senior values are represented by residual constraint state, not by
++        # explicit variable[TRXN_n].value parameters in junior programs.
++        p2 = formulas.split("PROGRAM P2:", 1)[1].split("PROGRAM P3:", 1)[0]
++        p3 = formulas.split("PROGRAM P3:", 1)[1].split("PROGRAM P4:", 1)[0]
++        p4 = formulas.split("PROGRAM P4:", 1)[1].split("PROGRAM P5:", 1)[0]
++        self.assertIn("constraint[MEAS_RIVER>USER].remaining", p2)
++        self.assertIn("constraint[NF_ZONE_RIVER].remaining_upper", p2)
++
++        # Earlier transactions have disappeared completely from each junior
++        # priority formula. Their effects exist only in the residual constraint
++        # state that is updated between formula evaluations.
++        self.assertNotIn("TRXN_1___RIVER>USER", p2)
++        self.assertNotIn("TRXN_1___RIVER>USER", p3)
++        self.assertNotIn("TRXN_2___RIVER>USER", p3)
++        self.assertNotIn("TRXN_1___RIVER>USER", p4)
++        self.assertNotIn("TRXN_2___RIVER>USER", p4)
++        self.assertNotIn("TRXN_3___RIVER>USER", p4)
++
++        program_count = report["program_count"]
++        compile_seconds = report["compile_seconds"]
++        with patch(
++            "ut_water_apportionment.compiled.runtime.compile_objective",
++            side_effect=AssertionError("runtime compilation"),
++        ):
++            actual = plan.solve(check_expected_values=True)
++        self.assertEqual(actual.compilation_report["program_count"], program_count)
++        self.assertEqual(actual.compilation_report["compile_seconds"], compile_seconds)
++        self.assertEqual(actual.compilation_report.get("lp_days", 0), 0)
++
+     def test_changed_measurements_use_fresh_parameters(self):
+         problem = make_input(reaches=1, rights=2, days=3)
+         plan = compile_solver_input(problem, solver_backend="scipy")

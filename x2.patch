@@ -1,0 +1,605 @@
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' profile_src/docs/compiled-equations.md profile_opt/docs/compiled-equations.md
+--- profile_src/docs/compiled-equations.md	2026-09-12 17:14:44.000000000 +0000
++++ profile_opt/docs/compiled-equations.md	2026-09-12 19:26:38.553128619 +0000
+@@ -84,7 +84,13 @@
+ 
+ After this reduction, Fourier–Motzkin projection derives upper bounds (a MIN),
+ lower bounds (a MAX), and inequalities defining valid daily inputs. Minimizing
+-selects the lower bound; maximizing selects the upper bound.
++selects the lower bound; maximizing selects the upper bound. The exact projector
++uses positive cross-multiplication for equality substitution and inequality
++pairing, so it avoids most Fraction divisions. Rows that do not contain the
++variable being eliminated are carried forward in canonical form instead of being
++renormalized every round, and row hashes are cached for exact duplicate removal.
++Scalar objectives that presolve to zero or one active variable bypass
++Fourier–Motzkin entirely and are isolated directly from the remaining rows.
+ 
+ If an objective requests several variable values, knowing the optimum sum is
+ insufficient. The compiler also projects the range of each requested variable
+@@ -140,7 +146,12 @@
+ The existing production loop determines active members, applies proportional
+ increments, drops blocked members, and repeats. The compiler sees the common
+ increment as another scalar LP objective. It **does not enumerate all subsets**
+-of the group in advance.
++of the group in advance. Members with identical LP constraint columns share one
++residual representation during common-increment compilation. During the later
++"which members are maxed?" check, members with identical columns also share one
++representative objective after members already at their individual upper bounds
++have been removed. This is exact for positive headroom: increasing either member
++by the same epsilon has the same effect on every LP constraint.
+ 
+ The variable budget now applies to the **reduced objective**, not the entire LP.
+ A source model with hundreds of variables can therefore compile a senior or junior
+@@ -151,7 +162,10 @@
+ 
+ `plan.report()["program_reductions"]` records source-variable count, active
+ variable count, equality eliminations, and bound eliminations for each cached
+-program. This makes the reduction visible when tuning large models.
++program. This makes the reduction visible when tuning large models. Cached
++program coefficient counts are computed once when a program is created and the
++session maintains the running total, avoiding quadratic recounting as the plan
++cache grows.
+ 
+ ## Fallback and audit behavior
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' profile_src/src/ut_water_apportionment/apportioner.py profile_opt/src/ut_water_apportionment/apportioner.py
+--- profile_src/src/ut_water_apportionment/apportioner.py	2026-09-12 17:13:50.000000000 +0000
++++ profile_opt/src/ut_water_apportionment/apportioner.py	2026-09-12 19:27:18.848297842 +0000
+@@ -862,19 +862,22 @@
+         """Return the variables that cannot be increased further.
+ 
+         Classification uses only objective values, never arbitrary component
+-        values from a nonunique maximum-sum face. A whole batch that cannot
+-        increase is classified in one solve. Batches whose sum can increase are
+-        recursively split until the maxed members are isolated. If a batch can
+-        attain every member's finite upper bound simultaneously, none of its
+-        members is maxed and recursion stops immediately.
++        values from a nonunique maximum-sum face. Variables with identical LP
++        columns share the same positive-headroom status (after members already
++        at their own upper bounds are removed), so only one representative from
++        each identical column needs to participate in compiled objectives.
++
++        A whole representative batch that cannot increase is classified in one
++        solve. Batches whose sum can increase are recursively split until the
++        maxed column groups are isolated.
+         """
+ 
+-
+         maxed_ids: set[str] = set()
+         remaining: dict[str, tuple[PathTrxn | TrxnGroup, float, float]] = {}
+ 
+         for var in vars:
+-            if self._source_nf_is_exhausted(var): # If there is no more nf then no need to spend a solver run
++            if self._source_nf_is_exhausted(var):
++                # If there is no more NF then no solver run is needed.
+                 maxed_ids.add(var.id)
+                 continue
+             if type(var) == PathTrxn:
+@@ -898,6 +901,42 @@
+ 
+             remaining[target_var] = (var, current_value, upper_bound)
+ 
++        def column_signature(variable_name: str) -> tuple[tuple[str, float], ...]:
++            """Return the variable's exact current constraint column.
++
++            Two non-bound-limited variables with the same column have the same
++            feasible effect for an infinitesimal increase. Therefore either
++            both have positive headroom or neither does. Grouping by the full
++            column is conservative: any parent/path/counterflow difference puts
++            variables in separate groups.
++            """
++
++            variable = self.engine.vars[variable_name]
++            signature: list[tuple[str, float]] = []
++            for constraint_name, constraint in self.engine.cons.items():
++                if hasattr(constraint, 'coefficients'):
++                    coefficient = constraint.coefficients.get(variable_name, 0.0)
++                else:
++                    coefficient = constraint.GetCoefficient(variable)
++                if coefficient != 0:
++                    signature.append((constraint_name, float(coefficient)))
++            return tuple(signature)
++
++        column_groups: dict[tuple[tuple[str, float], ...], list[str]] = {}
++        for target_name in remaining:
++            column_groups.setdefault(column_signature(target_name), []).append(
++                target_name
++            )
++
++        representatives: dict[str, list[str]] = {
++            group[0]: group for group in column_groups.values()
++        }
++
++        def mark_group_maxed(representative: str) -> None:
++            maxed_ids.update(
++                remaining[name][0].id for name in representatives[representative]
++            )
++
+         def classify(target_vars: list[str]) -> None:
+             if not target_vars:
+                 return
+@@ -911,11 +950,12 @@
+                 ),
+             )
+ 
+-            # Lower bounds already fix every member at its current allocation.
+-            # Therefore any member that can increase by more than SOLVER_TOL
+-            # necessarily raises the batch sum by more than SOLVER_TOL.
++            # Lower bounds already fix every representative at its current
++            # allocation. Therefore any representative that can increase by
++            # more than SOLVER_TOL necessarily raises the batch sum.
+             if maximum_sum <= current_sum + SOLVER_TOL:
+-                maxed_ids.update(remaining[name][0].id for name in target_vars)
++                for representative in target_vars:
++                    mark_group_maxed(representative)
+                 return
+ 
+             upper_bounds = [remaining[name][2] for name in target_vars]
+@@ -931,7 +971,7 @@
+             classify(target_vars[:midpoint])
+             classify(target_vars[midpoint:])
+ 
+-        target_names = list(remaining)
++        target_names = list(representatives)
+         for start in range(0, len(target_names), MAX_MAXED_CLASSIFICATION_BATCH):
+             classify(
+                 target_names[
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' profile_src/src/ut_water_apportionment/compiled/projection.py profile_opt/src/ut_water_apportionment/compiled/projection.py
+--- profile_src/src/ut_water_apportionment/compiled/projection.py	2026-09-12 17:13:50.000000000 +0000
++++ profile_opt/src/ut_water_apportionment/compiled/projection.py	2026-09-12 19:14:40.465852693 +0000
+@@ -50,9 +50,29 @@
+ class Row:
+     a: tuple
+     p: tuple
++    # Rows are dictionary/set keys throughout projection. Fraction hashing is
++    # comparatively expensive, so cache the combined tuple hash after its first
++    # use. These fields deliberately do not participate in equality.
++    _hash: int | None = field(default=None, init=False, repr=False, compare=False)
++    _negative: "Row | None" = field(
++        default=None, init=False, repr=False, compare=False
++    )
++
++    def __hash__(self):
++        cached = self._hash
++        if cached is None:
++            cached = hash((self.a, self.p))
++            object.__setattr__(self, "_hash", cached)
++        return cached
+ 
+     def negative(self):
+-        return Row(tuple(-v for v in self.a), tuple(-v for v in self.p))
++        cached = self._negative
++        if cached is not None:
++            return cached
++        negative = Row(tuple(-v for v in self.a), tuple(-v for v in self.p))
++        object.__setattr__(self, "_negative", negative)
++        object.__setattr__(negative, "_negative", self)
++        return negative
+ 
+ 
+ def rational(value):
+@@ -70,27 +90,118 @@
+         if perf_counter() > self.deadline:
+             raise CannotCompile("compilation time budget reached")
+ 
++    def _canonical_row(self, row):
++        """Return one normalized row, or ``None`` for the all-zero row.
++
++        Positive scaling does not change an inequality. Using a reciprocal and
++        multiplication is exactly equivalent to dividing every coefficient by
++        the first nonzero magnitude, but is substantially cheaper for Fraction.
++        """
++
++        self.check_time()
++        scale = next((abs(c) for c in row.a + row.p if c), None)
++        if scale is None:
++            return None
++        if scale != 1:
++            inverse = Fraction(scale.denominator, scale.numerator)
++            row = Row(
++                tuple(c * inverse for c in row.a),
++                tuple(c * inverse for c in row.p),
++            )
++        if any(
++            max(c.numerator.bit_length(), c.denominator.bit_length())
++            > self.options.max_fraction_bits
++            for c in row.a + row.p
++        ):
++            raise CannotCompile("rational coefficient size budget reached")
++        return row
++
++    def _finish_rows(self, result):
++        if len(result) > self.options.max_rows:
++            raise CannotCompile("projected row budget reached")
++        self.peak_rows = max(self.peak_rows, len(result))
++        return list(result)
++
+     def canonical(self, rows):
++        """Canonicalize and exactly deduplicate an arbitrary row stream."""
++
+         result = {}
+         for row in rows:
+-            self.check_time()
+-            # Positive scaling retains inequality direction; normalize for
+-            # exact duplicate removal, including rows containing only inputs.
+-            scale = next((abs(c) for c in row.a + row.p if c), None)
+-            if scale is None:
++            row = self._canonical_row(row)
++            if row is None:
+                 continue
+-            row = Row(tuple(c / scale for c in row.a), tuple(c / scale for c in row.p))
+-            if any(
+-                max(c.numerator.bit_length(), c.denominator.bit_length())
+-                > self.options.max_fraction_bits
+-                for c in row.a + row.p
+-            ):
+-                raise CannotCompile("rational coefficient size budget reached")
+             result[row] = None
+             if len(result) > self.options.max_rows:
+                 raise CannotCompile("projected row budget reached")
+-        self.peak_rows = max(self.peak_rows, len(result))
+-        return list(result)
++        return self._finish_rows(result)
++
++    def _merge_generated(self, carried, generated):
++        """Deduplicate canonical carried rows plus newly generated rows.
++
++        Rows whose eliminated-variable coefficient is already zero are carried
++        unchanged. They were canonicalized in the previous iteration, so doing
++        that exact Fraction work again is pure overhead.
++        """
++
++        result = {row: None for row in carried}
++        if len(result) > self.options.max_rows:
++            raise CannotCompile("projected row budget reached")
++        for row in generated:
++            row = self._canonical_row(row)
++            if row is None:
++                continue
++            result[row] = None
++            if len(result) > self.options.max_rows:
++                raise CannotCompile("projected row budget reached")
++        return self._finish_rows(result)
++
++    @staticmethod
++    def _substitute_equality(row, equation, variable):
++        """Eliminate ``variable`` with exact cross-multiplication.
++
++        ``equation`` represents an equality because both it and its negative
++        are present. Multiplying the inequality row by ``abs(e)`` is a positive
++        scaling, and adding any multiple of an equality is exact. This avoids
++        the Fraction division in ``row.a[v] / equation.a[v]``.
++        """
++
++        a = row.a[variable]
++        e = equation.a[variable]
++        scale = abs(e)
++        equation_multiplier = -a if e > 0 else a
++        return Row(
++            tuple(
++                scale * x + equation_multiplier * y
++                for x, y in zip(row.a, equation.a, strict=True)
++            ),
++            tuple(
++                scale * x + equation_multiplier * y
++                for x, y in zip(row.p, equation.p, strict=True)
++            ),
++        )
++
++    @staticmethod
++    def _pair(upper, lower, variable):
++        """Fourier-Motzkin pair without Fraction division.
++
++        If ``cp > 0`` and ``lower.a[v] == -cn < 0``, then
++        ``cn * upper + cp * lower`` eliminates the variable. Both row scales
++        are positive, so this is exactly the same inequality as the usual
++        normalized ``upper/cp + lower/cn`` form.
++        """
++
++        cp = upper.a[variable]
++        cn = -lower.a[variable]
++        return Row(
++            tuple(
++                cn * x + cp * y
++                for x, y in zip(upper.a, lower.a, strict=True)
++            ),
++            tuple(
++                cn * x + cp * y
++                for x, y in zip(upper.p, lower.p, strict=True)
++            ),
++        )
+ 
+     def bounds(self, source, target):
+         rows = self.canonical(source)
+@@ -113,27 +224,19 @@
+                     (i for i in remaining if equation.a[i]),
+                     key=lambda i: sum(bool(r.a[i]) for r in rows),
+                 )
+-
+-                def substitute(rows=rows, v=v, equation=equation):
+-                    for r in rows:
+-                        factor = r.a[v] / equation.a[v]
+-                        yield Row(
+-                            tuple(
+-                                x - factor * y
+-                                for x, y in zip(r.a, equation.a, strict=True)
+-                            ),
+-                            tuple(
+-                                x - factor * y
+-                                for x, y in zip(r.p, equation.p, strict=True)
+-                            ),
+-                        )
+-
+-                output = substitute()
++                carried = [r for r in rows if not r.a[v]]
++                generated = (
++                    self._substitute_equality(r, equation, v)
++                    for r in rows
++                    if r.a[v]
++                )
++                rows = self._merge_generated(carried, generated)
+             else:
+                 v = min(
+                     remaining,
+                     key=lambda i: (
+-                        sum(r.a[i] > 0 for r in rows) * sum(r.a[i] < 0 for r in rows),
++                        sum(r.a[i] > 0 for r in rows)
++                        * sum(r.a[i] < 0 for r in rows),
+                         i,
+                     ),
+                 )
+@@ -141,25 +244,13 @@
+                 negative = [r for r in rows if r.a[v] < 0]
+                 if len(positive) * len(negative) > self.options.max_pairs:
+                     raise CannotCompile("elimination pair budget reached")
+-
+-                def pair_rows(rows=rows, v=v, positive=positive, negative=negative):
+-                    yield from (r for r in rows if not r.a[v])
+-                    for upper in positive:
+-                        for lower in negative:
+-                            cp, cn = upper.a[v], -lower.a[v]
+-                            yield Row(
+-                                tuple(
+-                                    x / cp + y / cn
+-                                    for x, y in zip(upper.a, lower.a, strict=True)
+-                                ),
+-                                tuple(
+-                                    x / cp + y / cn
+-                                    for x, y in zip(upper.p, lower.p, strict=True)
+-                                ),
+-                            )
+-
+-                output = pair_rows()
+-            rows = self.canonical(output)
++                carried = [r for r in rows if not r.a[v]]
++                generated = (
++                    self._pair(upper, lower, v)
++                    for upper in positive
++                    for lower in negative
++                )
++                rows = self._merge_generated(carried, generated)
+             remaining.remove(v)
+         upper, lower, conditions = [], [], []
+         for r in rows:
+@@ -181,7 +272,9 @@
+     matrix: np.ndarray = field(init=False, repr=False)
+ 
+     def __post_init__(self):
+-        self.matrix = np.asarray(self.upper + self.lower + self.conditions, dtype=float)
++        self.matrix = np.asarray(
++            self.upper + self.lower + self.conditions, dtype=float
++        )
+ 
+     def interval(self, parameters):
+         if not self.matrix.size:
+@@ -204,7 +297,9 @@
+         def expression(row):
+             return (
+                 " + ".join(
+-                    f"({c}) * {s}" for s, c in zip(labels, row, strict=True) if c
++                    f"({c}) * {s}"
++                    for s, c in zip(labels, row, strict=True)
++                    if c
+                 )
+                 or "0"
+             )
+@@ -219,5 +314,7 @@
+             if not rows:
+                 lines.append("    " + empty)
+             lines.append(")")
+-        lines.extend("REQUIRE " + expression(row) + " >= 0" for row in self.conditions)
++        lines.extend(
++            "REQUIRE " + expression(row) + " >= 0" for row in self.conditions
++        )
+         return "\n".join(lines)
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' profile_src/src/ut_water_apportionment/compiled/runtime.py profile_opt/src/ut_water_apportionment/compiled/runtime.py
+--- profile_src/src/ut_water_apportionment/compiled/runtime.py	2026-09-12 17:13:50.000000000 +0000
++++ profile_opt/src/ut_water_apportionment/compiled/runtime.py	2026-09-12 19:19:07.320118460 +0000
+@@ -6,7 +6,8 @@
+ """
+ 
+ from collections import Counter
+-from dataclasses import dataclass
++from dataclasses import dataclass, field
++from fractions import Fraction
+ from math import inf, isfinite
+ from time import perf_counter
+ 
+@@ -633,13 +634,13 @@
+     bound_eliminated: int = 0
+     target_bound_eliminated: int = 0
+     return_values: bool = True
++    coefficient_count: int = field(init=False)
+ 
+-    @property
+-    def coefficient_count(self):
+-        # Count actual symbolic terms, not zero padding in the dense numerical
+-        # evaluation matrix. The latter made large-but-sparse formulas hit the
+-        # safety budget for coefficients that do not exist mathematically.
+-        return sum(
++    def __post_init__(self):
++        # Count actual symbolic terms once. Re-walking all Fraction rows every
++        # time a new program is cached made total-budget bookkeeping quadratic
++        # in the number of compiled programs.
++        self.coefficient_count = sum(
+             sum(bool(coefficient) for coefficient in row)
+             for bounds in (self.optimum, *self.ranges)
+             for rows in (bounds.upper, bounds.lower, bounds.conditions)
+@@ -765,8 +766,95 @@
+         coefficients + (-rational(1),),
+         tuple(objective_rhs),
+     )
+-    optimum = projector.bounds(rows + [equation, equation.negative()], n)
++
++    def scaled_expression(expression, multiplier, add=()):
++        values = tuple(value * multiplier for value in expression)
++        if add:
++            values = tuple(
++                value + extra for value, extra in zip(values, add, strict=True)
++            )
++        return values
++
++    # Most sequential/objective-classification solves presolve to zero or one
++    # active variable. Projecting an artificial objective variable through that
++    # scalar system is unnecessary: isolate it directly from each row. This
++    # avoids hundreds of nearly identical Fourier-Motzkin runs for large
++    # equal-priority groups while retaining exact Fraction formulas.
++    direct_scalar = n == 0 or (n == 1 and coefficients[0] != 0)
+     ranges = []
++    if direct_scalar:
++        fixed_expression = tuple(-value for value in objective_rhs)
++        if n == 0:
++            optimum = Bounds(
++                upper=(fixed_expression,),
++                lower=(fixed_expression,),
++                conditions=(),
++            )
++        else:
++            cost = coefficients[0]
++            upper = {}
++            lower = {}
++            conditions = {}
++            for row in rows:
++                a = row.a[0]
++                if not a:
++                    conditions[row.p] = None
++                    continue
++                # objective = cost * x + fixed_expression. Substituting x into
++                # a*x <= p gives an objective bound with multiplier cost/a.
++                ratio = cost * Fraction(a.denominator, a.numerator)
++                expression = scaled_expression(
++                    row.p, ratio, fixed_expression
++                )
++                if (a > 0) == (cost > 0):
++                    upper[expression] = None
++                else:
++                    lower[expression] = None
++            optimum = Bounds(
++                upper=tuple(upper),
++                lower=tuple(lower),
++                conditions=tuple(conditions),
++            )
++
++        if return_values:
++            objective_index = state.labels.index("objective_value")
++            for target in targets:
++                if target in resolved_targets:
++                    index = label_indices[resolved_targets[target]]
++                    parameter_value = tuple(
++                        rational(1) if i == index else zero
++                        for i in range(m)
++                    )
++                    ranges.append(
++                        Bounds(
++                            upper=(parameter_value,),
++                            lower=(parameter_value,),
++                            conditions=(),
++                        )
++                    )
++                elif n == 1 and target == state.names[0]:
++                    cost = coefficients[0]
++                    inverse = Fraction(cost.denominator, cost.numerator)
++                    value_expression = [
++                        -value * inverse for value in fixed_expression
++                    ]
++                    value_expression[objective_index] += inverse
++                    value_expression = tuple(value_expression)
++                    ranges.append(
++                        Bounds(
++                            upper=(value_expression,),
++                            lower=(value_expression,),
++                            conditions=(),
++                        )
++                    )
++                else:
++                    direct_scalar = False
++                    ranges.clear()
++                    break
++
++    if not direct_scalar:
++        optimum = projector.bounds(rows + [equation, equation.negative()], n)
++        ranges = []
+ 
+     def check_size():
+         count = sum(
+@@ -779,7 +867,11 @@
+             raise CannotCompile("objective program coefficient budget reached")
+ 
+     check_size()
+-    if return_values and (len(targets) != 1 or costs[0] == 0):
++    if (
++        not direct_scalar
++        and return_values
++        and (len(targets) != 1 or costs[0] == 0)
++    ):
+         # Restrict the original system to the optimal objective value, then
+         # project each requested component. This detects ambiguous endpoint
+         # caps, spill components, and final residual values.
+@@ -896,6 +988,7 @@
+         self.programs = {}
+         self.failures = {}
+         self.compile_seconds = 0.0
++        self.cached_coefficients = 0
+         self.date = None
+         self.stats = Counter()
+         self.events = []
+@@ -948,12 +1041,12 @@
+                     return_values=return_values,
+                 )
+                 if (
+-                    sum(p.coefficient_count for p in self.programs.values())
+-                    + program.coefficient_count
++                    self.cached_coefficients + program.coefficient_count
+                     > self.options.max_total_coefficients
+                 ):
+                     raise CannotCompile("total cached coefficient budget reached")
+                 self.programs[key] = program
++                self.cached_coefficients += program.coefficient_count
+             except CannotCompile as error:
+                 self.failures[key] = str(error)
+                 raise
+@@ -1087,9 +1180,7 @@
+             "program_count": len(self.programs),
+             "rejected_program_count": len(self.failures),
+             "compile_seconds": self.compile_seconds,
+-            "cached_coefficients": sum(
+-                p.coefficient_count for p in self.programs.values()
+-            ),
++            "cached_coefficients": self.cached_coefficients,
+             "program_reductions": {
+                 p.name: {
+                     "source_variables": p.source_variable_count,
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' profile_src/tests/test_compiled_solver.py profile_opt/tests/test_compiled_solver.py
+--- profile_src/tests/test_compiled_solver.py	2026-09-12 17:13:50.000000000 +0000
++++ profile_opt/tests/test_compiled_solver.py	2026-09-12 19:26:38.552908607 +0000
+@@ -339,6 +339,10 @@
+         actual = plan.solve()
+         self.assertEqual(actual.compilation_report.get("lp_days", 0), 0)
+         self.assertEqual(actual.compilation_report["compiled_days"], 1)
++        # Identical transaction columns are classified through one
++        # representative rather than compiling one headroom objective per
++        # equal-priority member. Keep the cache small as the group grows.
++        self.assertLessEqual(actual.compilation_report["program_count"], 8)
+         self.assertGreaterEqual(
+             actual.compilation_report.get(
+                 "proportional_common_increment_evaluations", 0

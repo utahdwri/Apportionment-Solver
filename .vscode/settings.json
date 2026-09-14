@@ -13,5 +13,17 @@
     "python.testing.cwd": "${workspaceFolder}",
     "python.analysis.extraPaths": [
         "${workspaceFolder}/src"
-    ]
+    ],
+    "python.analysis.typeCheckingMode": "standard",
+    "[python]": {
+        "editor.rulers": [
+            88
+        ],
+        "editor.insertSpaces": true,
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "ms-python.python",
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit" // sorts and removes unused imports
+        }
+    },
 }

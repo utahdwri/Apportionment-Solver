@@ -7,13 +7,15 @@ from .runtime import CompilationSession
 
 
 class CompiledSolver:
-    """An isolated SolverInput plus a bounded cache of symbolic LP programs.
+    """A fully prepared cache of symbolic accounting objective programs.
 
-    Preparation derives the first day's individual objective programs without
-    optimizing. Additional active-set/dated coefficient patterns are compiled
-    on demand, within the same budgets. Repeated solve() calls reset accounting
-    state but reuse the equations. This is a hybrid executable plan, not a claim
-    that every possible daily branch has been symbolically enumerated.
+    Construction traces the supplied SolverInput through its complete date
+    range once and compiles every objective pattern encountered. Senior solved
+    values are absorbed into residual constraint capacities, so junior formulas
+    depend on ``constraint[...].remaining`` state rather than earlier
+    transaction variables. The cache is frozen before ``solve()`` returns to
+    the caller: runtime may evaluate cached formulas or safely fall back to LP,
+    but it never performs new symbolic compilation.
     """
 
     def __init__(
@@ -31,47 +33,24 @@ class CompiledSolver:
         self._prepare()
 
     def _prepare(self):
-        from ..apportioner import Apportioner
-        from ..graph_manager import GraphManager
-        from ..lp_solver import resolve_solver_backend
-        from ..models import PathTrxn
-        from ..natural_flow_calculator import NaturalFlowCalculator
-        from ..timeseries_manager import DailyDataManager
-        from ..trxn_schedule import TrxnSchedule
-        from .projection import CannotCompile
+        """Trace the supplied input once so the complete formula cache is built."""
+        from ..solver import _solve
 
-        backend = resolve_solver_backend(self.solver_backend)
-        gm = GraphManager(deepcopy(self._input.accounting_graph))
-        dm = DailyDataManager(
-            gm, self._input.measurements, self._input.external_natural_flows
-        )
-        tm = TrxnSchedule(gm, self._input.txns, self.max_daily_apportionment)
-        day = self._input.beg_date
-        dm.set_day(day)
-        tm.begin_day(day)
-        apportioner = Apportioner(
-            gm,
-            tm,
-            dm,
-            NaturalFlowCalculator(gm),
-            lp_solver_factory=backend.factory,
+        # This is a compilation/warm-up pass. It deliberately executes the
+        # production accounting schedule so temporary counterflow caps,
+        # proportional active sets, spill locks, and finalization objectives are
+        # encountered in the same order as a real solve. No result from this
+        # pass is exposed; only the compiled programs and fallback coverage are
+        # retained.
+        _solve(
+            deepcopy(self._input),
+            solver_backend=self.solver_backend,
+            max_daily_apportionment=self.max_daily_apportionment,
             generate_audit=False,
+            check_expected_values=False,
+            compiled_session=self._session,
         )
-        apportioner.update_daily_bounds()
-        apportioner.apply_nf_mass_balance_constraints(day)
-        engine = apportioner.engine
-        if len(engine.vars) > self._session.options.max_variables:
-            self._session.warmup_reasons["initial model exceeds variable budget"] += 1
-            return
-        for t in tm.all_trxns:
-            if getattr(t, "is_slack", False):
-                continue
-            target = tm.get_anchor_var(t) if isinstance(t, PathTrxn) else t.id
-            if target:
-                try:
-                    self._session.program(engine, [target])
-                except CannotCompile as error:
-                    self._session.warmup_reasons[str(error)] += 1
+        self._session.finish_preparation()
 
     def solve(
         self, *, measurements=None, generate_audit=False, check_expected_values=False

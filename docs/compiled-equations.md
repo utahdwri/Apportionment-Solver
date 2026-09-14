@@ -10,6 +10,22 @@ This integration starts from `main` at
 `df099710e7e83077c5a07bdc27dc6888ebb795a0`. It does not import the earlier
 standalone prototype or reproduce its separate accounting-graph adapter.
 
+## Residual constraint state
+
+Senior allocations are not carried forward as live decision variables. Once a
+transaction is committed, its contribution is absorbed into each affected
+constraint bound. Junior formulas therefore consume parameters such as
+`constraint[MEAS_diversion].remaining` and
+`constraint[NF_ZONE_RIVER].remaining_upper`. Algebraically, for
+`a1*x1 + a2*x2 <= b`, after `x1` is committed the compiled state is
+`a2*x2 <= b - a1*x1`. Signed coefficients work naturally: a negative
+coefficient can increase the residual capacity when that variable is committed.
+
+`compile_solver_input()` traces the production schedule once over the supplied
+date range, compiling every objective pattern it encounters, then freezes the
+program cache. `plan.solve()` performs no symbolic compilation.
+
+
 ## Usage
 
 ```python
@@ -64,20 +80,46 @@ Bounds are symbolic parameters. Changing a measurement or committed allocation
 changes an input to the formula. Changing coefficients, active constraint sides,
 or objective weights selects a different program.
 
-The compiler eliminates exact equalities first, then uses Fourier–Motzkin
-projection. For a scalar objective, it derives upper bounds (a MIN), lower bounds
-(a MAX), and inequalities defining valid daily inputs. Minimizing selects the
-lower bound; maximizing selects the upper bound.
+Compilation is objective-specific. Before Fourier–Motzkin projection, the
+compiler performs a sparse presolve around the current priority objective:
+
+- Exact non-objective equalities are substituted first.
+- Already committed senior allocations are treated as live bound parameters and
+  moved to the right-hand side when their minimum feasible value is optimal for
+  the current objective.
+- Same-direction junior variables that can only tighten the current objective are
+  likewise fixed at the harmless bound (normally zero) instead of being carried
+  through projection.
+- Redundant rows implied by live variable bounds are replaced by guarded runtime
+  conditions, so changed daily bounds can safely trigger LP fallback rather than
+  reusing an invalid simplification.
+- Variables with genuinely competing/mixed signs remain live and are projected
+  exactly. Signed variables and negative path/counterflow coefficients are
+  therefore supported; sign is used to decide what can be removed, not as a
+  restriction on the model.
+
+After this reduction, Fourier–Motzkin projection derives upper bounds (a MIN),
+lower bounds (a MAX), and inequalities defining valid daily inputs. Minimizing
+selects the lower bound; maximizing selects the upper bound. The exact projector
+uses positive cross-multiplication for equality substitution and inequality
+pairing, so it avoids most Fraction divisions. Rows that do not contain the
+variable being eliminated are carried forward in canonical form instead of being
+renormalized every round, and row hashes are cached for exact duplicate removal.
+Scalar objectives that presolve to zero or one active variable bypass
+Fourier–Motzkin entirely and are isolated directly from the remaining rows.
 
 If an objective requests several variable values, knowing the optimum sum is
 insufficient. The compiler also projects the range of each requested variable
 while fixing that sum. Nonunique components trigger LP fallback, preserving
 main's handling of otherwise ambiguous endpoint caps, spills, and finalization.
 
-`compile_solver_input()` eagerly prepares the first day's individual transaction
-objectives without running an optimizer. Additional patterns are compiled **on
-first encounter during execution**, within the same budgets. This is a bounded
-hybrid compiler, not exhaustive advance compilation of every possible branch.
+`compile_solver_input()` eagerly prepares only the first day's most-senior
+ordinary transaction objective without running an optimizer. Later priorities are
+compiled **on first encounter during execution**, after senior commitments have
+been applied. That timing is intentional: it lets each junior objective compile
+against a much smaller reduced system rather than the untouched full-period model.
+This is a bounded hybrid compiler, not exhaustive advance compilation of every
+possible branch.
 
 ## Inspect the formulas and code
 
@@ -89,9 +131,9 @@ upper = MIN(
     variable[right_a___diversion].upper,
     -variable[right_b___diversion].lower
       -variable[SLACK_river_TO_farm_diversion___diversion].lower
-      +constraint[MEAS_diversion].value,
+      +constraint[MEAS_diversion].remaining,
     -variable[right_b___diversion].lower
-      +constraint[NF_ZONE_river].upper,
+      +constraint[NF_ZONE_river].remaining_upper,
 )
 ```
 
@@ -120,46 +162,65 @@ complete equal-priority example and generated files. The two rights have limits
 The existing production loop determines active members, applies proportional
 increments, drops blocked members, and repeats. The compiler sees the common
 increment as another scalar LP objective. It **does not enumerate all subsets**
-of the group in advance.
+of the group in advance. Members with identical LP constraint columns share one
+residual representation during common-increment compilation. During the later
+"which members are maxed?" check, members with identical columns also share one
+representative objective after members already at their individual upper bounds
+have been removed. This is exact for positive headroom: increasing either member
+by the same epsilon has the same effect on every LP constraint.
 
-Hundreds of equal-priority transactions are accepted, but large coupled systems
-currently use LP fallback. The default variable budget counts the entire LP,
-including residual and temporary variables. This version does not claim a
-formula-only fast path for several hundred transactions or decompose the graph
-into independently compiled blocks. Increasing budgets is optional and can be
-expensive.
+The variable budget now applies to the **reduced objective**, not the entire LP.
+A source model with hundreds of variables can therefore compile a senior or junior
+priority objective when equality substitution and sign-aware bound elimination
+leave only a small coupled core. Equal-priority groups can still leave a coupled residual core when many
+members or signed counterflows must move together. If exact projection exceeds
+the soft symbolic limits, the compiler retains that already-presolved residual
+problem as a **reduced LP kernel**. Runtime solves only that small objective,
+updates residual state, and then continues the compiled accounting sequence.
+
+`plan.report()["program_reductions"]` records source-variable count, active
+variable count, equality eliminations, and bound eliminations for each cached
+program. This makes the reduction visible when tuning large models. Cached
+program coefficient counts are computed once when a program is created and the
+session maintains the running total, avoiding quadratic recounting as the plan
+cache grows.
 
 ## Fallback and audit behavior
 
-Fallback restarts the **whole day**, using a fresh native solver and fresh
-natural-flow calculator. Tentative parent reservations, spill credits, and
-allocations are discarded. Accounts and cumulative limits are committed only
-once, after the final successful daily result. This also gives ambiguous
-objectives the same ordinary backend solve sequence instead of freezing a
-compiler-selected tie break.
+Compiled execution now has three levels:
 
-Fallback reasons include:
+1. A direct or projected symbolic MIN/MAX program.
+2. A cached **reduced LP kernel** when the objective-specific presolved core is
+   still too expensive to project symbolically. The kernel contains only the
+   variables and rows that survived equality substitution, residual-state
+   updates, and sign-aware bound elimination. After the kernel is solved, the
+   accounting loop continues; the day is **not** restarted.
+3. A whole-day LP restart only when the reduced kernel itself cannot be built or
+   evaluated safely, a previously unseen frozen-plan branch is encountered, the
+   global cache budgets are exceeded, or detailed audit evidence is requested.
 
-- Variable, row, pair, coefficient-size, cache, or compilation-time budgets.
-- Nonunique requested components at the objective optimum.
-- Unbounded, nonfinite, or numerically uncertain compiled intervals.
-- Failed projected feasibility conditions; the LP retains its usual feasibility
-  relaxation/error behavior.
-- A request for detailed production audit evidence.
+`plan.report()` distinguishes these paths. A day whose formulas and reduced LP
+kernels all succeed has `method == "compiled+reduced_lp"` and increments
+`hybrid_days`; `lp_days` counts only true whole-day restarts. The report also
+separates `symbolic_program_count`, `reduced_lp_program_count`,
+`formula_evaluations`, and `reduced_lp_evaluations`.
 
-The last case is deliberate: formulas do not currently provide native dual
-values. `solve(..., method="compiled")` retains the existing
-`generate_audit=True` default and consequently takes the LP path. Specify
-`generate_audit=False` to use formulas, or use `plan.solve()` whose default is
-False. `plan.report()` supplies execution coverage and fallback explanations;
-it is not a replacement for the detailed production accounting audit.
+A reduced LP kernel is still exact with respect to the presolved numeric LP; it
+does not approximate or truncate a symbolic expression. Its matrix structure is
+cached during preparation. At runtime only the current residual RHS parameters
+are populated and SciPy/HiGHS solves that local kernel.
 
-`result.solver_backend` identifies the native/fallback backend;
+Whole-day restart reasons still include unsupported/unseen frozen-plan branches,
+nonfinite or infeasible runtime state, global cache/coefficient budgets, and a
+request for detailed production audit evidence. Audit remains a deliberate native
+LP path because formulas and reduced kernels do not currently provide the native
+dual/evidence objects used by the production audit.
+
+`result.solver_backend` identifies the requested production/fallback backend;
 `result.solve_method` identifies the selected method. `compilation_report` is
-None for ordinary LP execution. For compiled execution it reports compiled days,
-LP days, formula calls, discarded calls, cache hits, compilation cost, and reasons.
-For a reusable plan, daily counters reset on every solve, while program count
-and compilation time describe the retained cache's lifetime.
+None for ordinary LP execution. For compiled execution, reusable-plan counters
+reset on every solve while program count and compilation time describe the
+retained cache's lifetime.
 
 ## Budgets
 
@@ -167,25 +228,34 @@ and compilation time describe the retained cache's lifetime.
 from ut_water_apportionment import CompilationOptions, compile_solver_input
 
 options = CompilationOptions(
-    max_variables=32,
-    max_rows=400,
-    max_pairs=2500,
-    max_fraction_bits=1024,
-    max_plans=64,
-    max_program_coefficients=50000,
-    max_total_coefficients=250000,
-    max_seconds_per_plan=1.0,
-    max_total_compile_seconds=5.0,
+    max_variables=512,
+    max_rows=5000,
+    max_pairs=100000,
+    max_fraction_bits=4096,
+    max_plans=512,
+    max_program_coefficients=1000000,
+    max_total_coefficients=5000000,
+    max_kernel_variables=5000,
+    max_kernel_rows=100000,
+    max_symbolic_variables_before_kernel=20,
+    max_symbolic_rows_before_kernel=750,
+    max_symbolic_pairs_before_kernel=5000,
+    max_seconds_per_plan=120.0,
+    max_total_compile_seconds=600.0,
+    max_symbolic_seconds_before_kernel=0.05,
 )
 plan = compile_solver_input(solver_input, options=options)
 ```
 
 Budgets keep formula generation and caching bounded; they never truncate a
-formula and return an approximate allocation. Failed structural programs are
-remembered so identical daily models do not repeatedly incur the same failed
-compilation. A day can still be more expensive than an LP day because it may
-try formulas and then restart. This version establishes compatibility and an
-inspection interface; performance benefits should be measured on actual inputs.
+formula and return an approximate allocation. `max_variables` and `max_rows` are
+hard objective-specific limits. The `max_symbolic_*_before_kernel` settings are
+softer preferences: crossing one stops exact projection and stores a reduced LP
+kernel instead. Increase them when inspectable formulas are more important than
+preparation time; decrease them when quick hybrid preparation is preferred.
+Coefficient budgets count nonzero symbolic terms rather than dense zero padding.
+Failed structural programs are remembered so identical daily models do not
+repeatedly incur the same failed compilation.
 
 ## Code organization
 

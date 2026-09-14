@@ -1,0 +1,3177 @@
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' apportionment_original/docs/compiled-equations.md apportionment_signed/docs/compiled-equations.md
+--- apportionment_original/docs/compiled-equations.md	2026-09-12 14:43:31.000000000 +0000
++++ apportionment_signed/docs/compiled-equations.md	2026-09-12 15:54:12.611718269 +0000
+@@ -1,203 +1,229 @@
+-# Compiled equations with LP fallback
+-
+-The alternate method uses the **current production LP rows and allocation
+-schedule**. It compiles small linear objective systems into reusable MIN/MAX
+-expressions. A day that cannot safely use those expressions is restarted using
+-the selected LP backend. Unsupported compilation does not mean unsupported
+-accounting input.
+-
+-This integration starts from `main` at
+-`df099710e7e83077c5a07bdc27dc6888ebb795a0`. It does not import the earlier
+-standalone prototype or reproduce its separate accounting-graph adapter.
+-
+-## Usage
+-
+-```python
+-from ut_water_apportionment import solve, compile_solver_input
+-
+-# Existing behavior is unchanged.
+-ordinary = solve(solver_input)
+-
+-# One-shot alternate method, returning the normal complete SolverOutput.
+-result = solve(solver_input, method="compiled", generate_audit=False)
+-print(result.compilation_report)
+-
+-# Reusable plan with an inspection interface.
+-plan = compile_solver_input(solver_input, solver_backend="auto")
+-print(plan.formulas())
+-result = plan.solve()  # Defaults to generate_audit=False on the plan interface.
+-
+-# Execution may discover additional dated/active-set programs. Inspect again
+-# afterward to see every program compiled during this run.
+-print(plan.formulas())
+-print(plan.code())
+-print(plan.execution_outline())
+-print(plan.report())
+-
+-# Reuse formulas with replacement measurements; input graph and limits stay fixed.
+-result = plan.solve(measurements=other_measurement_collection)
+-```
+-
+-`solver_backend` still chooses `highspy`, `glop`, `scipy`, or `auto`. It selects
+-both the native model wrapper and the fallback solver. There is no additional
+-mandatory dependency. Install the project normally, for example
+-`python -m pip install -e '.[highs,dev]'`.
+-
+-The reusable plan owns a copy of SolverInput. Each execution starts accounts and
+-cumulative usage afresh and reuses the formula cache. Create another plan when
+-changing the graph, transaction schedule, limits, or other non-measurement input.
+-The plan is stateful and should not be executed concurrently from multiple threads.
+-
+-## What is actually compiled
+-
+-For each objective, the compiler reads the selected backend's current variable
+-bounds, constraint bounds, and coefficients. This includes production's:
+-
+-- Measurement equalities and path continuity, with the losses supported by main.
+-- Natural-flow limits and updates, including specified boundaries.
+-- Parent/child sum equations and the parent's own scheduled objective.
+-- Cumulative and account limits supplied as the day's bounds.
+-- Temporary endpoint counterflow caps and proportional-increment constraints.
+-- Minimum-spill locks and the resulting increased natural-flow upper bounds.
+-
+-Bounds are symbolic parameters. Changing a measurement or committed allocation
+-changes an input to the formula. Changing coefficients, active constraint sides,
+-or objective weights selects a different program.
+-
+-The compiler eliminates exact equalities first, then uses Fourier–Motzkin
+-projection. For a scalar objective, it derives upper bounds (a MIN), lower bounds
+-(a MAX), and inequalities defining valid daily inputs. Minimizing selects the
+-lower bound; maximizing selects the upper bound.
+-
+-If an objective requests several variable values, knowing the optimum sum is
+-insufficient. The compiler also projects the range of each requested variable
+-while fixing that sum. Nonunique components trigger LP fallback, preserving
+-main's handling of otherwise ambiguous endpoint caps, spills, and finalization.
+-
+-`compile_solver_input()` eagerly prepares the first day's individual transaction
+-objectives without running an optimizer. Additional patterns are compiled **on
+-first encounter during execution**, within the same budgets. This is a bounded
+-hybrid compiler, not exhaustive advance compilation of every possible branch.
+-
+-## Inspect the formulas and code
+-
+-`plan.formulas()` returns the actual symbolic expressions. For example, an
+-individual diversion can produce bounds of the following form:
+-
+-```text
+-upper = MIN(
+-    variable[right_a___diversion].upper,
+-    -variable[right_b___diversion].lower
+-      -variable[SLACK_river_TO_farm_diversion___diversion].lower
+-      +constraint[MEAS_diversion].value,
+-    -variable[right_b___diversion].lower
+-      +constraint[NF_ZONE_river].upper,
+-)
+-```
+-
+-These are live LP bounds: `.lower` often represents a previous commitment, and
+-`.value` represents an equality's right-hand side. Generated output retains
+-additional feasibility conditions rather than hiding them in simplified prose.
+-
+-`plan.code()` exports executable Python functions for the cached objective
+-programs. Each function takes a dictionary of named bounds and returns an
+-objective value and requested variable values. It raises `CompiledFallback` if
+-its conditions cannot certify the result. It does **not** export the complete
+-graph/data/account workflow; `plan.solve()` executes that workflow.
+-
+-`plan.execution_outline()` separately describes the daily orchestration. Program
+-IDs in `plan.report()['days'][...]['formula_calls']` identify the actual formulas
+-visited on each day. Calls made before an LP restart are recorded as discarded
+-formula evaluations; they are not counted as a successfully compiled day.
+-
+-Run `python examples/compiled_equations.py` from an installed checkout for a
+-complete equal-priority example and generated files. The two rights have limits
+-4 and 8. For measured flows 9, 6, and 12, their allocations are respectively
+-(3, 6), (2, 4), and (4, 8).
+-
+-## Equal priorities and large inputs
+-
+-The existing production loop determines active members, applies proportional
+-increments, drops blocked members, and repeats. The compiler sees the common
+-increment as another scalar LP objective. It **does not enumerate all subsets**
+-of the group in advance.
+-
+-Hundreds of equal-priority transactions are accepted, but large coupled systems
+-currently use LP fallback. The default variable budget counts the entire LP,
+-including residual and temporary variables. This version does not claim a
+-formula-only fast path for several hundred transactions or decompose the graph
+-into independently compiled blocks. Increasing budgets is optional and can be
+-expensive.
+-
+-## Fallback and audit behavior
+-
+-Fallback restarts the **whole day**, using a fresh native solver and fresh
+-natural-flow calculator. Tentative parent reservations, spill credits, and
+-allocations are discarded. Accounts and cumulative limits are committed only
+-once, after the final successful daily result. This also gives ambiguous
+-objectives the same ordinary backend solve sequence instead of freezing a
+-compiler-selected tie break.
+-
+-Fallback reasons include:
+-
+-- Variable, row, pair, coefficient-size, cache, or compilation-time budgets.
+-- Nonunique requested components at the objective optimum.
+-- Unbounded, nonfinite, or numerically uncertain compiled intervals.
+-- Failed projected feasibility conditions; the LP retains its usual feasibility
+-  relaxation/error behavior.
+-- A request for detailed production audit evidence.
+-
+-The last case is deliberate: formulas do not currently provide native dual
+-values. `solve(..., method="compiled")` retains the existing
+-`generate_audit=True` default and consequently takes the LP path. Specify
+-`generate_audit=False` to use formulas, or use `plan.solve()` whose default is
+-False. `plan.report()` supplies execution coverage and fallback explanations;
+-it is not a replacement for the detailed production accounting audit.
+-
+-`result.solver_backend` identifies the native/fallback backend;
+-`result.solve_method` identifies the selected method. `compilation_report` is
+-None for ordinary LP execution. For compiled execution it reports compiled days,
+-LP days, formula calls, discarded calls, cache hits, compilation cost, and reasons.
+-For a reusable plan, daily counters reset on every solve, while program count
+-and compilation time describe the retained cache's lifetime.
+-
+-## Budgets
+-
+-```python
+-from ut_water_apportionment import CompilationOptions, compile_solver_input
+-
+-options = CompilationOptions(
+-    max_variables=32,
+-    max_rows=400,
+-    max_pairs=2500,
+-    max_fraction_bits=1024,
+-    max_plans=64,
+-    max_program_coefficients=50000,
+-    max_total_coefficients=250000,
+-    max_seconds_per_plan=1.0,
+-    max_total_compile_seconds=5.0,
+-)
+-plan = compile_solver_input(solver_input, options=options)
+-```
+-
+-Budgets keep formula generation and caching bounded; they never truncate a
+-formula and return an approximate allocation. Failed structural programs are
+-remembered so identical daily models do not repeatedly incur the same failed
+-compilation. A day can still be more expensive than an LP day because it may
+-try formulas and then restart. This version establishes compatibility and an
+-inspection interface; performance benefits should be measured on actual inputs.
+-
+-## Code organization
+-
+-- `compiled/projection.py`: bounded, exact symbolic elimination and numerical
+-  MIN/MAX evaluation; no water-accounting policy.
+-- `compiled/runtime.py`: native LP snapshots, structural cache keys, component
+-  uniqueness checks, and text/Python exports.
+-- `compiled/__init__.py`: SolverInput preparation and reusable plan API.
+-- `solver.py`: method selection and daily restart; both methods share the same
+-  `_solve_day` accounting sequence.
+-
+-The compiled tests compare complete outputs against production fixtures and
+-exercise signed support, equal-priority iteration, ambiguity, restart after
+-partial progress, accounts/cumulative use, a 300-member group, audit fallback,
+-and optimizer-free repeated execution on supported small inputs.
++# Compiled equations with LP fallback
++
++The alternate method uses the **current production LP rows and allocation
++schedule**. It compiles small linear objective systems into reusable MIN/MAX
++expressions. A day that cannot safely use those expressions is restarted using
++the selected LP backend. Unsupported compilation does not mean unsupported
++accounting input.
++
++This integration starts from `main` at
++`df099710e7e83077c5a07bdc27dc6888ebb795a0`. It does not import the earlier
++standalone prototype or reproduce its separate accounting-graph adapter.
++
++## Usage
++
++```python
++from ut_water_apportionment import solve, compile_solver_input
++
++# Existing behavior is unchanged.
++ordinary = solve(solver_input)
++
++# One-shot alternate method, returning the normal complete SolverOutput.
++result = solve(solver_input, method="compiled", generate_audit=False)
++print(result.compilation_report)
++
++# Reusable plan with an inspection interface.
++plan = compile_solver_input(solver_input, solver_backend="auto")
++print(plan.formulas())
++result = plan.solve()  # Defaults to generate_audit=False on the plan interface.
++
++# Execution may discover additional dated/active-set programs. Inspect again
++# afterward to see every program compiled during this run.
++print(plan.formulas())
++print(plan.code())
++print(plan.execution_outline())
++print(plan.report())
++
++# Reuse formulas with replacement measurements; input graph and limits stay fixed.
++result = plan.solve(measurements=other_measurement_collection)
++```
++
++`solver_backend` still chooses `highspy`, `glop`, `scipy`, or `auto`. It selects
++both the native model wrapper and the fallback solver. There is no additional
++mandatory dependency. Install the project normally, for example
++`python -m pip install -e '.[highs,dev]'`.
++
++The reusable plan owns a copy of SolverInput. Each execution starts accounts and
++cumulative usage afresh and reuses the formula cache. Create another plan when
++changing the graph, transaction schedule, limits, or other non-measurement input.
++The plan is stateful and should not be executed concurrently from multiple threads.
++
++## What is actually compiled
++
++For each objective, the compiler reads the selected backend's current variable
++bounds, constraint bounds, and coefficients. This includes production's:
++
++- Measurement equalities and path continuity, with the losses supported by main.
++- Natural-flow limits and updates, including specified boundaries.
++- Parent/child sum equations and the parent's own scheduled objective.
++- Cumulative and account limits supplied as the day's bounds.
++- Temporary endpoint counterflow caps and proportional-increment constraints.
++- Minimum-spill locks and the resulting increased natural-flow upper bounds.
++
++Bounds are symbolic parameters. Changing a measurement or committed allocation
++changes an input to the formula. Changing coefficients, active constraint sides,
++or objective weights selects a different program.
++
++Compilation is objective-specific. Before Fourier–Motzkin projection, the
++compiler performs a sparse presolve around the current priority objective:
++
++- Exact non-objective equalities are substituted first.
++- Already committed senior allocations are treated as live bound parameters and
++  moved to the right-hand side when their minimum feasible value is optimal for
++  the current objective.
++- Same-direction junior variables that can only tighten the current objective are
++  likewise fixed at the harmless bound (normally zero) instead of being carried
++  through projection.
++- Redundant rows implied by live variable bounds are replaced by guarded runtime
++  conditions, so changed daily bounds can safely trigger LP fallback rather than
++  reusing an invalid simplification.
++- Variables with genuinely competing/mixed signs remain live and are projected
++  exactly. Signed variables and negative path/counterflow coefficients are
++  therefore supported; sign is used to decide what can be removed, not as a
++  restriction on the model.
++
++After this reduction, Fourier–Motzkin projection derives upper bounds (a MIN),
++lower bounds (a MAX), and inequalities defining valid daily inputs. Minimizing
++selects the lower bound; maximizing selects the upper bound.
++
++If an objective requests several variable values, knowing the optimum sum is
++insufficient. The compiler also projects the range of each requested variable
++while fixing that sum. Nonunique components trigger LP fallback, preserving
++main's handling of otherwise ambiguous endpoint caps, spills, and finalization.
++
++`compile_solver_input()` eagerly prepares only the first day's most-senior
++ordinary transaction objective without running an optimizer. Later priorities are
++compiled **on first encounter during execution**, after senior commitments have
++been applied. That timing is intentional: it lets each junior objective compile
++against a much smaller reduced system rather than the untouched full-period model.
++This is a bounded hybrid compiler, not exhaustive advance compilation of every
++possible branch.
++
++## Inspect the formulas and code
++
++`plan.formulas()` returns the actual symbolic expressions. For example, an
++individual diversion can produce bounds of the following form:
++
++```text
++upper = MIN(
++    variable[right_a___diversion].upper,
++    -variable[right_b___diversion].lower
++      -variable[SLACK_river_TO_farm_diversion___diversion].lower
++      +constraint[MEAS_diversion].value,
++    -variable[right_b___diversion].lower
++      +constraint[NF_ZONE_river].upper,
++)
++```
++
++These are live LP bounds: `.lower` often represents a previous commitment, and
++`.value` represents an equality's right-hand side. Generated output retains
++additional feasibility conditions rather than hiding them in simplified prose.
++
++`plan.code()` exports executable Python functions for the cached objective
++programs. Each function takes a dictionary of named bounds and returns an
++objective value and requested variable values. It raises `CompiledFallback` if
++its conditions cannot certify the result. It does **not** export the complete
++graph/data/account workflow; `plan.solve()` executes that workflow.
++
++`plan.execution_outline()` separately describes the daily orchestration. Program
++IDs in `plan.report()['days'][...]['formula_calls']` identify the actual formulas
++visited on each day. Calls made before an LP restart are recorded as discarded
++formula evaluations; they are not counted as a successfully compiled day.
++
++Run `python examples/compiled_equations.py` from an installed checkout for a
++complete equal-priority example and generated files. The two rights have limits
++4 and 8. For measured flows 9, 6, and 12, their allocations are respectively
++(3, 6), (2, 4), and (4, 8).
++
++## Equal priorities and large inputs
++
++The existing production loop determines active members, applies proportional
++increments, drops blocked members, and repeats. The compiler sees the common
++increment as another scalar LP objective. It **does not enumerate all subsets**
++of the group in advance.
++
++The variable budget now applies to the **reduced objective**, not the entire LP.
++A source model with hundreds of variables can therefore compile a senior or junior
++priority objective when equality substitution and sign-aware bound elimination
++leave only a small coupled core. Equal-priority groups can still remain large when
++many members must move together; those cases retain the existing bounded LP
++fallback instead of attempting exponential projection.
++
++`plan.report()["program_reductions"]` records source-variable count, active
++variable count, equality eliminations, and bound eliminations for each cached
++program. This makes the reduction visible when tuning large models.
++
++## Fallback and audit behavior
++
++Fallback restarts the **whole day**, using a fresh native solver and fresh
++natural-flow calculator. Tentative parent reservations, spill credits, and
++allocations are discarded. Accounts and cumulative limits are committed only
++once, after the final successful daily result. This also gives ambiguous
++objectives the same ordinary backend solve sequence instead of freezing a
++compiler-selected tie break.
++
++Fallback reasons include:
++
++- Variable, row, pair, coefficient-size, cache, or compilation-time budgets.
++- Nonunique requested components at the objective optimum.
++- Unbounded, nonfinite, or numerically uncertain compiled intervals.
++- Failed projected feasibility conditions; the LP retains its usual feasibility
++  relaxation/error behavior.
++- A request for detailed production audit evidence.
++
++The last case is deliberate: formulas do not currently provide native dual
++values. `solve(..., method="compiled")` retains the existing
++`generate_audit=True` default and consequently takes the LP path. Specify
++`generate_audit=False` to use formulas, or use `plan.solve()` whose default is
++False. `plan.report()` supplies execution coverage and fallback explanations;
++it is not a replacement for the detailed production accounting audit.
++
++`result.solver_backend` identifies the native/fallback backend;
++`result.solve_method` identifies the selected method. `compilation_report` is
++None for ordinary LP execution. For compiled execution it reports compiled days,
++LP days, formula calls, discarded calls, cache hits, compilation cost, and reasons.
++For a reusable plan, daily counters reset on every solve, while program count
++and compilation time describe the retained cache's lifetime.
++
++## Budgets
++
++```python
++from ut_water_apportionment import CompilationOptions, compile_solver_input
++
++options = CompilationOptions(
++    max_variables=32,
++    max_rows=400,
++    max_pairs=2500,
++    max_fraction_bits=1024,
++    max_plans=64,
++    max_program_coefficients=50000,
++    max_total_coefficients=250000,
++    max_seconds_per_plan=1.0,
++    max_total_compile_seconds=5.0,
++)
++plan = compile_solver_input(solver_input, options=options)
++```
++
++Budgets keep formula generation and caching bounded; they never truncate a
++formula and return an approximate allocation. `max_variables` and `max_rows` are
++checked after objective-specific sparse presolve. Coefficient budgets count
++nonzero symbolic terms rather than dense zero padding. Failed structural programs are
++remembered so identical daily models do not repeatedly incur the same failed
++compilation. A day can still be more expensive than an LP day because it may
++try formulas and then restart. This version establishes compatibility and an
++inspection interface; performance benefits should be measured on actual inputs.
++
++## Code organization
++
++- `compiled/projection.py`: bounded, exact symbolic elimination and numerical
++  MIN/MAX evaluation; no water-accounting policy.
++- `compiled/runtime.py`: native LP snapshots, structural cache keys, component
++  uniqueness checks, and text/Python exports.
++- `compiled/__init__.py`: SolverInput preparation and reusable plan API.
++- `solver.py`: method selection and daily restart; both methods share the same
++  `_solve_day` accounting sequence.
++
++The compiled tests compare complete outputs against production fixtures and
++exercise signed support, equal-priority iteration, ambiguity, restart after
++partial progress, accounts/cumulative use, a 300-member group, audit fallback,
++and optimizer-free repeated execution on supported small inputs.
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' apportionment_original/src/ut_water_apportionment/compiled/__init__.py apportionment_signed/src/ut_water_apportionment/compiled/__init__.py
+--- apportionment_original/src/ut_water_apportionment/compiled/__init__.py	2026-09-12 14:43:31.000000000 +0000
++++ apportionment_signed/src/ut_water_apportionment/compiled/__init__.py	2026-09-12 15:54:12.611557360 +0000
+@@ -1,130 +1,138 @@
+-"""Public entry point for reusable, inspectable compiled accounting plans."""
+-
+-from copy import deepcopy
+-
+-from .projection import CompilationOptions
+-from .runtime import CompilationSession
+-
+-
+-class CompiledSolver:
+-    """An isolated SolverInput plus a bounded cache of symbolic LP programs.
+-
+-    Preparation derives the first day's individual objective programs without
+-    optimizing. Additional active-set/dated coefficient patterns are compiled
+-    on demand, within the same budgets. Repeated solve() calls reset accounting
+-    state but reuse the equations. This is a hybrid executable plan, not a claim
+-    that every possible daily branch has been symbolically enumerated.
+-    """
+-
+-    def __init__(
+-        self,
+-        problem,
+-        *,
+-        options=None,
+-        solver_backend="auto",
+-        max_daily_apportionment=None,
+-    ):
+-        self._input = deepcopy(problem)
+-        self.solver_backend = solver_backend
+-        self.max_daily_apportionment = max_daily_apportionment
+-        self._session = CompilationSession(options)
+-        self._prepare()
+-
+-    def _prepare(self):
+-        from ..apportioner import Apportioner
+-        from ..graph_manager import GraphManager
+-        from ..lp_solver import resolve_solver_backend
+-        from ..models import PathTrxn
+-        from ..natural_flow_calculator import NaturalFlowCalculator
+-        from ..timeseries_manager import DailyDataManager
+-        from ..trxn_schedule import TrxnSchedule
+-        from .projection import CannotCompile
+-
+-        backend = resolve_solver_backend(self.solver_backend)
+-        gm = GraphManager(deepcopy(self._input.accounting_graph))
+-        dm = DailyDataManager(
+-            gm, self._input.measurements, self._input.external_natural_flows
+-        )
+-        tm = TrxnSchedule(gm, self._input.txns, self.max_daily_apportionment)
+-        day = self._input.beg_date
+-        dm.set_day(day)
+-        tm.begin_day(day)
+-        apportioner = Apportioner(
+-            gm,
+-            tm,
+-            dm,
+-            NaturalFlowCalculator(gm),
+-            lp_solver_factory=backend.factory,
+-            generate_audit=False,
+-        )
+-        apportioner.update_daily_bounds()
+-        apportioner.apply_nf_mass_balance_constraints(day)
+-        engine = apportioner.engine
+-        if len(engine.vars) > self._session.options.max_variables:
+-            self._session.warmup_reasons["initial model exceeds variable budget"] += 1
+-            return
+-        for t in tm.all_trxns:
+-            if getattr(t, "is_slack", False):
+-                continue
+-            target = tm.get_anchor_var(t) if isinstance(t, PathTrxn) else t.id
+-            if target:
+-                try:
+-                    self._session.program(engine, [target])
+-                except CannotCompile as error:
+-                    self._session.warmup_reasons[str(error)] += 1
+-
+-    def solve(
+-        self, *, measurements=None, generate_audit=False, check_expected_values=False
+-    ):
+-        """Execute with fresh account state; optionally replace measurements.
+-
+-        Limits/schedules/graph changes require a new plan. Changed measurement
+-        values may use different cached objective programs or trigger LP fallback.
+-        """
+-        from ..solver import _solve
+-
+-        problem = deepcopy(self._input)
+-        if measurements is not None:
+-            problem.measurements = deepcopy(measurements)
+-            problem.__post_init__()
+-        self._session.stats.clear()
+-        self._session.last_events.clear()
+-        return _solve(
+-            problem,
+-            solver_backend=self.solver_backend,
+-            max_daily_apportionment=self.max_daily_apportionment,
+-            generate_audit=generate_audit,
+-            check_expected_values=check_expected_values,
+-            compiled_session=self._session,
+-        )
+-
+-    def formulas(self):
+-        """Actual derived MIN/MAX expressions, domain conditions and fallbacks."""
+-        return self._session.formulas()
+-
+-    def code(self):
+-        """Executable Python for cached objective programs, using named bounds."""
+-        return self._session.code()
+-
+-    def execution_outline(self):
+-        """Readable schedule, iteration, and LP restart outline."""
+-        return self._session.execution_outline()
+-
+-    def report(self):
+-        """Compilation coverage, costs, and dated LP fallback explanations."""
+-        return deepcopy(self._session.report())
+-
+-
+-def compile_solver_input(
+-    problem, *, options=None, solver_backend="auto", max_daily_apportionment=None
+-):
+-    """Derive a reusable alternate solve plan from a SolverInput instance."""
+-    return CompiledSolver(
+-        problem,
+-        options=options,
+-        solver_backend=solver_backend,
+-        max_daily_apportionment=max_daily_apportionment,
+-    )
+-
+-
+-__all__ = ["CompilationOptions", "CompiledSolver", "compile_solver_input"]
++"""Public entry point for reusable, inspectable compiled accounting plans."""
++
++from copy import deepcopy
++
++from .projection import CompilationOptions
++from .runtime import CompilationSession
++
++
++class CompiledSolver:
++    """An isolated SolverInput plus a bounded cache of symbolic LP programs.
++
++    Preparation derives the first day's most-senior objective without
++    optimizing. Additional priority/active-set/dated patterns are compiled
++    on demand, within the same budgets. Repeated solve() calls reset accounting
++    state but reuse the equations. This is a hybrid executable plan, not a claim
++    that every possible daily branch has been symbolically enumerated.
++    """
++
++    def __init__(
++        self,
++        problem,
++        *,
++        options=None,
++        solver_backend="auto",
++        max_daily_apportionment=None,
++    ):
++        self._input = deepcopy(problem)
++        self.solver_backend = solver_backend
++        self.max_daily_apportionment = max_daily_apportionment
++        self._session = CompilationSession(options)
++        self._prepare()
++
++    def _prepare(self):
++        from ..apportioner import Apportioner
++        from ..graph_manager import GraphManager
++        from ..lp_solver import resolve_solver_backend
++        from ..models import PathTrxn
++        from ..natural_flow_calculator import NaturalFlowCalculator
++        from ..timeseries_manager import DailyDataManager
++        from ..trxn_schedule import TrxnSchedule
++        from .projection import CannotCompile
++
++        backend = resolve_solver_backend(self.solver_backend)
++        gm = GraphManager(deepcopy(self._input.accounting_graph))
++        dm = DailyDataManager(
++            gm, self._input.measurements, self._input.external_natural_flows
++        )
++        tm = TrxnSchedule(gm, self._input.txns, self.max_daily_apportionment)
++        day = self._input.beg_date
++        dm.set_day(day)
++        tm.begin_day(day)
++        apportioner = Apportioner(
++            gm,
++            tm,
++            dm,
++            NaturalFlowCalculator(gm),
++            lp_solver_factory=backend.factory,
++            generate_audit=False,
++        )
++        apportioner.update_daily_bounds()
++        apportioner.apply_nf_mass_balance_constraints(day)
++        engine = apportioner.engine
++
++        # Eagerly prepare only the most-senior ordinary transaction. Later
++        # objectives are compiled on first encounter, after the production
++        # priority loop has committed senior lower bounds. This is important:
++        # objective-specific reduction can then move those commitments to the
++        # RHS instead of compiling every junior objective against the untouched
++        # full model.
++        candidates = [
++            t for t in tm.all_trxns if not getattr(t, "is_slack", False)
++        ]
++        candidates.sort(key=lambda t: t.priority)
++        for t in candidates:
++            target = tm.get_anchor_var(t) if isinstance(t, PathTrxn) else t.id
++            if not target:
++                continue
++            try:
++                self._session.program(engine, [target])
++            except CannotCompile as error:
++                self._session.warmup_reasons[str(error)] += 1
++            break
++
++    def solve(
++        self, *, measurements=None, generate_audit=False, check_expected_values=False
++    ):
++        """Execute with fresh account state; optionally replace measurements.
++
++        Limits/schedules/graph changes require a new plan. Changed measurement
++        values may use different cached objective programs or trigger LP fallback.
++        """
++        from ..solver import _solve
++
++        problem = deepcopy(self._input)
++        if measurements is not None:
++            problem.measurements = deepcopy(measurements)
++            problem.__post_init__()
++        self._session.stats.clear()
++        self._session.last_events.clear()
++        return _solve(
++            problem,
++            solver_backend=self.solver_backend,
++            max_daily_apportionment=self.max_daily_apportionment,
++            generate_audit=generate_audit,
++            check_expected_values=check_expected_values,
++            compiled_session=self._session,
++        )
++
++    def formulas(self):
++        """Actual derived MIN/MAX expressions, domain conditions and fallbacks."""
++        return self._session.formulas()
++
++    def code(self):
++        """Executable Python for cached objective programs, using named bounds."""
++        return self._session.code()
++
++    def execution_outline(self):
++        """Readable schedule, iteration, and LP restart outline."""
++        return self._session.execution_outline()
++
++    def report(self):
++        """Compilation coverage, costs, and dated LP fallback explanations."""
++        return deepcopy(self._session.report())
++
++
++def compile_solver_input(
++    problem, *, options=None, solver_backend="auto", max_daily_apportionment=None
++):
++    """Derive a reusable alternate solve plan from a SolverInput instance."""
++    return CompiledSolver(
++        problem,
++        options=options,
++        solver_backend=solver_backend,
++        max_daily_apportionment=max_daily_apportionment,
++    )
++
++
++__all__ = ["CompilationOptions", "CompiledSolver", "compile_solver_input"]
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' apportionment_original/src/ut_water_apportionment/compiled/projection.py apportionment_signed/src/ut_water_apportionment/compiled/projection.py
+--- apportionment_original/src/ut_water_apportionment/compiled/projection.py	2026-09-12 14:43:31.000000000 +0000
++++ apportionment_signed/src/ut_water_apportionment/compiled/projection.py	2026-09-12 15:54:12.611431344 +0000
+@@ -1,219 +1,220 @@
+-"""Small, bounded symbolic LP projection; independent of accounting policy.
+-
+-Every row means ``a @ variables <= p @ daily_parameters``. Eliminating a
+-variable preserves precisely those values that admit a feasible completion.
+-Parameters (measurements, bounds, prior commitments) are never eliminated.
+-"""
+-
+-from dataclasses import dataclass, field
+-from fractions import Fraction
+-from math import inf, isfinite
+-from time import perf_counter
+-
+-import numpy as np
+-
+-
+-class CannotCompile(RuntimeError):
+-    """Use the ordinary LP path; no partial allocation should be committed."""
+-
+-
+-@dataclass(frozen=True)
+-class CompilationOptions:
+-    # Limits bound *preparation* cost, not the size of an accepted SolverInput.
+-    # An input larger than these limits remains supported through LP fallback.
+-    max_variables: int = 32
+-    max_rows: int = 400
+-    max_pairs: int = 2500
+-    max_fraction_bits: int = 1024
+-    max_plans: int = 64
+-    max_program_coefficients: int = 50000
+-    max_total_coefficients: int = 250000
+-    max_seconds_per_plan: float = 1.0
+-    max_total_compile_seconds: float = 5.0
+-
+-    def __post_init__(self):
+-        for name, value in vars(self).items():
+-            if not isfinite(value) or value <= 0:
+-                raise ValueError(f"{name} must be finite and positive")
+-            if name not in {
+-                "max_seconds_per_plan",
+-                "max_total_compile_seconds",
+-            } and not isinstance(value, int):
+-                raise ValueError(f"{name} must be an integer")
+-
+-
+-@dataclass(frozen=True)
+-class Row:
+-    a: tuple
+-    p: tuple
+-
+-    def negative(self):
+-        return Row(tuple(-v for v in self.a), tuple(-v for v in self.p))
+-
+-
+-def rational(value):
+-    if not isfinite(value):
+-        raise CannotCompile("nonfinite coefficient")
+-    return Fraction(str(value))
+-
+-
+-class Projector:
+-    def __init__(self, options, deadline):
+-        self.options, self.deadline = options, deadline
+-        self.peak_rows = 0
+-
+-    def check_time(self):
+-        if perf_counter() > self.deadline:
+-            raise CannotCompile("compilation time budget reached")
+-
+-    def canonical(self, rows):
+-        result = {}
+-        for row in rows:
+-            self.check_time()
+-            # Positive scaling retains inequality direction; normalize for
+-            # exact duplicate removal, including rows containing only inputs.
+-            scale = next((abs(c) for c in row.a + row.p if c), None)
+-            if scale is None:
+-                continue
+-            row = Row(tuple(c / scale for c in row.a), tuple(c / scale for c in row.p))
+-            if any(
+-                max(c.numerator.bit_length(), c.denominator.bit_length())
+-                > self.options.max_fraction_bits
+-                for c in row.a + row.p
+-            ):
+-                raise CannotCompile("rational coefficient size budget reached")
+-            result[row] = None
+-            if len(result) > self.options.max_rows:
+-                raise CannotCompile("projected row budget reached")
+-        self.peak_rows = max(self.peak_rows, len(result))
+-        return list(result)
+-
+-    def bounds(self, source, target):
+-        rows = self.canonical(source)
+-        remaining = set(range(len(source[0].a))) - {target}
+-        while remaining:
+-            self.check_time()
+-            pool = set(rows)
+-            equation = next(
+-                (
+-                    r
+-                    for r in rows
+-                    if any(r.a[i] for i in remaining) and r.negative() in pool
+-                ),
+-                None,
+-            )
+-            if equation is not None:
+-                # Use path, measurement, and parent equalities before pairing
+-                # inequalities. This is exact substitution and often much cheaper.
+-                v = min(
+-                    (i for i in remaining if equation.a[i]),
+-                    key=lambda i: sum(bool(r.a[i]) for r in rows),
+-                )
+-
+-                def substitute(rows=rows, v=v, equation=equation):
+-                    for r in rows:
+-                        factor = r.a[v] / equation.a[v]
+-                        yield Row(
+-                            tuple(
+-                                x - factor * y
+-                                for x, y in zip(r.a, equation.a, strict=True)
+-                            ),
+-                            tuple(
+-                                x - factor * y
+-                                for x, y in zip(r.p, equation.p, strict=True)
+-                            ),
+-                        )
+-
+-                output = substitute()
+-            else:
+-                v = min(
+-                    remaining,
+-                    key=lambda i: (
+-                        sum(r.a[i] > 0 for r in rows) * sum(r.a[i] < 0 for r in rows),
+-                        i,
+-                    ),
+-                )
+-                positive = [r for r in rows if r.a[v] > 0]
+-                negative = [r for r in rows if r.a[v] < 0]
+-                if len(positive) * len(negative) > self.options.max_pairs:
+-                    raise CannotCompile("elimination pair budget reached")
+-
+-                def pair_rows(rows=rows, v=v, positive=positive, negative=negative):
+-                    yield from (r for r in rows if not r.a[v])
+-                    for upper in positive:
+-                        for lower in negative:
+-                            cp, cn = upper.a[v], -lower.a[v]
+-                            yield Row(
+-                                tuple(
+-                                    x / cp + y / cn
+-                                    for x, y in zip(upper.a, lower.a, strict=True)
+-                                ),
+-                                tuple(
+-                                    x / cp + y / cn
+-                                    for x, y in zip(upper.p, lower.p, strict=True)
+-                                ),
+-                            )
+-
+-                output = pair_rows()
+-            rows = self.canonical(output)
+-            remaining.remove(v)
+-        upper, lower, conditions = [], [], []
+-        for r in rows:
+-            c = r.a[target]
+-            if c > 0:
+-                upper.append(tuple(x / c for x in r.p))
+-            elif c < 0:
+-                lower.append(tuple(x / c for x in r.p))
+-            else:
+-                conditions.append(r.p)
+-        return Bounds(tuple(upper), tuple(lower), tuple(conditions))
+-
+-
+-@dataclass
+-class Bounds:
+-    upper: tuple
+-    lower: tuple
+-    conditions: tuple
+-    matrix: np.ndarray = field(init=False, repr=False)
+-
+-    def __post_init__(self):
+-        self.matrix = np.asarray(self.upper + self.lower + self.conditions, dtype=float)
+-
+-    def interval(self, parameters):
+-        if not self.matrix.size:
+-            return -inf, inf
+-        with np.errstate(over="ignore", invalid="ignore"):
+-            values = self.matrix @ parameters
+-        if not np.isfinite(values).all():
+-            raise CannotCompile("nonfinite formula evaluation")
+-        nu, nl = len(self.upper), len(self.lower)
+-        hi = min(values[:nu], default=inf)
+-        lo = max(values[nu : nu + nl], default=-inf)
+-        # A small domain tolerance absorbs floating-point cancellation; an
+-        # uncertain or infeasible interval is delegated to the actual backend.
+-        scale = max(1.0, float(np.max(np.abs(parameters))))
+-        if hi < lo or any(v < -1e-9 * scale for v in values[nu + nl :]):
+-            raise CannotCompile("compiled domain/interval check failed")
+-        return float(lo), float(hi)
+-
+-    def text(self, labels):
+-        def expression(row):
+-            return (
+-                " + ".join(
+-                    f"({c}) * {s}" for s, c in zip(labels, row, strict=True) if c
+-                )
+-                or "0"
+-            )
+-
+-        lines = []
+-        for name, rows, empty in [
+-            ("upper = MIN", self.upper, "+infinity"),
+-            ("lower = MAX", self.lower, "-infinity"),
+-        ]:
+-            lines.append(name + "(")
+-            lines.extend("    " + expression(row) + "," for row in rows)
+-            if not rows:
+-                lines.append("    " + empty)
+-            lines.append(")")
+-        lines.extend("REQUIRE " + expression(row) + " >= 0" for row in self.conditions)
+-        return "\n".join(lines)
++"""Small, bounded symbolic LP projection; independent of accounting policy.
++
++Every row means ``a @ variables <= p @ daily_parameters``. Eliminating a
++variable preserves precisely those values that admit a feasible completion.
++Parameters (measurements, bounds, prior commitments) are never eliminated.
++"""
++
++from dataclasses import dataclass, field
++from fractions import Fraction
++from math import inf, isfinite
++from time import perf_counter
++
++import numpy as np
++
++
++class CannotCompile(RuntimeError):
++    """Use the ordinary LP path; no partial allocation should be committed."""
++
++
++@dataclass(frozen=True)
++class CompilationOptions:
++    # Limits bound *per-objective reduced* compilation cost, not the size of an
++    # accepted SolverInput. Large source models remain supported when presolve
++    # can remove irrelevant variables, or through ordinary LP fallback.
++    max_variables: int = 32
++    max_rows: int = 400
++    max_pairs: int = 2500
++    max_fraction_bits: int = 1024
++    max_plans: int = 64
++    max_program_coefficients: int = 50000
++    max_total_coefficients: int = 250000
++    max_seconds_per_plan: float = 1.0
++    max_total_compile_seconds: float = 5.0
++
++    def __post_init__(self):
++        for name, value in vars(self).items():
++            if not isfinite(value) or value <= 0:
++                raise ValueError(f"{name} must be finite and positive")
++            if name not in {
++                "max_seconds_per_plan",
++                "max_total_compile_seconds",
++            } and not isinstance(value, int):
++                raise ValueError(f"{name} must be an integer")
++
++
++@dataclass(frozen=True)
++class Row:
++    a: tuple
++    p: tuple
++
++    def negative(self):
++        return Row(tuple(-v for v in self.a), tuple(-v for v in self.p))
++
++
++def rational(value):
++    if not isfinite(value):
++        raise CannotCompile("nonfinite coefficient")
++    return Fraction(str(value))
++
++
++class Projector:
++    def __init__(self, options, deadline):
++        self.options, self.deadline = options, deadline
++        self.peak_rows = 0
++
++    def check_time(self):
++        if perf_counter() > self.deadline:
++            raise CannotCompile("compilation time budget reached")
++
++    def canonical(self, rows):
++        result = {}
++        for row in rows:
++            self.check_time()
++            # Positive scaling retains inequality direction; normalize for
++            # exact duplicate removal, including rows containing only inputs.
++            scale = next((abs(c) for c in row.a + row.p if c), None)
++            if scale is None:
++                continue
++            row = Row(tuple(c / scale for c in row.a), tuple(c / scale for c in row.p))
++            if any(
++                max(c.numerator.bit_length(), c.denominator.bit_length())
++                > self.options.max_fraction_bits
++                for c in row.a + row.p
++            ):
++                raise CannotCompile("rational coefficient size budget reached")
++            result[row] = None
++            if len(result) > self.options.max_rows:
++                raise CannotCompile("projected row budget reached")
++        self.peak_rows = max(self.peak_rows, len(result))
++        return list(result)
++
++    def bounds(self, source, target):
++        rows = self.canonical(source)
++        remaining = set(range(len(source[0].a))) - {target}
++        while remaining:
++            self.check_time()
++            pool = set(rows)
++            equation = next(
++                (
++                    r
++                    for r in rows
++                    if any(r.a[i] for i in remaining) and r.negative() in pool
++                ),
++                None,
++            )
++            if equation is not None:
++                # Use path, measurement, and parent equalities before pairing
++                # inequalities. This is exact substitution and often much cheaper.
++                v = min(
++                    (i for i in remaining if equation.a[i]),
++                    key=lambda i: sum(bool(r.a[i]) for r in rows),
++                )
++
++                def substitute(rows=rows, v=v, equation=equation):
++                    for r in rows:
++                        factor = r.a[v] / equation.a[v]
++                        yield Row(
++                            tuple(
++                                x - factor * y
++                                for x, y in zip(r.a, equation.a, strict=True)
++                            ),
++                            tuple(
++                                x - factor * y
++                                for x, y in zip(r.p, equation.p, strict=True)
++                            ),
++                        )
++
++                output = substitute()
++            else:
++                v = min(
++                    remaining,
++                    key=lambda i: (
++                        sum(r.a[i] > 0 for r in rows) * sum(r.a[i] < 0 for r in rows),
++                        i,
++                    ),
++                )
++                positive = [r for r in rows if r.a[v] > 0]
++                negative = [r for r in rows if r.a[v] < 0]
++                if len(positive) * len(negative) > self.options.max_pairs:
++                    raise CannotCompile("elimination pair budget reached")
++
++                def pair_rows(rows=rows, v=v, positive=positive, negative=negative):
++                    yield from (r for r in rows if not r.a[v])
++                    for upper in positive:
++                        for lower in negative:
++                            cp, cn = upper.a[v], -lower.a[v]
++                            yield Row(
++                                tuple(
++                                    x / cp + y / cn
++                                    for x, y in zip(upper.a, lower.a, strict=True)
++                                ),
++                                tuple(
++                                    x / cp + y / cn
++                                    for x, y in zip(upper.p, lower.p, strict=True)
++                                ),
++                            )
++
++                output = pair_rows()
++            rows = self.canonical(output)
++            remaining.remove(v)
++        upper, lower, conditions = [], [], []
++        for r in rows:
++            c = r.a[target]
++            if c > 0:
++                upper.append(tuple(x / c for x in r.p))
++            elif c < 0:
++                lower.append(tuple(x / c for x in r.p))
++            else:
++                conditions.append(r.p)
++        return Bounds(tuple(upper), tuple(lower), tuple(conditions))
++
++
++@dataclass
++class Bounds:
++    upper: tuple
++    lower: tuple
++    conditions: tuple
++    matrix: np.ndarray = field(init=False, repr=False)
++
++    def __post_init__(self):
++        self.matrix = np.asarray(self.upper + self.lower + self.conditions, dtype=float)
++
++    def interval(self, parameters):
++        if not self.matrix.size:
++            return -inf, inf
++        with np.errstate(over="ignore", invalid="ignore"):
++            values = self.matrix @ parameters
++        if not np.isfinite(values).all():
++            raise CannotCompile("nonfinite formula evaluation")
++        nu, nl = len(self.upper), len(self.lower)
++        hi = min(values[:nu], default=inf)
++        lo = max(values[nu : nu + nl], default=-inf)
++        # A small domain tolerance absorbs floating-point cancellation; an
++        # uncertain or infeasible interval is delegated to the actual backend.
++        scale = max(1.0, float(np.max(np.abs(parameters))))
++        if hi < lo or any(v < -1e-9 * scale for v in values[nu + nl :]):
++            raise CannotCompile("compiled domain/interval check failed")
++        return float(lo), float(hi)
++
++    def text(self, labels):
++        def expression(row):
++            return (
++                " + ".join(
++                    f"({c}) * {s}" for s, c in zip(labels, row, strict=True) if c
++                )
++                or "0"
++            )
++
++        lines = []
++        for name, rows, empty in [
++            ("upper = MIN", self.upper, "+infinity"),
++            ("lower = MAX", self.lower, "-infinity"),
++        ]:
++            lines.append(name + "(")
++            lines.extend("    " + expression(row) + "," for row in rows)
++            if not rows:
++                lines.append("    " + empty)
++            lines.append(")")
++        lines.extend("REQUIRE " + expression(row) + " >= 0" for row in self.conditions)
++        return "\n".join(lines)
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' apportionment_original/src/ut_water_apportionment/compiled/runtime.py apportionment_signed/src/ut_water_apportionment/compiled/runtime.py
+--- apportionment_original/src/ut_water_apportionment/compiled/runtime.py	2026-09-12 14:43:31.000000000 +0000
++++ apportionment_signed/src/ut_water_apportionment/compiled/runtime.py	2026-09-12 16:05:18.642192939 +0000
+@@ -1,416 +1,911 @@
+-"""Capture the production LP and reuse bounded symbolic objective programs.
+-
+-No graph accounting rules are duplicated here. Parent equations, temporary
+-counterflow caps, proportional rows, and spill locks come from Apportioner and
+-the selected backend's existing methods.
+-"""
+-
+-from collections import Counter
+-from dataclasses import dataclass
+-from math import isfinite
+-from time import perf_counter
+-
+-import numpy as np
+-
+-from .projection import CannotCompile, CompilationOptions, Projector, Row, rational
+-
+-
+-@dataclass
+-class Snapshot:
+-    names: tuple
+-    signature: tuple
+-    rows: tuple
+-    parameters: np.ndarray
+-    labels: tuple
+-
+-
+-def snapshot(engine, options):
+-    names = tuple(engine.vars)
+-    if len(names) > options.max_variables:
+-        raise CannotCompile(
+-            f"model has {len(names)} variables (budget {options.max_variables})"
+-        )
+-    if getattr(engine, "perminant_minus_var", None) is not None:
+-        raise CannotCompile("backend permanent-minus objective requires LP")
+-    indices = {name: i for i, name in enumerate(names)}
+-    rows, labels, parameters, signature = [], [], [], []
+-
+-    def add(kind, name, coefficients, lb, ub):
+-        finite_lb, finite_ub = isfinite(lb), isfinite(ub)
+-        mode = (
+-            "equal"
+-            if finite_lb and lb == ub
+-            else ("lower" if finite_lb else "") + ("upper" if finite_ub else "")
+-        )
+-        if not mode:
+-            return
+-        signature.append((kind, name, coefficients, mode))
+-        if mode == "equal":
+-            labels.append(f"{kind}[{name}].value")
+-            parameters.append(lb)
+-            rows.extend(
+-                [
+-                    (coefficients, len(labels) - 1, 1),
+-                    (tuple(-c for c in coefficients), len(labels) - 1, -1),
+-                ]
+-            )
+-        else:
+-            if finite_lb:
+-                labels.append(f"{kind}[{name}].lower")
+-                parameters.append(lb)
+-                rows.append((tuple(-c for c in coefficients), len(labels) - 1, -1))
+-            if finite_ub:
+-                labels.append(f"{kind}[{name}].upper")
+-                parameters.append(ub)
+-                rows.append((coefficients, len(labels) - 1, 1))
+-
+-    for name, var in engine.vars.items():
+-        coefficients = tuple(float(i == indices[name]) for i in range(len(names)))
+-        add("variable", name, coefficients, var.lb(), var.ub())
+-    for name, con in engine.cons.items():
+-        if not isfinite(con.lb()) and not isfinite(con.ub()):
+-            continue  # Inactive proportional rows impose no equations.
+-        if hasattr(con, "coefficients"):
+-            coefficients = tuple(con.coefficients.get(s, 0.0) for s in names)
+-        else:  # GLOP exposes coefficients through MPConstraint.
+-            coefficients = tuple(con.GetCoefficient(engine.vars[s]) for s in names)
+-        add("constraint", name, coefficients, con.lb(), con.ub())
+-    if len(rows) > options.max_rows:
+-        raise CannotCompile("source row budget reached")
+-    if not all(isfinite(c) for coefficients, _, _ in rows for c in coefficients):
+-        raise CannotCompile("nonfinite matrix coefficient")
+-    labels.append("objective_value")
+-    parameters.append(0.0)
+-    return Snapshot(
+-        names,
+-        (names, tuple(signature)),
+-        tuple(rows),
+-        np.asarray(parameters, dtype=float),
+-        tuple(labels),
+-    )
+-
+-
+-@dataclass
+-class ObjectiveProgram:
+-    name: str
+-    labels: tuple
+-    targets: tuple
+-    costs: tuple
+-    maximization: bool
+-    optimum: object
+-    ranges: tuple
+-    peak_rows: int
+-
+-    @property
+-    def coefficient_count(self):
+-        return sum(
+-            len(row)
+-            for bounds in (self.optimum, *self.ranges)
+-            for rows in (bounds.upper, bounds.lower, bounds.conditions)
+-            for row in rows
+-        )
+-
+-    def evaluate(self, parameters):
+-        params = parameters.copy()
+-        lo, hi = self.optimum.interval(params)
+-        value = hi if self.maximization else lo
+-        if not isfinite(value):
+-            raise CannotCompile("compiled objective is unbounded")
+-        params[-1] = value
+-        if len(self.targets) == 1 and self.costs[0] != 0:
+-            return value, {self.targets[0]: value / self.costs[0]}
+-        values = {}
+-        for name, bounds in zip(self.targets, self.ranges, strict=True):
+-            lo, hi = bounds.interval(params)
+-            if (
+-                not isfinite(lo)
+-                or not isfinite(hi)
+-                or hi - lo > 1e-9 * max(1.0, abs(lo), abs(hi))
+-            ):
+-                # A unique objective sum need not identify its components. The
+-                # production backend's choice can change later allocations, so
+-                # restart the day rather than inventing a tie-breaking rule.
+-                raise CannotCompile(f"nonunique minimum/maximum components: {name}")
+-            values[name] = (lo + hi) / 2
+-        return value, values
+-
+-    def text(self):
+-        lines = [
+-            f"PROGRAM {self.name}: "
+-            + ("MAXIMIZE " if self.maximization else "MINIMIZE ")
+-            + " + ".join(
+-                f"({c}) * {s}" for s, c in zip(self.targets, self.costs, strict=True)
+-            ),
+-            self.optimum.text(self.labels),
+-            "objective_value = " + ("upper" if self.maximization else "lower"),
+-        ]
+-        if len(self.targets) == 1 and self.costs[0] != 0:
+-            lines.append(f"{self.targets[0]} = objective_value / ({self.costs[0]})")
+-        else:
+-            for name, bounds in zip(self.targets, self.ranges, strict=True):
+-                lines += [
+-                    f"VALUE RANGE FOR {name}",
+-                    bounds.text(self.labels),
+-                    f"REQUIRE upper == lower; {name} = lower; otherwise RESTART_DAY_WITH_LP",
+-                ]
+-        return "\n".join(lines)
+-
+-    def code(self):
+-        """Executable Python for this scalar objective and requested values."""
+-
+-        def encoded(bounds):
+-            return repr(
+-                tuple(
+-                    tuple(tuple(float(c) for c in row) for row in rows)
+-                    for rows in (bounds.upper, bounds.lower, bounds.conditions)
+-                )
+-            )
+-
+-        lines = [
+-            f"def {self.name}(parameters):",
+-            '    """Input: dict of the named live LP bounds; output: objective, values."""',
+-            f"    labels = {self.labels!r}",
+-            '    p = [float(parameters[s]) if s != "objective_value" else 0.0 for s in labels]',
+-            f"    lo, hi = _compiled_interval(p, *{encoded(self.optimum)})",
+-            "    value = " + ("hi" if self.maximization else "lo"),
+-            '    if not isfinite(value): raise CompiledFallback("unbounded objective")',
+-            "    p[-1] = value",
+-        ]
+-        if len(self.targets) == 1 and self.costs[0] != 0:
+-            lines.append(
+-                f"    return value, {{{self.targets[0]!r}: value / {self.costs[0]!r}}}"
+-            )
+-        else:
+-            lines.append("    values = {}")
+-            for name, bounds in zip(self.targets, self.ranges, strict=True):
+-                lines += [
+-                    f"    lo, hi = _compiled_interval(p, *{encoded(bounds)})",
+-                    "    if not isfinite(lo) or not isfinite(hi) or hi-lo > 1e-9*max(1., abs(lo), abs(hi)):",
+-                    f"        raise CompiledFallback({('nonunique component: ' + name)!r})",
+-                    f"    values[{name!r}] = (lo+hi)/2",
+-                ]
+-            lines.append("    return value, values")
+-        return "\n".join(lines)
+-
+-
+-def compile_objective(state, targets, costs, maximization, options, name, seconds):
+-    projector = Projector(options, perf_counter() + seconds)
+-    n, m = len(state.names), len(state.labels)
+-    zero = rational(0)
+-    rows = []
+-    for coefficients, parameter, sign in state.rows:
+-        p = tuple(rational(sign if j == parameter else 0) for j in range(m))
+-        rows.append(Row(tuple(rational(c) for c in coefficients) + (zero,), p))
+-    c = dict(zip(targets, costs, strict=True))
+-    coefficients = tuple(rational(c.get(s, 0.0)) for s in state.names)
+-    equation = Row(coefficients + (-rational(1),), (zero,) * m)
+-    optimum = projector.bounds(rows + [equation, equation.negative()], n)
+-    ranges = []
+-
+-    def check_size():
+-        count = sum(
+-            len(row)
+-            for bounds in (optimum, *ranges)
+-            for rs in (bounds.upper, bounds.lower, bounds.conditions)
+-            for row in rs
+-        )
+-        if count > options.max_program_coefficients:
+-            raise CannotCompile("objective program coefficient budget reached")
+-
+-    check_size()
+-    if len(targets) != 1 or costs[0] == 0:
+-        # Restrict the original system to the optimal objective value, then
+-        # project each requested component. This detects ambiguous endpoint
+-        # caps, spill components, and final residual values.
+-        face = Row(coefficients + (zero,), (zero,) * (m - 1) + (rational(1),))
+-        for target in targets:
+-            ranges.append(
+-                projector.bounds(
+-                    rows + [face, face.negative()], state.names.index(target)
+-                )
+-            )
+-            check_size()
+-    return ObjectiveProgram(
+-        name,
+-        state.labels,
+-        targets,
+-        costs,
+-        maximization,
+-        optimum,
+-        tuple(ranges),
+-        projector.peak_rows,
+-    )
+-
+-
+-class CompilationSession:
+-    """Bounded program cache owned by one reusable SolverInput plan."""
+-
+-    def __init__(self, options=None):
+-        self.options = options or CompilationOptions()
+-        self.programs = {}
+-        self.failures = {}
+-        self.compile_seconds = 0.0
+-        self.date = None
+-        self.stats = Counter()
+-        self.events = []
+-        self.last_events = []
+-        self.warmup_reasons = Counter()
+-
+-    def program(self, engine, names, maximization=True, weights=None):
+-        state = snapshot(engine, self.options)
+-        targets = tuple(dict.fromkeys(names))
+-        if not targets or any(s not in state.names for s in targets):
+-            raise CannotCompile("empty or unknown objective targets")
+-        costs = tuple((weights or {}).get(s, 1.0) for s in targets)
+-        key = (state.signature, targets, costs, maximization)
+-        if key in self.failures:
+-            raise CannotCompile(self.failures[key])
+-        if key not in self.programs:
+-            if len(self.programs) + len(self.failures) >= self.options.max_plans:
+-                raise CannotCompile("program cache budget reached")
+-            remaining = self.options.max_total_compile_seconds - self.compile_seconds
+-            if remaining <= 0:
+-                raise CannotCompile("total compilation time budget reached")
+-            start = perf_counter()
+-            try:
+-                program = compile_objective(
+-                    state,
+-                    targets,
+-                    costs,
+-                    maximization,
+-                    self.options,
+-                    f"P{len(self.programs) + 1}",
+-                    min(remaining, self.options.max_seconds_per_plan),
+-                )
+-                if (
+-                    sum(p.coefficient_count for p in self.programs.values())
+-                    + program.coefficient_count
+-                    > self.options.max_total_coefficients
+-                ):
+-                    raise CannotCompile("total cached coefficient budget reached")
+-                self.programs[key] = program
+-            except CannotCompile as error:
+-                self.failures[key] = str(error)
+-                raise
+-            finally:
+-                self.compile_seconds += perf_counter() - start
+-        else:
+-            self.stats["cache_hits"] += 1
+-        return self.programs[key], state.parameters
+-
+-    def evaluate(self, engine, names, maximization=True, weights=None):
+-        program, params = self.program(engine, names, maximization, weights)
+-        result = program.evaluate(params)
+-        self.stats["formula_evaluations"] += 1
+-        self.events.append(program.name)
+-        return result
+-
+-    def begin_day(self, date):
+-        self.date, self.events = date, []
+-
+-    def finish_day(self, reason=None):
+-        self.stats["lp_days" if reason else "compiled_days"] += 1
+-        self.last_events.append(
+-            {
+-                "date": self.date,
+-                "method": "lp" if reason else "compiled",
+-                "formula_calls": list(self.events),
+-                "fallback_reason": reason,
+-            }
+-        )
+-        if reason:
+-            self.stats["discarded_formula_evaluations"] += len(self.events)
+-
+-    def report(self):
+-        return {
+-            **dict(self.stats),
+-            "program_count": len(self.programs),
+-            "rejected_program_count": len(self.failures),
+-            "compile_seconds": self.compile_seconds,
+-            "cached_coefficients": sum(
+-                p.coefficient_count for p in self.programs.values()
+-            ),
+-            "days": list(self.last_events),
+-            "preparation_fallbacks": dict(self.warmup_reasons),
+-        }
+-
+-    def formulas(self):
+-        prelude = (
+-            "Parameters are live LP bounds: measurements, NF, account capacity, and committed allocations.\n"
+-            "Programs include parent/path equalities and active counterflow/proportional/spill constraints.\n"
+-            "Daily execution follows the production priority loop; it selects programs by matrix and objective.\n"
+-            "Equal-priority active sets are visited iteratively; subsets are not enumerated in advance.\n"
+-            "On ambiguity, invalid domain, audit request, or budget limit: RESTART_DAY_WITH_LP.\n"
+-        )
+-        programs = "\n\n".join(p.text() for p in self.programs.values())
+-        reasons = "\n".join(
+-            "LP FALLBACK: " + s
+-            for s in dict.fromkeys([*self.failures.values(), *self.warmup_reasons])
+-        )
+-        return prelude + "\n" + programs + "\n" + reasons
+-
+-    def execution_outline(self):
+-        # This is a faithful execution outline, not a portable standalone export
+-        # of graph preprocessing or state objects. formulas() gives actual bounds.
+-        return """# Execution outline; plan.solve() is the executable routine.
+-for day in dates:
+-    initialize_daily_measurements_accounts_and_natural_flow()
+-    try:
+-        for allocation_pass in (1, 2):
+-            for priority_group in production_schedule:
+-                while active_members_remain(priority_group):
+-                    apply_counterflow_caps_using_compiled_objectives()
+-                    increment = evaluate_compiled_common_increment_or_single_maximum()
+-                    commit_allocations_and_update_remaining_natural_flow(increment)
+-                    remove_blocked_members_using_compiled_objectives()
+-                    release_temporary_caps()
+-            if allocation_pass == 1:
+-                minimize_and_lock_spills_then_credit_natural_flow()
+-        finalize_using_compiled_objective()
+-    except CannotCompile:
+-        discard_tentative_day_and_run_original_lp_day()
+-    commit_final_account_and_cumulative_balances_once()
+-"""
+-
+-    def code(self):
+-        helpers = """# Generated scalar objective programs. Run the full accounting workflow with plan.solve().
+-# Each function accepts named LP bounds. CompiledFallback means restart the day with LP.
+-from math import inf, isfinite
+-
+-class CompiledFallback(RuntimeError):
+-    pass
+-
+-def _compiled_interval(p, upper, lower, conditions):
+-    def dot(row):
+-        value = sum(c*x for c, x in zip(row, p, strict=True))
+-        if not isfinite(value): raise CompiledFallback("nonfinite formula")
+-        return value
+-    hi = min((dot(row) for row in upper), default=inf)
+-    lo = max((dot(row) for row in lower), default=-inf)
+-    tolerance = 1e-9*max(1., max(abs(x) for x in p))
+-    if hi < lo or any(dot(row) < -tolerance for row in conditions):
+-        raise CompiledFallback("domain/interval check failed")
+-    return lo, hi
+-"""
+-        return (
+-            helpers
+-            + "\n\n"
+-            + "\n\n".join(p.code() for p in self.programs.values())
+-            + "\n"
+-        )
+-
+-
+-def compiled_factory(base, session):
+-    class CompiledEngine(base):
+-        def solve_objective(self, variable_names, maximization=True, weights=None):
+-            return session.evaluate(self, variable_names, maximization, weights)
+-
+-        def get_last_variable_reduced_cost(self, variable_name):
+-            return None
+-
+-        def get_last_solve_constraint_evidence(self, variable_name, tolerance=1e-6):
+-            # No fictitious dual evidence from a previous native solve. Requests
+-            # for the detailed production audit use the ordinary LP day instead.
+-            return []
+-
+-    return CompiledEngine
++"""Capture the production LP and reuse bounded symbolic objective programs.
++
++No graph accounting rules are duplicated here. Parent equations, temporary
++counterflow caps, proportional rows, and spill locks come from Apportioner and
++the selected backend's existing methods.
++"""
++
++from collections import Counter
++from dataclasses import dataclass
++from math import isfinite
++from time import perf_counter
++
++import numpy as np
++
++from .projection import (
++    Bounds,
++    CannotCompile,
++    CompilationOptions,
++    Projector,
++    Row,
++    rational,
++)
++
++
++@dataclass
++class Snapshot:
++    names: tuple
++    signature: tuple
++    rows: tuple
++    parameters: np.ndarray
++    labels: tuple
++    source_variable_count: int = 0
++    equality_eliminated: int = 0
++    bound_eliminated: int = 0
++    target_bound_eliminated: int = 0
++    resolved_targets: tuple = ()
++
++
++@dataclass
++class _SparseRow:
++    """A sparse symbolic row: coefficients @ variables <= parameters @ values."""
++
++    coefficients: dict[str, float]
++    parameters: dict[str, float]
++    # Only direct variable-bound rows get this marker. Once another variable is
++    # substituted into such a row, it becomes an ordinary feasibility row.
++    bound_var: str | None = None
++    # Equality-derived rows can establish objective/component uniqueness and
++    # must never be discarded merely because today's bounds imply them.
++    preserve: bool = False
++
++    def negative(self) -> "_SparseRow":
++        return _SparseRow(
++            {name: -value for name, value in self.coefficients.items()},
++            {name: -value for name, value in self.parameters.items()},
++            self.bound_var,
++            self.preserve,
++        )
++
++
++def _add_scaled(target: dict[str, float], source: dict[str, float], scale: float) -> None:
++    for name, value in source.items():
++        updated = target.get(name, 0.0) + scale * value
++        if updated == 0.0:
++            target.pop(name, None)
++        else:
++            target[name] = updated
++
++
++def _substitute_equation(row: _SparseRow, equation: _SparseRow, variable: str) -> None:
++    """Eliminate ``variable`` from ``row`` using an equality row exactly."""
++
++    coefficient = row.coefficients.get(variable)
++    if coefficient is None:
++        return
++    pivot = equation.coefficients[variable]
++    factor = coefficient / pivot
++    _add_scaled(row.coefficients, equation.coefficients, -factor)
++    _add_scaled(row.parameters, equation.parameters, -factor)
++    # A bound on the eliminated variable is now a general inequality involving
++    # the variables that replaced it, so it must participate in sign analysis.
++    if row.bound_var == variable:
++        row.bound_var = None
++
++
++def _substitute_bound(
++    rows: list[_SparseRow],
++    variable: str,
++    parameter_label: str,
++) -> None:
++    """Move a variable fixed at one of its live bounds to the symbolic RHS."""
++
++    for row in rows:
++        if row.bound_var == variable:
++            # The engine guarantees lb <= ub. Once this objective has safely
++            # selected one live bound for the variable, its original bound rows
++            # cannot further restrict the projected problem.
++            row.coefficients.clear()
++            row.parameters.clear()
++            row.bound_var = None
++            continue
++        coefficient = row.coefficients.pop(variable, None)
++        if coefficient is None:
++            continue
++        updated = row.parameters.get(parameter_label, 0.0) - coefficient
++        if updated == 0.0:
++            row.parameters.pop(parameter_label, None)
++        else:
++            row.parameters[parameter_label] = updated
++
++
++def snapshot(engine, options, targets=(), target_preferences=None):
++    """Capture an objective-specific, symbolically reduced LP snapshot.
++
++    The production model can be much larger than an individual priority solve.
++    Exact equalities are substituted first. Remaining non-objective variables
++    that can only tighten every active inequality are fixed at the bound that
++    weakens those inequalities (normally the committed lower bound). Variables
++    with mixed/opposing signs remain live. This preserves feasibility while
++    moving solved senior allocations and harmless junior allocations to the RHS.
++    """
++
++    if getattr(engine, "perminant_minus_var", None) is not None:
++        raise CannotCompile("backend permanent-minus objective requires LP")
++
++    all_names = tuple(engine.vars)
++    protected = set(targets)
++    target_preferences = target_preferences or {}
++    resolved_targets: dict[str, str] = {}
++    if any(name not in engine.vars for name in protected):
++        raise CannotCompile("empty or unknown objective targets")
++
++    parameter_values: dict[str, float] = {}
++    variable_bounds: dict[str, tuple[float, float]] = {}
++    inequalities: list[_SparseRow] = []
++    equations: list[_SparseRow] = []
++
++    def parameter(label: str, value: float) -> str:
++        if not isfinite(value):
++            raise CannotCompile(f"nonfinite parameter: {label}")
++        parameter_values[label] = float(value)
++        return label
++
++    # Variable bounds are kept symbolic. Exact fixed bounds become equalities,
++    # which makes them essentially free to substitute before projection.
++    for name, var in engine.vars.items():
++        lb, ub = var.lb(), var.ub()
++        variable_bounds[name] = (lb, ub)
++        finite_lb, finite_ub = isfinite(lb), isfinite(ub)
++        if finite_lb and finite_ub and lb == ub:
++            label = parameter(f"variable[{name}].value", lb)
++            equations.append(
++                _SparseRow({name: 1.0}, {label: 1.0}, preserve=True)
++            )
++            continue
++        if finite_lb:
++            label = parameter(f"variable[{name}].lower", lb)
++            inequalities.append(
++                _SparseRow({name: -1.0}, {label: -1.0}, bound_var=name)
++            )
++        if finite_ub:
++            label = parameter(f"variable[{name}].upper", ub)
++            inequalities.append(
++                _SparseRow({name: 1.0}, {label: 1.0}, bound_var=name)
++            )
++
++    # Constraint equalities are represented once during the cheap substitution
++    # phase instead of as two dense inequalities.
++    for name, con in engine.cons.items():
++        lb, ub = con.lb(), con.ub()
++        if not isfinite(lb) and not isfinite(ub):
++            continue
++        if hasattr(con, "coefficients"):
++            coefficients = {
++                variable: float(value)
++                for variable, value in con.coefficients.items()
++                if value != 0
++            }
++        else:  # GLOP exposes coefficients through MPConstraint.
++            coefficients = {
++                variable: float(con.GetCoefficient(engine.vars[variable]))
++                for variable in all_names
++                if con.GetCoefficient(engine.vars[variable]) != 0
++            }
++        if not all(isfinite(value) for value in coefficients.values()):
++            raise CannotCompile("nonfinite matrix coefficient")
++
++        finite_lb, finite_ub = isfinite(lb), isfinite(ub)
++        if finite_lb and finite_ub and lb == ub:
++            label = parameter(f"constraint[{name}].value", lb)
++            equations.append(_SparseRow(coefficients, {label: 1.0}))
++        else:
++            if finite_lb:
++                label = parameter(f"constraint[{name}].lower", lb)
++                inequalities.append(
++                    _SparseRow(
++                        {variable: -value for variable, value in coefficients.items()},
++                        {label: -1.0},
++                    )
++                )
++            if finite_ub:
++                label = parameter(f"constraint[{name}].upper", ub)
++                inequalities.append(_SparseRow(coefficients.copy(), {label: 1.0}))
++
++    # Eliminate every non-objective variable that has an exact defining
++    # equality. Choosing the least-connected pivot limits fill-in.
++    equality_eliminated = 0
++    while True:
++        occurrences = Counter(
++            variable
++            for row in (*equations, *inequalities)
++            for variable in row.coefficients
++        )
++        choice = None
++        for index, equation in enumerate(equations):
++            for variable in equation.coefficients:
++                if variable in protected:
++                    continue
++                score = (occurrences[variable], len(equation.coefficients), variable)
++                if choice is None or score < choice[0]:
++                    choice = (score, index, variable)
++        if choice is None:
++            break
++
++        _, index, variable = choice
++        pivot = equations.pop(index)
++        for row in equations:
++            _substitute_equation(row, pivot, variable)
++        for row in inequalities:
++            _substitute_equation(row, pivot, variable)
++        equality_eliminated += 1
++
++    # Any equality left now contains objective variables only. Convert it to
++    # the pair of inequalities expected by the projector.
++    for equation in equations:
++        inequalities.append(equation)
++        inequalities.append(equation.negative())
++    equations.clear()
++
++    # Remove rows that are currently implied by variable bounds, but retain a
++    # parameter-only proof condition so reuse is safe when daily bounds change.
++    # This is particularly valuable for rows such as ``sum(x) >= 0`` when all
++    # x already have non-negative lower bounds: without this presolve row, the
++    # redundant lower side looks like an opposing sign and prevents reduction.
++    for row in inequalities:
++        if (
++            row.bound_var is not None
++            or row.preserve
++            or not row.coefficients
++        ):
++            continue
++        maximum_terms: list[tuple[str, float, float]] = []
++        maximum_value = 0.0
++        bounded = True
++        for variable, coefficient in row.coefficients.items():
++            lb, ub = variable_bounds[variable]
++            if coefficient > 0:
++                if not isfinite(ub):
++                    bounded = False
++                    break
++                label = f"variable[{variable}].upper"
++                bound = ub
++            else:
++                if not isfinite(lb):
++                    bounded = False
++                    break
++                label = f"variable[{variable}].lower"
++                bound = lb
++            maximum_terms.append((label, coefficient, bound))
++            maximum_value += coefficient * bound
++        if not bounded:
++            continue
++        rhs_value = sum(
++            coefficient * parameter_values[label]
++            for label, coefficient in row.parameters.items()
++        )
++        redundancy_scale = max(1.0, abs(maximum_value), abs(rhs_value))
++        if maximum_value > rhs_value + 1e-9 * redundancy_scale:
++            continue
++        for label, coefficient, bound in maximum_terms:
++            parameter(label, bound)
++            updated = row.parameters.get(label, 0.0) - coefficient
++            if updated == 0.0:
++                row.parameters.pop(label, None)
++            else:
++                row.parameters[label] = updated
++        row.coefficients.clear()
++
++    # Safely collapse remaining zero-cost variables when their non-bound
++    # coefficients all have one sign. If all coefficients are positive,
++    # lowering the variable can only relax the LP, so its live lower bound is
++    # exact for this objective. The mirror case uses the upper bound. Mixed
++    # signs are deliberately retained because they can represent counterflow.
++    bound_eliminated = 0
++    while True:
++        eliminated = False
++        variables_in_rows = {
++            variable for row in inequalities for variable in row.coefficients
++        }
++        for variable in all_names:
++            if variable not in variables_in_rows:
++                continue
++            is_target = variable in protected
++            preference = target_preferences.get(variable) if is_target else None
++            relevant = [
++                row.coefficients[variable]
++                for row in inequalities
++                if variable in row.coefficients and row.bound_var != variable
++            ]
++            lb, ub = variable_bounds[variable]
++            label = None
++            value = None
++            if not relevant:
++                if preference == "upper" and isfinite(ub):
++                    label, value = f"variable[{variable}].upper", ub
++                elif preference == "lower" and isfinite(lb):
++                    label, value = f"variable[{variable}].lower", lb
++                elif not is_target and isfinite(lb):
++                    label, value = f"variable[{variable}].lower", lb
++                elif not is_target and isfinite(ub):
++                    label, value = f"variable[{variable}].upper", ub
++            elif all(coefficient > 0 for coefficient in relevant) and isfinite(lb):
++                if not is_target or preference == "lower":
++                    label, value = f"variable[{variable}].lower", lb
++            elif all(coefficient < 0 for coefficient in relevant) and isfinite(ub):
++                if not is_target or preference == "upper":
++                    label, value = f"variable[{variable}].upper", ub
++
++            if label is not None and value is not None:
++                parameter(label, value)
++                _substitute_bound(inequalities, variable, label)
++                bound_eliminated += 1
++                if is_target:
++                    protected.remove(variable)
++                    resolved_targets[variable] = label
++                eliminated = True
++                break
++
++            # A one-sided non-objective variable that is unbounded in the helpful direction
++            # can satisfy all rows containing it and therefore projects out
++            # without leaving a condition. This is exact Fourier-Motzkin
++            # elimination with one empty sign set, and is important for slack
++            # and counterflow variables.
++            if not is_target and relevant and (
++                (all(coefficient > 0 for coefficient in relevant) and not isfinite(lb))
++                or (
++                    all(coefficient < 0 for coefficient in relevant)
++                    and not isfinite(ub)
++                )
++            ):
++                inequalities = [
++                    row
++                    for row in inequalities
++                    if variable not in row.coefficients
++                ]
++                bound_eliminated += 1
++                eliminated = True
++                break
++        if not eliminated:
++            break
++
++    inequalities = [
++        row for row in inequalities if row.coefficients or row.parameters
++    ]
++
++    active_variables = {
++        variable for row in inequalities for variable in row.coefficients
++    } | protected
++    names = tuple(name for name in all_names if name in active_variables)
++    if len(names) > options.max_variables:
++        raise CannotCompile(
++            f"reduced objective has {len(names)} variables "
++            f"(budget {options.max_variables}; source model {len(all_names)})"
++        )
++
++    if len(inequalities) > options.max_rows:
++        raise CannotCompile(
++            f"reduced objective has {len(inequalities)} rows "
++            f"(budget {options.max_rows})"
++        )
++
++    referenced_labels = {
++        label for row in inequalities for label in row.parameters
++    } | set(resolved_targets.values())
++    labels = tuple(
++        label for label in parameter_values if label in referenced_labels
++    )
++    label_indices = {label: index for index, label in enumerate(labels)}
++
++    rows = []
++    for row in inequalities:
++        coefficients = tuple(row.coefficients.get(name, 0.0) for name in names)
++        p = [0.0] * len(labels)
++        for label, value in row.parameters.items():
++            if label in label_indices:
++                p[label_indices[label]] = value
++        if not any(coefficients) and not any(p):
++            continue
++        rows.append((coefficients, tuple(p)))
++
++    labels_with_objective = labels + ("objective_value",)
++    parameters = np.asarray(
++        [parameter_values[label] for label in labels] + [0.0],
++        dtype=float,
++    )
++
++    # The key intentionally excludes live RHS values but includes every reduced
++    # matrix coefficient and parameter role. Changed measurements reuse a
++    # program; changed coefficient/sign structure selects a different one.
++    resolved_target_items = tuple(
++        (name, resolved_targets[name]) for name in targets if name in resolved_targets
++    )
++    signature = (names, labels, tuple(rows), resolved_target_items)
++    return Snapshot(
++        names=names,
++        signature=signature,
++        rows=tuple(rows),
++        parameters=parameters,
++        labels=labels_with_objective,
++        source_variable_count=len(all_names),
++        equality_eliminated=equality_eliminated,
++        bound_eliminated=bound_eliminated,
++        target_bound_eliminated=len(resolved_targets),
++        resolved_targets=resolved_target_items,
++    )
++
++@dataclass
++class ObjectiveProgram:
++    name: str
++    labels: tuple
++    targets: tuple
++    costs: tuple
++    maximization: bool
++    optimum: object
++    ranges: tuple
++    peak_rows: int
++    source_variable_count: int = 0
++    active_variable_count: int = 0
++    equality_eliminated: int = 0
++    bound_eliminated: int = 0
++    target_bound_eliminated: int = 0
++
++    @property
++    def coefficient_count(self):
++        # Count actual symbolic terms, not zero padding in the dense numerical
++        # evaluation matrix. The latter made large-but-sparse formulas hit the
++        # safety budget for coefficients that do not exist mathematically.
++        return sum(
++            sum(bool(coefficient) for coefficient in row)
++            for bounds in (self.optimum, *self.ranges)
++            for rows in (bounds.upper, bounds.lower, bounds.conditions)
++            for row in rows
++        )
++
++    def evaluate(self, parameters):
++        params = parameters.copy()
++        lo, hi = self.optimum.interval(params)
++        value = hi if self.maximization else lo
++        if not isfinite(value):
++            raise CannotCompile("compiled objective is unbounded")
++        params[-1] = value
++        if len(self.targets) == 1 and self.costs[0] != 0:
++            return value, {self.targets[0]: value / self.costs[0]}
++        values = {}
++        for name, bounds in zip(self.targets, self.ranges, strict=True):
++            lo, hi = bounds.interval(params)
++            if (
++                not isfinite(lo)
++                or not isfinite(hi)
++                or hi - lo > 1e-9 * max(1.0, abs(lo), abs(hi))
++            ):
++                # A unique objective sum need not identify its components. The
++                # production backend's choice can change later allocations, so
++                # restart the day rather than inventing a tie-breaking rule.
++                raise CannotCompile(f"nonunique minimum/maximum components: {name}")
++            values[name] = (lo + hi) / 2
++        return value, values
++
++    def text(self):
++        lines = [
++            f"PROGRAM {self.name}: "
++            + ("MAXIMIZE " if self.maximization else "MINIMIZE ")
++            + " + ".join(
++                f"({c}) * {s}" for s, c in zip(self.targets, self.costs, strict=True)
++            ),
++            self.optimum.text(self.labels),
++            "objective_value = " + ("upper" if self.maximization else "lower"),
++        ]
++        if len(self.targets) == 1 and self.costs[0] != 0:
++            lines.append(f"{self.targets[0]} = objective_value / ({self.costs[0]})")
++        else:
++            for name, bounds in zip(self.targets, self.ranges, strict=True):
++                lines += [
++                    f"VALUE RANGE FOR {name}",
++                    bounds.text(self.labels),
++                    f"REQUIRE upper == lower; {name} = lower; otherwise RESTART_DAY_WITH_LP",
++                ]
++        return "\n".join(lines)
++
++    def code(self):
++        """Executable Python for this scalar objective and requested values."""
++
++        def encoded(bounds):
++            return repr(
++                tuple(
++                    tuple(tuple(float(c) for c in row) for row in rows)
++                    for rows in (bounds.upper, bounds.lower, bounds.conditions)
++                )
++            )
++
++        lines = [
++            f"def {self.name}(parameters):",
++            '    """Input: dict of the named live LP bounds; output: objective, values."""',
++            f"    labels = {self.labels!r}",
++            '    p = [float(parameters[s]) if s != "objective_value" else 0.0 for s in labels]',
++            f"    lo, hi = _compiled_interval(p, *{encoded(self.optimum)})",
++            "    value = " + ("hi" if self.maximization else "lo"),
++            '    if not isfinite(value): raise CompiledFallback("unbounded objective")',
++            "    p[-1] = value",
++        ]
++        if len(self.targets) == 1 and self.costs[0] != 0:
++            lines.append(
++                f"    return value, {{{self.targets[0]!r}: value / {self.costs[0]!r}}}"
++            )
++        else:
++            lines.append("    values = {}")
++            for name, bounds in zip(self.targets, self.ranges, strict=True):
++                lines += [
++                    f"    lo, hi = _compiled_interval(p, *{encoded(bounds)})",
++                    "    if not isfinite(lo) or not isfinite(hi) or hi-lo > 1e-9*max(1., abs(lo), abs(hi)):",
++                    f"        raise CompiledFallback({('nonunique component: ' + name)!r})",
++                    f"    values[{name!r}] = (lo+hi)/2",
++                ]
++            lines.append("    return value, values")
++        return "\n".join(lines)
++
++
++def compile_objective(state, targets, costs, maximization, options, name, seconds):
++    projector = Projector(options, perf_counter() + seconds)
++    n, m = len(state.names), len(state.labels)
++    zero = rational(0)
++    rows = []
++    for coefficients, parameter_coefficients in state.rows:
++        p = tuple(rational(value) for value in parameter_coefficients) + (zero,)
++        rows.append(Row(tuple(rational(c) for c in coefficients) + (zero,), p))
++    c = dict(zip(targets, costs, strict=True))
++    coefficients = tuple(rational(c.get(s, 0.0)) for s in state.names)
++    resolved_targets = dict(state.resolved_targets)
++    label_indices = {label: index for index, label in enumerate(state.labels)}
++    objective_rhs = [zero] * m
++    for target, label in resolved_targets.items():
++        objective_rhs[label_indices[label]] -= rational(c[target])
++    equation = Row(
++        coefficients + (-rational(1),),
++        tuple(objective_rhs),
++    )
++    optimum = projector.bounds(rows + [equation, equation.negative()], n)
++    ranges = []
++
++    def check_size():
++        count = sum(
++            sum(bool(coefficient) for coefficient in row)
++            for bounds in (optimum, *ranges)
++            for rs in (bounds.upper, bounds.lower, bounds.conditions)
++            for row in rs
++        )
++        if count > options.max_program_coefficients:
++            raise CannotCompile("objective program coefficient budget reached")
++
++    check_size()
++    if len(targets) != 1 or costs[0] == 0:
++        # Restrict the original system to the optimal objective value, then
++        # project each requested component. This detects ambiguous endpoint
++        # caps, spill components, and final residual values.
++        face_rhs = list(objective_rhs)
++        face_rhs[-1] += rational(1)
++        face = Row(coefficients + (zero,), tuple(face_rhs))
++        for target in targets:
++            if target in resolved_targets:
++                index = label_indices[resolved_targets[target]]
++                parameter_value = tuple(
++                    rational(1) if i == index else zero for i in range(m)
++                )
++                ranges.append(
++                    Bounds(
++                        upper=(parameter_value,),
++                        lower=(parameter_value,),
++                        conditions=(),
++                    )
++                )
++            else:
++                ranges.append(
++                    projector.bounds(
++                        rows + [face, face.negative()], state.names.index(target)
++                    )
++                )
++            check_size()
++    return ObjectiveProgram(
++        name,
++        state.labels,
++        targets,
++        costs,
++        maximization,
++        optimum,
++        tuple(ranges),
++        projector.peak_rows,
++        state.source_variable_count,
++        len(state.names),
++        state.equality_eliminated,
++        state.bound_eliminated,
++        state.target_bound_eliminated,
++    )
++
++
++def _direct_bound_objective(engine, names, maximization, weights):
++    """Return an exact bound optimum when the preferred-bound point is feasible.
++
++    This is especially useful for finalization after the priority loop has
++    committed transaction lower bounds. If every objective variable can sit at
++    its individually optimal bound simultaneously, no projection is needed.
++    Non-objective variables must already be fixed so the feasibility check is
++    complete rather than existential.
++    """
++
++    requested = tuple(dict.fromkeys(names))
++    requested_set = set(requested)
++    objective_weights = weights or {}
++    candidate: dict[str, float] = {}
++
++    for name, variable in engine.vars.items():
++        lower, upper = variable.lb(), variable.ub()
++        if name not in requested_set:
++            if not (isfinite(lower) and lower == upper):
++                return None
++            candidate[name] = lower
++            continue
++
++        cost = objective_weights.get(name, 1.0)
++        if cost == 0:
++            return None
++        prefer_upper = (cost > 0) == maximization
++        value = upper if prefer_upper else lower
++        if not isfinite(value):
++            return None
++        candidate[name] = value
++
++    for constraint in engine.cons.values():
++        if hasattr(constraint, "coefficients"):
++            activity = sum(
++                coefficient * candidate[name]
++                for name, coefficient in constraint.coefficients.items()
++            )
++        else:
++            activity = sum(
++                constraint.GetCoefficient(variable) * candidate[name]
++                for name, variable in engine.vars.items()
++            )
++        lower, upper = constraint.lb(), constraint.ub()
++        scale = max(
++            1.0,
++            abs(activity),
++            abs(lower) if isfinite(lower) else 0.0,
++            abs(upper) if isfinite(upper) else 0.0,
++        )
++        tolerance = 1e-9 * scale
++        if isfinite(lower) and activity < lower - tolerance:
++            return None
++        if isfinite(upper) and activity > upper + tolerance:
++            return None
++
++    values = {name: candidate[name] for name in requested}
++    objective = sum(
++        objective_weights.get(name, 1.0) * value
++        for name, value in values.items()
++    )
++    return objective, values
++
++
++class CompilationSession:
++    """Bounded program cache owned by one reusable SolverInput plan."""
++
++    def __init__(self, options=None):
++        self.options = options or CompilationOptions()
++        self.programs = {}
++        self.failures = {}
++        self.compile_seconds = 0.0
++        self.date = None
++        self.stats = Counter()
++        self.events = []
++        self.last_events = []
++        self.warmup_reasons = Counter()
++
++    def program(self, engine, names, maximization=True, weights=None):
++        targets = tuple(dict.fromkeys(names))
++        if not targets or any(s not in engine.vars for s in targets):
++            raise CannotCompile("empty or unknown objective targets")
++        costs = tuple((weights or {}).get(s, 1.0) for s in targets)
++        preferences = {}
++        for target, cost in zip(targets, costs, strict=True):
++            if cost == 0:
++                continue
++            prefer_upper = (cost > 0) == maximization
++            preferences[target] = "upper" if prefer_upper else "lower"
++        state = snapshot(
++            engine,
++            self.options,
++            targets,
++            target_preferences=preferences,
++        )
++        key = (state.signature, targets, costs, maximization)
++        if key in self.failures:
++            raise CannotCompile(self.failures[key])
++        if key not in self.programs:
++            if len(self.programs) + len(self.failures) >= self.options.max_plans:
++                raise CannotCompile("program cache budget reached")
++            remaining = self.options.max_total_compile_seconds - self.compile_seconds
++            if remaining <= 0:
++                raise CannotCompile("total compilation time budget reached")
++            start = perf_counter()
++            try:
++                program = compile_objective(
++                    state,
++                    targets,
++                    costs,
++                    maximization,
++                    self.options,
++                    f"P{len(self.programs) + 1}",
++                    min(remaining, self.options.max_seconds_per_plan),
++                )
++                if (
++                    sum(p.coefficient_count for p in self.programs.values())
++                    + program.coefficient_count
++                    > self.options.max_total_coefficients
++                ):
++                    raise CannotCompile("total cached coefficient budget reached")
++                self.programs[key] = program
++            except CannotCompile as error:
++                self.failures[key] = str(error)
++                raise
++            finally:
++                self.compile_seconds += perf_counter() - start
++        else:
++            self.stats["cache_hits"] += 1
++        return self.programs[key], state.parameters
++
++    def evaluate(self, engine, names, maximization=True, weights=None):
++        direct = _direct_bound_objective(engine, names, maximization, weights)
++        if direct is not None:
++            self.stats["bound_objective_resolutions"] += 1
++            return direct
++
++        # Priority solves commonly leave earlier transactions fixed exactly.
++        # They need to be returned to the caller, but carrying them as objective
++        # variables through projection adds no information. Peel them off as a
++        # symbolic constant contribution and compile only the still-live targets.
++        requested = tuple(dict.fromkeys(names))
++        objective_weights = weights or {}
++        fixed_values: dict[str, float] = {}
++        live_names: list[str] = []
++        for name in requested:
++            if name not in engine.vars:
++                raise CannotCompile("empty or unknown objective targets")
++            lower, upper = engine.get_variable_bounds(name)
++            if isfinite(lower) and lower == upper:
++                fixed_values[name] = lower
++            else:
++                live_names.append(name)
++
++        fixed_objective = sum(
++            objective_weights.get(name, 1.0) * value
++            for name, value in fixed_values.items()
++        )
++        if not live_names:
++            self.stats["fixed_target_eliminations"] += len(fixed_values)
++            return fixed_objective, dict(fixed_values)
++
++        live_weights = {
++            name: objective_weights.get(name, 1.0) for name in live_names
++        }
++        program, params = self.program(
++            engine, live_names, maximization, live_weights
++        )
++        value, live_values = program.evaluate(params)
++        self.stats["formula_evaluations"] += 1
++        self.stats["fixed_target_eliminations"] += len(fixed_values)
++        self.events.append(program.name)
++        values = {
++            name: fixed_values[name] if name in fixed_values else live_values[name]
++            for name in requested
++        }
++        return value + fixed_objective, values
++
++    def begin_day(self, date):
++        self.date, self.events = date, []
++
++    def finish_day(self, reason=None):
++        self.stats["lp_days" if reason else "compiled_days"] += 1
++        self.last_events.append(
++            {
++                "date": self.date,
++                "method": "lp" if reason else "compiled",
++                "formula_calls": list(self.events),
++                "fallback_reason": reason,
++            }
++        )
++        if reason:
++            self.stats["discarded_formula_evaluations"] += len(self.events)
++
++    def report(self):
++        return {
++            **dict(self.stats),
++            "program_count": len(self.programs),
++            "rejected_program_count": len(self.failures),
++            "compile_seconds": self.compile_seconds,
++            "cached_coefficients": sum(
++                p.coefficient_count for p in self.programs.values()
++            ),
++            "program_reductions": {
++                p.name: {
++                    "source_variables": p.source_variable_count,
++                    "active_variables": p.active_variable_count,
++                    "equality_eliminated": p.equality_eliminated,
++                    "bound_eliminated": p.bound_eliminated,
++                    "target_bound_eliminated": p.target_bound_eliminated,
++                }
++                for p in self.programs.values()
++            },
++            "days": list(self.last_events),
++            "preparation_fallbacks": dict(self.warmup_reasons),
++        }
++
++    def formulas(self):
++        prelude = (
++            "Parameters are live LP bounds: measurements, NF, account capacity, and committed allocations.\n"
++            "Programs include parent/path equalities and active counterflow/proportional/spill constraints.\n"
++            "Daily execution follows the production priority loop; it selects programs by matrix and objective.\n"
++            "Equal-priority active sets are visited iteratively; subsets are not enumerated in advance.\n"
++            "On ambiguity, invalid domain, audit request, or budget limit: RESTART_DAY_WITH_LP.\n"
++        )
++        programs = "\n\n".join(p.text() for p in self.programs.values())
++        reasons = "\n".join(
++            "LP FALLBACK: " + s
++            for s in dict.fromkeys([*self.failures.values(), *self.warmup_reasons])
++        )
++        return prelude + "\n" + programs + "\n" + reasons
++
++    def execution_outline(self):
++        # This is a faithful execution outline, not a portable standalone export
++        # of graph preprocessing or state objects. formulas() gives actual bounds.
++        return """# Execution outline; plan.solve() is the executable routine.
++for day in dates:
++    initialize_daily_measurements_accounts_and_natural_flow()
++    try:
++        for allocation_pass in (1, 2):
++            for priority_group in production_schedule:
++                while active_members_remain(priority_group):
++                    apply_counterflow_caps_using_compiled_objectives()
++                    increment = evaluate_compiled_common_increment_or_single_maximum()
++                    commit_allocations_and_update_remaining_natural_flow(increment)
++                    remove_blocked_members_using_compiled_objectives()
++                    release_temporary_caps()
++            if allocation_pass == 1:
++                minimize_and_lock_spills_then_credit_natural_flow()
++        finalize_using_compiled_objective()
++    except CannotCompile:
++        discard_tentative_day_and_run_original_lp_day()
++    commit_final_account_and_cumulative_balances_once()
++"""
++
++    def code(self):
++        helpers = """# Generated scalar objective programs. Run the full accounting workflow with plan.solve().
++# Each function accepts named LP bounds. CompiledFallback means restart the day with LP.
++from math import inf, isfinite
++
++class CompiledFallback(RuntimeError):
++    pass
++
++def _compiled_interval(p, upper, lower, conditions):
++    def dot(row):
++        value = sum(c*x for c, x in zip(row, p, strict=True))
++        if not isfinite(value): raise CompiledFallback("nonfinite formula")
++        return value
++    hi = min((dot(row) for row in upper), default=inf)
++    lo = max((dot(row) for row in lower), default=-inf)
++    tolerance = 1e-9*max(1., max(abs(x) for x in p))
++    if hi < lo or any(dot(row) < -tolerance for row in conditions):
++        raise CompiledFallback("domain/interval check failed")
++    return lo, hi
++"""
++        return (
++            helpers
++            + "\n\n"
++            + "\n\n".join(p.code() for p in self.programs.values())
++            + "\n"
++        )
++
++
++def compiled_factory(base, session):
++    class CompiledEngine(base):
++        def solve_objective(self, variable_names, maximization=True, weights=None):
++            return session.evaluate(self, variable_names, maximization, weights)
++
++        def get_last_variable_reduced_cost(self, variable_name):
++            return None
++
++        def get_last_solve_constraint_evidence(self, variable_name, tolerance=1e-6):
++            # No fictitious dual evidence from a previous native solve. Requests
++            # for the detailed production audit use the ordinary LP day instead.
++            return []
++
++    return CompiledEngine
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' apportionment_original/tests/test_compiled_solver.py apportionment_signed/tests/test_compiled_solver.py
+--- apportionment_original/tests/test_compiled_solver.py	2026-09-12 15:16:07.000000000 +0000
++++ apportionment_signed/tests/test_compiled_solver.py	2026-09-12 15:58:38.582981209 +0000
+@@ -1,307 +1,384 @@
+-"""Compiled objective math and parity with main's accounting orchestration."""
+-
+-import unittest
+-from copy import deepcopy
+-from dataclasses import asdict
+-from unittest.mock import patch
+-
+-import numpy as np
+-
+-import tests.test_solver as solver_fixtures
+-import tests.test_zone_accounts as account_fixtures
+-from benchmarks.benchmark_scaling import make_input
+-from ut_water_apportionment import CompilationOptions, compile_solver_input, solve
+-from ut_water_apportionment.compiled.projection import CannotCompile
+-from ut_water_apportionment.compiled.runtime import CompilationSession, compiled_factory
+-from ut_water_apportionment.lp_solver_SCIPY import LPSolver
+-
+-
+-def assert_same(actual, expected):
+-    def keys(out):
+-        return [
+-            (a.date, a.txn_id, a.interzone_flow_id, a.is_forward)
+-            for a in out.apportionments
+-        ]
+-
+-    if keys(actual) != keys(expected):
+-        raise AssertionError("apportionment keys differ")
+-    np.testing.assert_allclose(
+-        [a.value for a in actual.apportionments],
+-        [a.value for a in expected.apportionments],
+-        rtol=1e-7,
+-        atol=1e-6,
+-    )
+-
+-
+-# Run the existing main fixtures with the alternate method, preserving their
+-# inputs, and compare the *full* output to LP (the original suite checks expected values).
+-# This exercises signed paths, reservations, spill passes, accounts and lags
+-# without maintaining a second set of hand-transcribed accounting inputs.
+-CASES = []
+-for module in (solver_fixtures, account_fixtures):
+-    for cls in vars(module).values():
+-        if isinstance(cls, type) and cls.__module__ == module.__name__:
+-            for name in dir(cls):
+-                if name.startswith("test_") and not getattr(
+-                    getattr(cls, name), "__unittest_skip__", False
+-                ):
+-                    CASES.append((module, cls, name))
+-
+-
+-class CompiledSolverTests(unittest.TestCase):
+-    def test_symbolic_bounds_reuse_new_rhs_and_coefficients(self):
+-        session = CompilationSession()
+-        engine = compiled_factory(LPSolver, session)()
+-        engine.add_variable("forward", ub=30)
+-        engine.add_variable("reverse", ub=8)
+-        engine.add_constraint("net", lb=10, ub=10)
+-        engine.set_coefficient("net", "forward", 1)
+-        engine.set_coefficient("net", "reverse", -1)
+-        with patch("scipy.optimize.linprog", side_effect=AssertionError("optimizer")):
+-            value, _ = engine.solve_objective(["forward"])
+-            self.assertEqual(value, 18)
+-            engine.update_constraint_ub("net", 12)
+-            engine.update_constraint_lb("net", 12)
+-            self.assertEqual(engine.solve_objective(["forward"])[0], 20)
+-            self.assertEqual(len(session.programs), 1)  # Changed daily data, same formulas.
+-            engine.set_coefficient("net", "reverse", -2)
+-            self.assertEqual(engine.solve_objective(["forward"])[0], 28)
+-            self.assertEqual(len(session.programs), 2)  # Matrix changes invalidate the key.
+-        self.assertIn("upper = MIN(", session.formulas())
+-        self.assertIn("constraint[net].value", session.formulas())
+-
+-    def test_exported_code_executes_the_same_compiled_expressions(self):
+-        from ut_water_apportionment.compiled.runtime import snapshot
+-
+-        session = CompilationSession()
+-        engine = compiled_factory(LPSolver, session)()
+-        engine.add_variable("x", ub=10)
+-        engine.add_variable("y", ub=3)
+-        engine.add_constraint("q", lb=8, ub=8)
+-        engine.set_coefficient("q", "x", 1)
+-        engine.set_coefficient("q", "y", 1)
+-        for targets in [["x"], ["x", "y"]]:
+-            try:
+-                engine.solve_objective(targets)
+-            except CannotCompile:
+-                pass  # Also check the exported ambiguity guard below.
+-        namespace = {}
+-        exec(session.code(), namespace)
+-        state = snapshot(engine, session.options)
+-        for program in session.programs.values():
+-            params = dict(zip(state.labels, state.parameters, strict=True))
+-            try:
+-                expected = program.evaluate(state.parameters)
+-            except CannotCompile:
+-                with self.assertRaises(namespace["CompiledFallback"]):
+-                    namespace[program.name](params)
+-            else:
+-                self.assertEqual(namespace[program.name](params), expected)
+-
+-    def test_negative_and_zero_objective_weights(self):
+-        session = CompilationSession()
+-        engine = compiled_factory(LPSolver, session)()
+-        engine.add_variable("x", lb=2, ub=5)
+-        self.assertEqual(
+-            engine.solve_objective(["x"], weights={"x": -2}),
+-            (-4, {"x": 2}),
+-        )
+-        with self.assertRaisesRegex(CannotCompile, "nonunique"):
+-            engine.solve_objective(["x"], weights={"x": 0})
+-
+-    def test_common_increment_uses_active_rows_without_subset_enumeration(self):
+-        session = CompilationSession()
+-        engine = compiled_factory(LPSolver, session)()
+-        engine.add_variable("a", ub=3)
+-        engine.add_variable("b", ub=12)
+-        engine.add_constraint("water", ub=10)
+-        engine.set_coefficient("water", "a", 1)
+-        engine.set_coefficient("water", "b", 1)
+-        self.assertEqual(
+-            engine.maximize_group_by_proportions(["a", "b"], {"a": 0.5, "b": 0.5}),
+-            {"a": 3, "b": 3},
+-        )
+-        engine.update_variable_bounds("a", lb=3)
+-        engine.update_variable_bounds("b", lb=3)
+-        self.assertEqual(
+-            engine.maximize_group_by_proportions(["b"], {"b": 1}),
+-            {"b": 7},
+-        )
+-        self.assertEqual(len(session.programs), 2)
+-
+-    def test_ambiguous_components_cannot_silently_select_caps(self):
+-        session = CompilationSession()
+-        engine = compiled_factory(LPSolver, session)()
+-        engine.add_variable("a", ub=10)
+-        engine.add_variable("b", ub=10)
+-        engine.add_constraint("sum", lb=5, ub=5)
+-        engine.set_coefficient("sum", "a", 1)
+-        engine.set_coefficient("sum", "b", 1)
+-        with self.assertRaisesRegex(CannotCompile, "nonunique"):
+-            engine.solve_objective(["a", "b"], maximization=False)
+-
+-    def test_compile_interface_and_repeatable_optimizer_free_execution(self):
+-        problem = make_input(reaches=1, rights=2, days=3)
+-        original = deepcopy(problem)
+-        # Native model construction is allowed; optimization is not needed here.
+-        plan = compile_solver_input(problem, solver_backend="scipy")
+-        self.assertIn("MIN(", plan.formulas())
+-        self.assertIn("RESTART_DAY_WITH_LP", plan.formulas())
+-        self.assertIn("while active_members_remain", plan.execution_outline())
+-        self.assertIn("def P1(parameters)", plan.code())
+-        expected = solve(original, solver_backend="scipy", generate_audit=False)
+-        with patch(
+-            "ut_water_apportionment.lp_solver_SCIPY.linprog",
+-            side_effect=AssertionError("unexpected LP"),
+-        ):
+-            first = plan.solve()
+-            self.assertEqual(first.compilation_report["compiled_days"], 3)
+-            with patch(
+-                "ut_water_apportionment.compiled.runtime.compile_objective",
+-                side_effect=AssertionError("recompiled"),
+-            ):
+-                second = plan.solve()
+-        assert_same(first, expected)
+-        assert_same(second, expected)
+-        self.assertEqual(problem, original)
+-        self.assertEqual(second.compilation_report["compiled_days"], 3)  # Per-run counters.
+-
+-    def test_changed_measurements_use_fresh_parameters(self):
+-        problem = make_input(reaches=1, rights=2, days=3)
+-        plan = compile_solver_input(problem, solver_backend="scipy")
+-        replacement = deepcopy(problem.measurements)
+-        for series in replacement.series:
+-            series.values = [v * 0.8 if v is not None else None for v in series.values]
+-        changed = deepcopy(problem)
+-        changed.measurements = replacement
+-        assert_same(
+-            plan.solve(measurements=replacement),
+-            solve(changed, solver_backend="scipy", generate_audit=False),
+-        )
+-
+-    def test_audit_fallback_retains_native_evidence(self):
+-        problem = make_input(reaches=1, rights=2, days=2)
+-        actual = solve(
+-            problem, method="compiled", solver_backend="scipy", generate_audit=True
+-        )
+-        expected = solve(problem, solver_backend="scipy", generate_audit=True)
+-        assert_same(actual, expected)
+-        self.assertEqual(
+-            [asdict(s) for s in actual.solve_steps],
+-            [asdict(s) for s in expected.solve_steps],
+-        )
+-        self.assertEqual(actual.compilation_report["lp_days"], 2)
+-        self.assertTrue(
+-            all("audit" in d["fallback_reason"] for d in actual.compilation_report["days"])
+-        )
+-
+-    def test_large_equal_priority_group_falls_back_without_exponential_compilation(self):
+-        problem = make_input(reaches=1, rights=300, days=2)
+-        for transaction in problem.txns:
+-            transaction.priority = 1
+-        options = CompilationOptions(max_variables=32)
+-        with patch(
+-            "ut_water_apportionment.compiled.runtime.compile_objective",
+-            side_effect=AssertionError("large projection"),
+-        ):
+-            plan = compile_solver_input(problem, options=options, solver_backend="scipy")
+-            actual = plan.solve()
+-        self.assertEqual(actual.compilation_report["lp_days"], 2)
+-        self.assertEqual(actual.compilation_report["program_count"], 0)
+-        assert_same(actual, solve(problem, solver_backend="scipy", generate_audit=False))
+-
+-    def test_budgets_produce_a_complete_lp_result(self):
+-        options_to_test = [
+-            CompilationOptions(max_rows=1),
+-            CompilationOptions(max_pairs=1),
+-            CompilationOptions(max_plans=1),
+-            CompilationOptions(max_fraction_bits=1),
+-            CompilationOptions(max_total_compile_seconds=1e-12),
+-            CompilationOptions(max_program_coefficients=1),
+-            CompilationOptions(max_total_coefficients=1),
+-        ]
+-        for options in options_to_test:
+-            with self.subTest(options=options):
+-                problem = make_input(reaches=2, rights=2, days=2)
+-                actual = solve(
+-                    problem,
+-                    method="compiled",
+-                    compilation_options=options,
+-                    solver_backend="scipy",
+-                    generate_audit=False,
+-                )
+-                assert_same(
+-                    actual,
+-                    solve(problem, solver_backend="scipy", generate_audit=False),
+-                )
+-                self.assertEqual(actual.compilation_report["lp_days"], 2)
+-
+-    def test_failed_day_does_not_double_commit_account_or_cumulative_state(self):
+-        import tests.test_solver as module
+-        from tests.test_solver import F_TransactionLimits
+-
+-        captured = []
+-        with patch.object(module, "solve", lambda problem, **kw: captured.append(problem)):
+-            F_TransactionLimits("test_trxn_cumulative_limit").test_trxn_cumulative_limit()
+-        problem = captured[0]
+-        # First formula succeeds; the next new program exhausts the budget, forcing
+-        # restart after a tentative allocation. Cumulative use must be committed once.
+-        actual = solve(
+-            problem,
+-            method="compiled",
+-            solver_backend="scipy",
+-            generate_audit=False,
+-            compilation_options=CompilationOptions(max_plans=1),
+-        )
+-        assert_same(actual, solve(problem, solver_backend="scipy", generate_audit=False))
+-        self.assertGreater(
+-            actual.compilation_report.get("discarded_formula_evaluations", 0),
+-            0,
+-        )
+-
+-    def test_bad_method_and_budget_are_input_errors(self):
+-        problem = make_input(reaches=1, rights=1, days=1)
+-        with self.assertRaisesRegex(ValueError, "method"):
+-            solve(problem, method="typo")
+-        with self.assertRaises(ValueError):
+-            CompilationOptions(max_rows=-1)
+-        with self.assertRaises(ValueError):
+-            CompilationOptions(max_rows=3.5)
+-
+-    def test_existing_accounting_fixture_with_alternate_method(self):
+-        original_solve = solve
+-
+-        for module, cls, name in CASES:
+-            case_name = f"{cls.__name__}.{name}"
+-            with self.subTest(case=case_name):
+-                if not hasattr(module, "solve"):
+-                    continue
+-
+-                def both(problem, **kwargs):
+-                    audit_requested = kwargs.pop("generate_audit", True)
+-                    kwargs.update(solver_backend="scipy")
+-                    expected = original_solve(
+-                        problem, generate_audit=audit_requested, **kwargs
+-                    )
+-                    actual = original_solve(
+-                        problem, method="compiled", generate_audit=False, **kwargs
+-                    )
+-                    assert_same(actual, expected)
+-                    if audit_requested:
+-                        audited = original_solve(
+-                            problem, method="compiled", generate_audit=True, **kwargs
+-                        )
+-                        assert_same(audited, expected)
+-                        if [asdict(s) for s in audited.solve_steps] != [
+-                            asdict(s) for s in expected.solve_steps
+-                        ]:
+-                            raise AssertionError("compiled and LP audit steps differ")
+-                        return audited
+-                    return actual
+-
+-                with patch.object(module, "solve", both):
+-                    getattr(cls(name), name)()
+-
+-
+-if __name__ == "__main__":
+-    unittest.main()
++"""Compiled objective math and parity with main's accounting orchestration."""
++
++import unittest
++from copy import deepcopy
++from dataclasses import asdict
++from unittest.mock import patch
++
++import numpy as np
++
++import tests.test_solver as solver_fixtures
++import tests.test_zone_accounts as account_fixtures
++from benchmarks.benchmark_scaling import make_input
++from ut_water_apportionment import CompilationOptions, compile_solver_input, solve
++from ut_water_apportionment.compiled.projection import CannotCompile
++from ut_water_apportionment.compiled.runtime import CompilationSession, compiled_factory
++from ut_water_apportionment.lp_solver_SCIPY import LPSolver
++
++
++def assert_same(actual, expected):
++    def keys(out):
++        return [
++            (a.date, a.txn_id, a.interzone_flow_id, a.is_forward)
++            for a in out.apportionments
++        ]
++
++    if keys(actual) != keys(expected):
++        raise AssertionError("apportionment keys differ")
++    np.testing.assert_allclose(
++        [a.value for a in actual.apportionments],
++        [a.value for a in expected.apportionments],
++        rtol=1e-7,
++        atol=1e-6,
++    )
++
++
++# Run the existing main fixtures with the alternate method, preserving their
++# inputs, and compare the *full* output to LP (the original suite checks expected values).
++# This exercises signed paths, reservations, spill passes, accounts and lags
++# without maintaining a second set of hand-transcribed accounting inputs.
++CASES = []
++for module in (solver_fixtures, account_fixtures):
++    for cls in vars(module).values():
++        if isinstance(cls, type) and cls.__module__ == module.__name__:
++            for name in dir(cls):
++                if name.startswith("test_") and not getattr(
++                    getattr(cls, name), "__unittest_skip__", False
++                ):
++                    CASES.append((module, cls, name))
++
++
++class CompiledSolverTests(unittest.TestCase):
++    def test_symbolic_bounds_reuse_new_rhs_and_coefficients(self):
++        session = CompilationSession()
++        engine = compiled_factory(LPSolver, session)()
++        engine.add_variable("forward", ub=30)
++        engine.add_variable("reverse", ub=8)
++        engine.add_constraint("net", lb=10, ub=10)
++        engine.set_coefficient("net", "forward", 1)
++        engine.set_coefficient("net", "reverse", -1)
++        with patch("scipy.optimize.linprog", side_effect=AssertionError("optimizer")):
++            value, _ = engine.solve_objective(["forward"])
++            self.assertEqual(value, 18)
++            engine.update_constraint_ub("net", 12)
++            engine.update_constraint_lb("net", 12)
++            self.assertEqual(engine.solve_objective(["forward"])[0], 20)
++            self.assertEqual(len(session.programs), 1)  # Changed daily data, same formulas.
++            engine.set_coefficient("net", "reverse", -2)
++            self.assertEqual(engine.solve_objective(["forward"])[0], 28)
++            self.assertEqual(len(session.programs), 2)  # Matrix changes invalidate the key.
++        self.assertIn("upper = MIN(", session.formulas())
++        self.assertIn("constraint[net].value", session.formulas())
++
++    def test_signed_target_variable_compiles_without_lp(self):
++        session = CompilationSession()
++        engine = compiled_factory(LPSolver, session)()
++        engine.add_variable("signed", lb=-10, ub=10)
++        engine.add_variable("counter", lb=0, ub=4)
++        engine.add_constraint("net", lb=-2, ub=-2)
++        engine.set_coefficient("net", "signed", 1)
++        engine.set_coefficient("net", "counter", -1)
++
++        with patch("scipy.optimize.linprog", side_effect=AssertionError("optimizer")):
++            self.assertEqual(
++                engine.solve_objective(["signed"]),
++                (2.0, {"signed": 2.0}),
++            )
++            self.assertEqual(
++                engine.solve_objective(["signed"], maximization=False),
++                (-2.0, {"signed": -2.0}),
++            )
++
++    def test_priority_reduction_moves_seniors_and_juniors_to_rhs(self):
++        session = CompilationSession(CompilationOptions(max_variables=1))
++        engine = compiled_factory(LPSolver, session)()
++        engine.add_variable("senior", lb=7, ub=10)
++        engine.add_variable("target", lb=0, ub=10)
++        for index in range(50):
++            engine.add_variable(f"junior_{index}", lb=0, ub=10)
++        engine.add_constraint("water", ub=8)
++        engine.set_coefficient("water", "senior", 1)
++        engine.set_coefficient("water", "target", 1)
++        for index in range(50):
++            engine.set_coefficient("water", f"junior_{index}", 1)
++
++        with patch("scipy.optimize.linprog", side_effect=AssertionError("optimizer")):
++            self.assertEqual(
++                engine.solve_objective(["target"]),
++                (1.0, {"target": 1.0}),
++            )
++            # The senior commitment is a live RHS parameter, not baked into
++            # the formula. Changing it should reuse the same compiled program.
++            engine.update_variable_bounds("senior", lb=6)
++            self.assertEqual(
++                engine.solve_objective(["target"]),
++                (2.0, {"target": 2.0}),
++            )
++            self.assertEqual(len(session.programs), 1)
++
++        reduction = session.report()["program_reductions"]["P1"]
++        self.assertEqual(reduction["source_variables"], 52)
++        self.assertEqual(reduction["active_variables"], 1)
++        self.assertEqual(reduction["bound_eliminated"], 51)
++        self.assertIn("variable[senior].lower", session.formulas())
++
++    def test_mixed_sign_counterflow_stays_live_until_projection(self):
++        from ut_water_apportionment.compiled.runtime import snapshot
++
++        session = CompilationSession(CompilationOptions(max_variables=2))
++        engine = compiled_factory(LPSolver, session)()
++        engine.add_variable("target", lb=0, ub=20)
++        engine.add_variable("counter", lb=0, ub=10)
++        engine.add_constraint("delivery", ub=5)
++        engine.set_coefficient("delivery", "target", 1)
++        engine.set_coefficient("delivery", "counter", -1)
++        engine.add_constraint("counter_limit", ub=2)
++        engine.set_coefficient("counter_limit", "counter", 1)
++
++        state = snapshot(engine, session.options, ["target"])
++        self.assertEqual(set(state.names), {"target", "counter"})
++        with patch("scipy.optimize.linprog", side_effect=AssertionError("optimizer")):
++            self.assertEqual(
++                engine.solve_objective(["target"]),
++                (7.0, {"target": 7.0}),
++            )
++
++    def test_exported_code_executes_the_same_compiled_expressions(self):
++        from ut_water_apportionment.compiled.runtime import snapshot
++
++        session = CompilationSession()
++        engine = compiled_factory(LPSolver, session)()
++        engine.add_variable("x", ub=10)
++        engine.add_variable("y", ub=3)
++        engine.add_constraint("q", lb=8, ub=8)
++        engine.set_coefficient("q", "x", 1)
++        engine.set_coefficient("q", "y", 1)
++        for targets in [["x"], ["x", "y"]]:
++            try:
++                engine.solve_objective(targets)
++            except CannotCompile:
++                pass  # Also check the exported ambiguity guard below.
++        namespace = {}
++        exec(session.code(), namespace)
++        state = snapshot(engine, session.options)
++        for program in session.programs.values():
++            params = dict(zip(state.labels, state.parameters, strict=True))
++            try:
++                expected = program.evaluate(state.parameters)
++            except CannotCompile:
++                with self.assertRaises(namespace["CompiledFallback"]):
++                    namespace[program.name](params)
++            else:
++                self.assertEqual(namespace[program.name](params), expected)
++
++    def test_negative_and_zero_objective_weights(self):
++        session = CompilationSession()
++        engine = compiled_factory(LPSolver, session)()
++        engine.add_variable("x", lb=2, ub=5)
++        self.assertEqual(
++            engine.solve_objective(["x"], weights={"x": -2}),
++            (-4, {"x": 2}),
++        )
++        with self.assertRaisesRegex(CannotCompile, "nonunique"):
++            engine.solve_objective(["x"], weights={"x": 0})
++
++    def test_common_increment_uses_active_rows_without_subset_enumeration(self):
++        session = CompilationSession()
++        engine = compiled_factory(LPSolver, session)()
++        engine.add_variable("a", ub=3)
++        engine.add_variable("b", ub=12)
++        engine.add_constraint("water", ub=10)
++        engine.set_coefficient("water", "a", 1)
++        engine.set_coefficient("water", "b", 1)
++        self.assertEqual(
++            engine.maximize_group_by_proportions(["a", "b"], {"a": 0.5, "b": 0.5}),
++            {"a": 3, "b": 3},
++        )
++        engine.update_variable_bounds("a", lb=3)
++        engine.update_variable_bounds("b", lb=3)
++        self.assertEqual(
++            engine.maximize_group_by_proportions(["b"], {"b": 1}),
++            {"b": 7},
++        )
++        self.assertEqual(len(session.programs), 2)
++
++    def test_ambiguous_components_cannot_silently_select_caps(self):
++        session = CompilationSession()
++        engine = compiled_factory(LPSolver, session)()
++        engine.add_variable("a", ub=10)
++        engine.add_variable("b", ub=10)
++        engine.add_constraint("sum", lb=5, ub=5)
++        engine.set_coefficient("sum", "a", 1)
++        engine.set_coefficient("sum", "b", 1)
++        with self.assertRaisesRegex(CannotCompile, "nonunique"):
++            engine.solve_objective(["a", "b"], maximization=False)
++
++    def test_compile_interface_and_repeatable_optimizer_free_execution(self):
++        problem = make_input(reaches=1, rights=2, days=3)
++        original = deepcopy(problem)
++        # Native model construction is allowed; optimization is not needed here.
++        plan = compile_solver_input(problem, solver_backend="scipy")
++        self.assertIn("MIN(", plan.formulas())
++        self.assertIn("RESTART_DAY_WITH_LP", plan.formulas())
++        self.assertIn("while active_members_remain", plan.execution_outline())
++        self.assertIn("def P1(parameters)", plan.code())
++        expected = solve(original, solver_backend="scipy", generate_audit=False)
++        with patch(
++            "ut_water_apportionment.lp_solver_SCIPY.linprog",
++            side_effect=AssertionError("unexpected LP"),
++        ):
++            first = plan.solve()
++            self.assertEqual(first.compilation_report["compiled_days"], 3)
++            with patch(
++                "ut_water_apportionment.compiled.runtime.compile_objective",
++                side_effect=AssertionError("recompiled"),
++            ):
++                second = plan.solve()
++        assert_same(first, expected)
++        assert_same(second, expected)
++        self.assertEqual(problem, original)
++        self.assertEqual(second.compilation_report["compiled_days"], 3)  # Per-run counters.
++
++    def test_changed_measurements_use_fresh_parameters(self):
++        problem = make_input(reaches=1, rights=2, days=3)
++        plan = compile_solver_input(problem, solver_backend="scipy")
++        replacement = deepcopy(problem.measurements)
++        for series in replacement.series:
++            series.values = [v * 0.8 if v is not None else None for v in series.values]
++        changed = deepcopy(problem)
++        changed.measurements = replacement
++        assert_same(
++            plan.solve(measurements=replacement),
++            solve(changed, solver_backend="scipy", generate_audit=False),
++        )
++
++    def test_audit_fallback_retains_native_evidence(self):
++        problem = make_input(reaches=1, rights=2, days=2)
++        actual = solve(
++            problem, method="compiled", solver_backend="scipy", generate_audit=True
++        )
++        expected = solve(problem, solver_backend="scipy", generate_audit=True)
++        assert_same(actual, expected)
++        self.assertEqual(
++            [asdict(s) for s in actual.solve_steps],
++            [asdict(s) for s in expected.solve_steps],
++        )
++        self.assertEqual(actual.compilation_report["lp_days"], 2)
++        self.assertTrue(
++            all("audit" in d["fallback_reason"] for d in actual.compilation_report["days"])
++        )
++
++    def test_large_equal_priority_group_falls_back_without_exponential_compilation(self):
++        problem = make_input(reaches=1, rights=300, days=2)
++        for transaction in problem.txns:
++            transaction.priority = 1
++        options = CompilationOptions(max_variables=32)
++        # The senior scalar objective is cheap even for a large source model.
++        # The 300-member proportional objective must still reject before the
++        # expensive projector is entered.
++        plan = compile_solver_input(problem, options=options, solver_backend="scipy")
++        self.assertEqual(plan.report()["program_count"], 1)
++        with patch(
++            "ut_water_apportionment.compiled.runtime.compile_objective",
++            side_effect=AssertionError("large projection"),
++        ):
++            actual = plan.solve()
++        self.assertEqual(actual.compilation_report["lp_days"], 2)
++        self.assertEqual(actual.compilation_report["program_count"], 1)
++        assert_same(actual, solve(problem, solver_backend="scipy", generate_audit=False))
++
++    def test_budgets_produce_a_complete_lp_result(self):
++        options_to_test = [
++            CompilationOptions(max_rows=1),
++            CompilationOptions(max_pairs=1),
++            CompilationOptions(max_plans=1),
++            CompilationOptions(max_fraction_bits=1),
++            CompilationOptions(max_total_compile_seconds=1e-12),
++            CompilationOptions(max_program_coefficients=1),
++            CompilationOptions(max_total_coefficients=1),
++        ]
++        for options in options_to_test:
++            with self.subTest(options=options):
++                problem = make_input(reaches=2, rights=2, days=2)
++                actual = solve(
++                    problem,
++                    method="compiled",
++                    compilation_options=options,
++                    solver_backend="scipy",
++                    generate_audit=False,
++                )
++                assert_same(
++                    actual,
++                    solve(problem, solver_backend="scipy", generate_audit=False),
++                )
++                self.assertEqual(actual.compilation_report["lp_days"], 2)
++
++    def test_failed_day_does_not_double_commit_account_or_cumulative_state(self):
++        import tests.test_solver as module
++        from tests.test_solver import F_TransactionLimits
++
++        captured = []
++        with patch.object(module, "solve", lambda problem, **kw: captured.append(problem)):
++            F_TransactionLimits("test_trxn_cumulative_limit").test_trxn_cumulative_limit()
++        problem = captured[0]
++        # First formula succeeds; the next new program exhausts the budget, forcing
++        # restart after a tentative allocation. Cumulative use must be committed once.
++        actual = solve(
++            problem,
++            method="compiled",
++            solver_backend="scipy",
++            generate_audit=False,
++            compilation_options=CompilationOptions(max_plans=1),
++        )
++        assert_same(actual, solve(problem, solver_backend="scipy", generate_audit=False))
++        self.assertGreater(
++            actual.compilation_report.get("discarded_formula_evaluations", 0),
++            0,
++        )
++
++    def test_bad_method_and_budget_are_input_errors(self):
++        problem = make_input(reaches=1, rights=1, days=1)
++        with self.assertRaisesRegex(ValueError, "method"):
++            solve(problem, method="typo")
++        with self.assertRaises(ValueError):
++            CompilationOptions(max_rows=-1)
++        with self.assertRaises(ValueError):
++            CompilationOptions(max_rows=3.5)
++
++    def test_existing_accounting_fixture_with_alternate_method(self):
++        original_solve = solve
++
++        for module, cls, name in CASES:
++            case_name = f"{cls.__name__}.{name}"
++            with self.subTest(case=case_name):
++                if not hasattr(module, "solve"):
++                    continue
++
++                def both(problem, **kwargs):
++                    audit_requested = kwargs.pop("generate_audit", True)
++                    kwargs.update(solver_backend="scipy")
++                    expected = original_solve(
++                        problem, generate_audit=audit_requested, **kwargs
++                    )
++                    actual = original_solve(
++                        problem, method="compiled", generate_audit=False, **kwargs
++                    )
++                    assert_same(actual, expected)
++                    if audit_requested:
++                        audited = original_solve(
++                            problem, method="compiled", generate_audit=True, **kwargs
++                        )
++                        assert_same(audited, expected)
++                        if [asdict(s) for s in audited.solve_steps] != [
++                            asdict(s) for s in expected.solve_steps
++                        ]:
++                            raise AssertionError("compiled and LP audit steps differ")
++                        return audited
++                    return actual
++
++                with patch.object(module, "solve", both):
++                    getattr(cls(name), name)()
++
++
++if __name__ == "__main__":
++    unittest.main()

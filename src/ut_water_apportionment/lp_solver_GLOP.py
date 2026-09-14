@@ -225,6 +225,21 @@ class LPSolver:
         # Done.
         return objective_value, variable_values
 
+    def solve_objective_value(
+            self,
+            variable_names:list[str],
+            maximization:bool=True,
+            weights: dict[str, float] | None = None
+            ) -> float:
+        """Solve an objective when the individual component values are irrelevant."""
+
+        objective_value, _ = self.solve_objective(
+            variable_names,
+            maximization=maximization,
+            weights=weights,
+        )
+        return objective_value
+
 
     def maximize_and_update_variable(self, variable_name:str) -> float:
         """Maximize the given variable and then update its lower bound so we

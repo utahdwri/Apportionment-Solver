@@ -36,6 +36,7 @@ from .lp_solver import (
 # --- Configuration Constants ---
 SLACK_TRXN_PRIORITY = 1e100                 # TODO - remove duplicate constant in models.py
 SOLVER_TOL = 1e-6
+MAX_MAXED_CLASSIFICATION_BATCH = 16
 SHOW_LOG = False
 
 PREFIX_MEASURE = 'MEAS_'
@@ -44,6 +45,7 @@ PREFIX_PARENT = 'PARENT_'
 PREFIX_CONT = 'CONT_'
 PREFIX_ACCOUNT_OUT = 'ACCOUNT_OUT_'
 PREFIX_ACCOUNT_IN = 'ACCOUNT_IN_'
+TMP_LEX_OBJECTIVE = '__TMP_LEX_OBJECTIVE__'
 
 # Set up logging.
 import logging
@@ -76,6 +78,7 @@ class Apportioner:
         self.cur_trxn_value: dict[str, float] = {}
         self.apportionments_audit: list[SolveStepResult] = []
         self._audit_sequence = 0
+        self._lexicographic_constraint_vars: set[str] = set()
         self.all_trxns = tm.all_trxns
         self.engine = self._build_linear_equations()
 
@@ -253,6 +256,11 @@ class Apportioner:
                             engine.set_coefficient(con_name, anchor_var, -1)
                     elif type(v2) == TrxnGroup:
                         engine.set_coefficient(con_name, v2.id, -1)
+
+        # Reused only for deterministic tie-breaking of a multi-variable
+        # objective. It remains inactive except while a lexicographic solve is
+        # in progress, so it has no effect on ordinary accounting equations.
+        engine.add_constraint(name=TMP_LEX_OBJECTIVE, lb=None, ub=None)
 
         return engine
 
@@ -508,7 +516,14 @@ class Apportioner:
                     stop_priority
                 )
             elif type(item) is CoreScheduleVariable:
-                if self._source_nf_is_exhausted(item.var):
+                if (
+                    self._source_nf_is_exhausted(item.var)
+                    and not getattr(
+                        self.engine,
+                        "force_explicit_priority_solves",
+                        False,
+                    )
+                ):
                     continue
 
                 self._maximize_var(item.var)
@@ -540,6 +555,81 @@ class Apportioner:
             self.cur_trxn_value[var_name] = solved_value
             logger.debug(f' - maxed {var_name} to {solved_value}')
 
+    def _set_lexicographic_objective_constraint(
+        self,
+        variable_names: list[str],
+        value: float,
+    ) -> None:
+        """Fix ``sum(variable_names)`` while scalar tie-breaks are solved."""
+
+        # Disable the prior equality before changing either its coefficients or
+        # value. This avoids transient infeasibility when the previous primary
+        # objective had a different optimum.
+        self.engine.update_constraint_lb(TMP_LEX_OBJECTIVE, lb=None)
+        self.engine.update_constraint_ub(TMP_LEX_OBJECTIVE, ub=None)
+
+        active_names = set(variable_names)
+        for name in self._lexicographic_constraint_vars - active_names:
+            self.engine.set_coefficient(TMP_LEX_OBJECTIVE, name, 0.0)
+        for name in active_names:
+            self.engine.set_coefficient(TMP_LEX_OBJECTIVE, name, 1.0)
+        self._lexicographic_constraint_vars = active_names
+
+        self.engine.update_constraint_lb(TMP_LEX_OBJECTIVE, lb=value)
+        self.engine.update_constraint_ub(TMP_LEX_OBJECTIVE, ub=value)
+
+    def _deactivate_lexicographic_objective_constraint(self) -> None:
+        self.engine.update_constraint_lb(TMP_LEX_OBJECTIVE, lb=None)
+        self.engine.update_constraint_ub(TMP_LEX_OBJECTIVE, ub=None)
+
+    def _lexicographic_minimum(self, variable_names: list[str]) -> dict[str, float]:
+        """Minimize a sum, then deterministically select one optimal vector.
+
+        The primary objective remains the same as the historical LP objective:
+        minimize the sum of all requested variables. Once that minimum sum is
+        fixed, each component is minimized in a stable order. Every tie-break
+        is therefore a scalar objective, which avoids requiring the formula
+        compiler to invent values for a nonunique optimal face.
+        """
+
+        primary_value = self._with_feasibility_fallback(
+            'solve for minimizing minus vars total',
+            lambda: self.engine.solve_objective_value(
+                variable_names,
+                maximization=False,
+            ),
+        )
+        original_bounds = {
+            name: self.engine.get_variable_bounds(name)
+            for name in variable_names
+        }
+        solved_values: dict[str, float] = {}
+        self._set_lexicographic_objective_constraint(
+            variable_names,
+            primary_value,
+        )
+        try:
+            for name in variable_names:
+                _, values = self._with_feasibility_fallback(
+                    f'lexicographic minimum for {name}',
+                    lambda name=name: self.engine.solve_objective(
+                        [name],
+                        maximization=False,
+                    ),
+                )
+                value = values[name]
+                if abs(value) < SOLVER_TOL:
+                    value = 0.0
+                solved_values[name] = value
+                # Preserve this tie-break while the next component is solved.
+                self.engine.update_variable_bounds(name, ub=value)
+        finally:
+            for name, (lower, upper) in original_bounds.items():
+                self.engine.update_variable_bounds(name, lb=lower, ub=upper)
+            self._deactivate_lexicographic_objective_constraint()
+
+        return solved_values
+
     def _minimize_minus_vars(self, vars: list[PathTrxn | TrxnGroup]) -> dict[str, float]:
         origional_ub: dict[str, float] = {}
         minus_vars = self.tm.get_minus_vars(vars)
@@ -556,14 +646,9 @@ class Apportioner:
                 var_names.append(anchor)
 
         if var_names:
-            # Minimize ALL dump slacks simultaneously
-            _, solved_values = self._with_feasibility_fallback(
-                'solve for minimizing minus vars',
-                lambda: self.engine.solve_objective(
-                    var_names,
-                    maximization=False
-                )
-            )
+            # Keep the historical minimum-sum objective, but resolve any
+            # nonunique optimum deterministically with scalar tie-breaks.
+            solved_values = self._lexicographic_minimum(var_names)
 
             # Lock their upper bounds to the newly found minimums
             for v_name in var_names:
@@ -783,19 +868,23 @@ class Apportioner:
     def _get_newly_maxed_vars(self, vars: list[PathTrxn | TrxnGroup]):
         """Return the variables that cannot be increased further.
 
-        The active variables have already been fixed at their current values by
-        lower bounds. Maximizing all unresolved variables together can therefore
-        identify multiple non-maxed variables in one solve. If none of the
-        unresolved variables increases, every remaining variable is maxed.
+        Classification uses only objective values, never arbitrary component
+        values from a nonunique maximum-sum face. Variables with identical LP
+        columns share the same positive-headroom status (after members already
+        at their own upper bounds are removed), so only one representative from
+        each identical column needs to participate in compiled objectives.
+
+        A whole representative batch that cannot increase is classified in one
+        solve. Batches whose sum can increase are recursively split until the
+        maxed column groups are isolated.
         """
 
-
         maxed_ids: set[str] = set()
-        remaining: dict[str, PathTrxn | TrxnGroup] = {}
-        current_values: dict[str, float] = {}
+        remaining: dict[str, tuple[PathTrxn | TrxnGroup, float, float]] = {}
 
         for var in vars:
-            if self._source_nf_is_exhausted(var): # If there is no more nf then no need to spend a solver run
+            if self._source_nf_is_exhausted(var):
+                # If there is no more NF then no solver run is needed.
                 maxed_ids.add(var.id)
                 continue
             if type(var) == PathTrxn:
@@ -817,35 +906,85 @@ class Apportioner:
                 maxed_ids.add(var.id)
                 continue
 
-            remaining[target_var] = var
-            current_values[target_var] = current_value
+            remaining[target_var] = (var, current_value, upper_bound)
 
-        while remaining:
-            target_vars = list(remaining.keys())
-            _, solved_values = self._with_feasibility_fallback(
-                'check newly maxed vars',
-                lambda: self.engine.solve_objective(
-                    target_vars,
-                    maximization=True
-                )
+        def column_signature(variable_name: str) -> tuple[tuple[str, float], ...]:
+            """Return the variable's exact current constraint column.
+
+            Two non-bound-limited variables with the same column have the same
+            feasible effect for an infinitesimal increase. Therefore either
+            both have positive headroom or neither does. Grouping by the full
+            column is conservative: any parent/path/counterflow difference puts
+            variables in separate groups.
+            """
+
+            variable = self.engine.vars[variable_name]
+            signature: list[tuple[str, float]] = []
+            for constraint_name, constraint in self.engine.cons.items():
+                if hasattr(constraint, 'coefficients'):
+                    coefficient = constraint.coefficients.get(variable_name, 0.0)
+                else:
+                    coefficient = constraint.GetCoefficient(variable)
+                if coefficient != 0:
+                    signature.append((constraint_name, float(coefficient)))
+            return tuple(signature)
+
+        column_groups: dict[tuple[tuple[str, float], ...], list[str]] = {}
+        for target_name in remaining:
+            column_groups.setdefault(column_signature(target_name), []).append(
+                target_name
             )
 
-            increasable_vars = [
-                target_var
-                for target_var in target_vars
-                if solved_values[target_var]
-                    > current_values[target_var] + SOLVER_TOL
-            ]
+        representatives: dict[str, list[str]] = {
+            group[0]: group for group in column_groups.values()
+        }
 
-            if not increasable_vars:
-                maxed_ids.update(var.id for var in remaining.values())
-                break
+        def mark_group_maxed(representative: str) -> None:
+            maxed_ids.update(
+                remaining[name][0].id for name in representatives[representative]
+            )
 
-            # A variable that increased in this feasible solution is known not
-            # to be maxed. Remove all such variables and test the unresolved
-            # remainder together in the next batch.
-            for target_var in increasable_vars:
-                del remaining[target_var]
+        def classify(target_vars: list[str]) -> None:
+            if not target_vars:
+                return
+
+            current_sum = sum(remaining[name][1] for name in target_vars)
+            maximum_sum = self._with_feasibility_fallback(
+                'check newly maxed vars',
+                lambda target_vars=target_vars: self.engine.solve_objective_value(
+                    target_vars,
+                    maximization=True,
+                ),
+            )
+
+            # Lower bounds already fix every representative at its current
+            # allocation. Therefore any representative that can increase by
+            # more than SOLVER_TOL necessarily raises the batch sum.
+            if maximum_sum <= current_sum + SOLVER_TOL:
+                for representative in target_vars:
+                    mark_group_maxed(representative)
+                return
+
+            upper_bounds = [remaining[name][2] for name in target_vars]
+            if all(upper != float('inf') for upper in upper_bounds):
+                upper_sum = sum(upper_bounds)
+                if maximum_sum >= upper_sum - SOLVER_TOL:
+                    return
+
+            if len(target_vars) == 1:
+                return
+
+            midpoint = len(target_vars) // 2
+            classify(target_vars[:midpoint])
+            classify(target_vars[midpoint:])
+
+        target_names = list(representatives)
+        for start in range(0, len(target_names), MAX_MAXED_CLASSIFICATION_BATCH):
+            classify(
+                target_names[
+                    start:start + MAX_MAXED_CLASSIFICATION_BATCH
+                ]
+            )
 
         return [var for var in vars if var.id in maxed_ids]
 

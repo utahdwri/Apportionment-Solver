@@ -64,6 +64,13 @@ class LPSolverProtocol(Protocol):
         weights: dict[str, float] | None = None,
     ) -> tuple[float, dict[str, float]]: ...
 
+    def solve_objective_value(
+        self,
+        variable_names: list[str],
+        maximization: bool = True,
+        weights: dict[str, float] | None = None,
+    ) -> float: ...
+
     def maximize_and_update_variable(self, variable_name: str) -> float: ...
 
     def minimize_and_update_variable(self, variable_name: str) -> float: ...

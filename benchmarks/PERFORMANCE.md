@@ -208,7 +208,7 @@ From the delivered repository root:
 
 ```bash
 python -m pip install -e '.[all,dev]'
-python -m pytest -q
+python -m unittest discover -v -s tests -t .
 PYTHONPATH=src python benchmarks/benchmark_scaling.py --reaches 20 --rights 10 --days 365 --repeat 3
 PYTHONPATH=src python benchmarks/benchmark_scaling.py --reaches 100 --rights 20 --days 7 --repeat 3
 PYTHONPATH=src python benchmarks/benchmark_scaling.py --reaches 20 --rights 10 --days 30 --audit --proportional --repeat 3
