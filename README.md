@@ -240,3 +240,13 @@ The existing LP method remains the default. Detailed audit requests use LP to
 preserve native evidence. Large/ambiguous systems also fall back without rejecting
 otherwise supported inputs. See [the compiled-equation guide](docs/compiled-equations.md)
 for preparation versus on-demand compilation, budgets, examples, and limitations.
+
+
+## Experimental compiled-equations v2
+
+The repository includes an experimental second-generation LP-to-equations
+compiler under `src/ut_water_apportionment/compiled_v2`.  It keeps the ordinary
+LP as the problem definition, rewrites a compiler-owned copy, emits direct
+MIN/MAX calculations when possible, and uses only reduced local LP kernels for
+remaining coupled objectives.  See `COMPILED_V2_BRANCH.md` and
+`docs/compiled-v2.md`.
