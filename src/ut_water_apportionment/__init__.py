@@ -1,4 +1,3 @@
-from .compiled import CompilationOptions, CompiledSolver, compile_solver_input
 from .compiled_v2 import (
     V2CannotCompile,
     V2CompilationOptions,
@@ -6,11 +5,6 @@ from .compiled_v2 import (
     compile_solver_input_v2,
 )
 from .solver import solve
-from .lp_solver import (
-    SolverBackend,
-    SolverBackendUnavailableError,
-    available_solver_backends,
-)
 from .models import (
     AccountingGraph,
     AccountingLimit,
@@ -28,8 +22,13 @@ from .models import (
     TrxnPathItem,
     Zone,
     ZoneTypes,
-    ZoneAccount
+    ZoneAccount,
 )
+
+# On this branch, the v2 compiler is the only compiled-formula implementation.
+compile_solver_input = compile_solver_input_v2
+CompiledSolver = V2CompiledSolver
+CompilationOptions = V2CompilationOptions
 
 __all__ = [
     "solve",
@@ -40,9 +39,6 @@ __all__ = [
     "V2CompilationOptions",
     "V2CompiledSolver",
     "compile_solver_input_v2",
-    "SolverBackend",
-    "SolverBackendUnavailableError",
-    "available_solver_backends",
     "AccountingGraph",
     "AccountingLimit",
     "AccountingLimitInterval",
@@ -59,5 +55,5 @@ __all__ = [
     "TrxnPathItem",
     "Zone",
     "ZoneTypes",
-    "ZoneAccount"
+    "ZoneAccount",
 ]

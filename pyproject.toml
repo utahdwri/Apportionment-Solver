@@ -35,21 +35,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-ortools = [
-    "ortools>=9.10,<10",
-]
-highs = [
-    "numpy>=1.26",
-    "highspy>=1.7",
-]
 dev = [
     "build>=1.2",
     "ruff>=0.6",
-]
-all = [
-    "numpy>=1.26",
-    "scipy>=1.13",
-    "highspy>=1.7",
 ]
 
 [tool.setuptools]

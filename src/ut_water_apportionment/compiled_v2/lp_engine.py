@@ -1,18 +1,13 @@
-"""LP solver wrapper backed by SciPy's HiGHS interface.
+"""Internal SciPy LP engine used only by compiled v2.
 
-This mirrors the public API used by ``solve_lp_with_GLOP.LPSolver`` closely
-and is loaded through the central LP backend registry.
-
-Important implementation difference: ``scipy.optimize.linprog`` is not a
-persistent model API. The sparse matrices are rebuilt for each solve. For an
-application that performs many small model modifications and re-solves, the
-native ``highspy`` package is likely a better long-term HiGHS backend because
-it exposes a persistent model and basis operations directly.
+The engine provides the mutable LP protocol needed to build the authoritative
+production LP and numerically execute small reduced residual kernels.  It is
+not exposed as a selectable whole-day solver backend on this branch.
 """
 
 from __future__ import annotations
 
-from .lp_solver import LPSolverError
+from ..lp_solver import LPSolverError
 
 from dataclasses import dataclass, field
 from math import inf, isclose, isnan

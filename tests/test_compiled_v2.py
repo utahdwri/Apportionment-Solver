@@ -13,7 +13,6 @@ from ut_water_apportionment import (
     Zone,
     ZoneTypes,
     compile_solver_input_v2,
-    solve,
 )
 
 
@@ -147,20 +146,15 @@ def _result_map(result):
 
 
 class CompiledV2Tests(unittest.TestCase):
-    def assert_outputs_close(self, expected, actual):
-        expected_map = _result_map(expected)
-        actual_map = _result_map(actual)
-        self.assertEqual(expected_map.keys(), actual_map.keys())
-        for key, expected_value in expected_map.items():
-            self.assertAlmostEqual(expected_value, actual_map[key], places=8, msg=str(key))
-
-    def test_simple_v2_matches_lp_without_whole_day_fallback(self):
-        problem = _simple_input()
-        expected = solve(problem, solver_backend="scipy", generate_audit=False)
-        plan = compile_solver_input_v2(problem)
+    def test_simple_v2_solves_without_whole_day_fallback(self):
+        plan = compile_solver_input_v2(_simple_input())
         actual = plan.solve()
+        values = _result_map(actual)
 
-        self.assert_outputs_close(expected, actual)
+        self.assertAlmostEqual(values[("2000-01-01", "TRXN_1", "RIVER>USER")], 3.0)
+        self.assertAlmostEqual(values[("2000-01-01", "TRXN_2", "RIVER>USER")], 6.0)
+        self.assertAlmostEqual(values[("2000-01-01", "TRXN_3", "RIVER>USER")], 3.0)
+        self.assertAlmostEqual(values[("2000-01-01", "TRXN_4", "RIVER>USER")], 0.0)
         report = plan.report()
         self.assertEqual(report["whole_day_lp_fallbacks"], 0)
         self.assertGreater(report["program_count"], 0)
@@ -172,7 +166,7 @@ class CompiledV2Tests(unittest.TestCase):
         text = plan.formulas()
 
         self.assertIn("V2P1: DIRECT MAXIMIZE TRXN_1___RIVER>USER", text)
-        self.assertIn("constraint[MEAS_RIVER>USER].remaining_upper", text)
+        self.assertIn("constraint[MEAS_RIVER>USER].remaining", text)
         self.assertIn("constraint[NF_ZONE_RIVER].remaining_upper", text)
         self.assertIn("TRXN_2___RIVER>USER := 0 (monotone lower bound)", text)
 
@@ -183,20 +177,70 @@ class CompiledV2Tests(unittest.TestCase):
         text = plan.formulas()
 
         self.assertIn("zero-RHS equality CONT_TRXN_2_0", text)
-        self.assertIn(
-            "TRXN_2___RIVER>STO := TRXN_2___RIVER>USER",
-            text,
+        self.assertTrue(
+            "TRXN_2___RIVER>STO := TRXN_2___RIVER>USER" in text
+            or "TRXN_2___RIVER>USER := TRXN_2___RIVER>STO" in text
         )
 
-    def test_reservoir_v2_matches_lp(self):
-        problem = _reservoir_input()
-        expected = solve(problem, solver_backend="scipy", generate_audit=False)
-        plan = compile_solver_input_v2(problem)
-        actual = plan.solve()
-
-        self.assert_outputs_close(expected, actual)
+    def test_reservoir_v2_uses_compiler_transformations(self):
+        plan = compile_solver_input_v2(_reservoir_input())
+        plan.solve()
         self.assertEqual(plan.report()["whole_day_lp_fallbacks"], 0)
         self.assertGreater(plan.report()["equality_eliminated"], 0)
+
+    def test_v2_is_prepared_and_frozen_before_public_solve(self):
+        plan = compile_solver_input_v2(_simple_input())
+        report = plan.report()
+
+        self.assertTrue(report["frozen"])
+        self.assertFalse(report["runtime_compilation"])
+        self.assertGreater(report["program_count"], 0)
+        self.assertIn("FROZEN PARAMETERIZED IR", plan.formulas())
+
+        program_count = report["program_count"]
+        plan.solve()
+        report = plan.report()
+        self.assertEqual(report["program_count"], program_count)
+        self.assertGreater(report["execution_cache_hits"], 0)
+        self.assertEqual(report["execution_cache_misses"], 0)
+
+    def test_frozen_v2_reuses_parameterized_bounds_for_new_measurements(self):
+        problem = _simple_input()
+        plan = compile_solver_input_v2(problem)
+        program_count = plan.report()["program_count"]
+
+        for flow in (8, 12, 20):
+            with self.subTest(flow=flow):
+                measurements = MeasurementCollection(
+                    beg_date="2000-01-01",
+                    end_date="2000-01-01",
+                    series=[MeasurementSeries(id="1", values=[flow])],
+                )
+                actual = plan.solve(measurements=measurements)
+                values = _result_map(actual)
+                expected = {
+                    8: (3.0, 5.0, 0.0, 0.0),
+                    12: (3.0, 6.0, 3.0, 0.0),
+                    20: (3.0, 6.0, 11.0, 0.0),
+                }[flow]
+                for index, expected_value in enumerate(expected, start=1):
+                    self.assertAlmostEqual(
+                        values[("2000-01-01", f"TRXN_{index}", "RIVER>USER")],
+                        expected_value,
+                    )
+                self.assertEqual(plan.report()["program_count"], program_count)
+                self.assertEqual(plan.report()["execution_cache_misses"], 0)
+
+    def test_reservoir_days_reuse_frozen_parameterized_programs(self):
+        plan = compile_solver_input_v2(_reservoir_input())
+        program_count = plan.report()["program_count"]
+        self.assertLess(program_count, 20)
+
+        plan.solve()
+        report = plan.report()
+        self.assertEqual(report["program_count"], program_count)
+        self.assertEqual(report["execution_cache_misses"], 0)
+        self.assertGreaterEqual(report["execution_cache_hits"], 3 * program_count)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 import unittest
 from ut_water_apportionment import (
-    solve,
+    compile_solver_input_v2,
     AccountingGraph,
     AccountingLimit,
     AccountingLimitInterval,
@@ -19,6 +19,13 @@ from ut_water_apportionment import (
     ZoneTypes
 )
 from ut_water_apportionment.loss_models import LossDefinition
+
+
+def solve(input: SolverInput, *, check_expected_values: bool = False) -> SolverOutput:
+    """Run every retained production test through the frozen v2 compiler."""
+    return compile_solver_input_v2(input).solve(
+        check_expected_values=check_expected_values
+    )
 
 # In case I want to see messages in the console:
 import logging

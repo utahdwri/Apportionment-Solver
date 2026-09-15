@@ -1,158 +1,40 @@
-from copy import deepcopy
+"""Public v2 solve API plus shared accounting-day helpers.
+
+This branch intentionally has no whole-day LP solve mode.  ``solve`` prepares
+and executes the frozen v2 compiled-formula plan.  The day helper remains the
+common LP-problem builder used during v2 preparation and execution.
+"""
+
 from typing import Generator
-import logging
-from .models import (
-    SolverInput, SolverOutput, PathTrxn, TrxnPathItem, ZoneTypes
-)
+
+from .models import SolverInput, SolverOutput, PathTrxn, TrxnPathItem, ZoneTypes
 from .graph_manager import GraphManager
-from .natural_flow_calculator import NaturalFlowCalculator
 from .timeseries_manager import DailyDataManager
 from .trxn_schedule import TrxnSchedule
 from .apportioner import Apportioner
-from .lp_solver import SolverBackend, resolve_solver_backend
-from .lag_utils import unlag_apportionments
-
-logger = logging.getLogger(__name__)
 
 
-
-# --- Public API ---
 def solve(
     input: SolverInput,
     *,
     check_expected_values: bool = False,
-    solver_backend: SolverBackend | str = SolverBackend.AUTO,
     max_daily_apportionment: float | None = None,
-    generate_audit: bool = True,
-    method: str = "lp",
     compilation_options=None,
 ) -> SolverOutput:
-    """Solve using the ordinary LP method or compiled equations with LP fallback.
+    """Compile and execute the frozen v2 formula solver.
 
-    ``method="compiled"`` preserves the production accounting schedule and
-    output format. Small objective systems use cached MIN/MAX programs. A day
-    requiring LP is restarted before any cross-day state is committed.
-    ``solver_backend`` selects that fallback backend. Detailed production audit
-    evidence currently requires an LP day; use ``generate_audit=False`` for
-    compiled execution and inspect ``result.compilation_report`` for coverage.
-    Use ``compile_solver_input`` to retain a plan and inspect its formulas.
+    The production LP remains the problem definition, but there is no public
+    whole-day LP execution path on this branch.  Difficult residual objectives
+    are handled by v2 reduced LP kernels.
     """
-    if method not in {"lp", "compiled"}:
-        raise ValueError("method must be 'lp' or 'compiled'")
-    session = None
-    if method == "compiled":
-        from .compiled.runtime import CompilationSession
-        session = CompilationSession(compilation_options)
-    elif compilation_options is not None:
-        raise ValueError("compilation_options requires method='compiled'")
-    return _solve(input, check_expected_values=check_expected_values,
-                  solver_backend=solver_backend, max_daily_apportionment=max_daily_apportionment,
-                  generate_audit=generate_audit, compiled_session=session)
+    from .compiled_v2 import compile_solver_input_v2
 
-
-def _solve(
-    input: SolverInput,
-    *,
-    check_expected_values: bool = False,
-    solver_backend: SolverBackend | str = SolverBackend.AUTO,
-    max_daily_apportionment: float | None = None,
-    generate_audit: bool = True,
-    compiled_session=None,
-) -> SolverOutput:
-    """Build and solve the apportionment model.
-
-    ``solver_backend`` may be ``"auto"``, ``"highspy"``, ``"glop"``, or
-    ``"scipy"``. Automatic selection prefers native HiGHS, then GLOP, then
-    SciPy's HiGHS interface. An explicitly requested unavailable backend raises
-    an error rather than silently using a different implementation.
-    """
-    resolved_backend = resolve_solver_backend(solver_backend)
-    logger.info("Using LP backend: %s", resolved_backend.name.value)
-
-    apportionment_results = []
-    apportionments_audit = []
-
-    # 1. Initialize Network Topology
-    graph_manager = GraphManager(deepcopy(input.accounting_graph))
-
-
-    # 2. Initialize daily data and natural-flow services.
-    natural_flow_calculator = NaturalFlowCalculator(graph_manager)
-
-    data_manager = DailyDataManager(
-        graph_manager,
-        input.measurements,
-        input.external_natural_flows,
+    plan = compile_solver_input_v2(
+        input,
+        options=compilation_options,
+        max_daily_apportionment=max_daily_apportionment,
     )
-
-    # 3.
-    trxn_manager = TrxnSchedule(graph_manager, input.txns, max_daily_apportionment)
-
-    # 4. Run for each day.
-    for date in _loop_through_date_range(input.beg_date, input.end_date):
-        logger.info(f'Starting {date} ...')
-
-        # A. Setup the state for the day
-        data_manager.set_day(date)
-        trxn_manager.begin_day(date)
-
-        if compiled_session is None:
-            apportioner = _solve_day(graph_manager, trxn_manager, data_manager,
-                                     natural_flow_calculator, resolved_backend.factory,
-                                     generate_audit, date)
-        else:
-            from .compiled.projection import CannotCompile
-            from .compiled.runtime import compiled_factory
-            compiled_session.begin_day(date)
-            fallback_reason = None
-            try:
-                if generate_audit:
-                    raise CannotCompile("detailed audit requires native LP evidence")
-                apportioner = _solve_day(
-                    graph_manager, trxn_manager, data_manager, natural_flow_calculator,
-                    compiled_factory(resolved_backend.factory, compiled_session), False, date)
-            except CannotCompile as error:
-                fallback_reason = str(error)
-                # Restart the entire tentative day. In particular, do not retain
-                # reservations or NF spill credits from an abandoned formula run.
-                # Accounts/cumulative use are committed only once below.
-                natural_flow_calculator = NaturalFlowCalculator(graph_manager)
-                apportioner = _solve_day(
-                    graph_manager, trxn_manager, data_manager, natural_flow_calculator,
-                    resolved_backend.factory, generate_audit, date)
-            compiled_session.finish_day(fallback_reason)
-
-        # Commit cross-day transaction/account state only after the final daily
-        # solution is known.
-        trxn_manager.commit_day(apportioner.cur_trxn_value)
-
-
-        # Collect results for this day
-        apportionment_results.extend(apportioner.get_variables(date))
-        apportionments_audit.extend(apportioner.apportionments_audit)
-
-
-    unlagged_apportionments = unlag_apportionments(
-        apportionment_results,
-        data_manager.flow_lags,
-    )
-
-    results = SolverOutput(
-        apportionments=unlagged_apportionments,
-        solve_steps=apportionments_audit,
-        solver_backend=resolved_backend.name.value,
-        solve_method="compiled" if compiled_session is not None else "lp",
-        compilation_report=compiled_session.report() if compiled_session is not None else None,
-    )
-
-    if check_expected_values:
-
-        results.print_solve_steps()
-
-        assert_apportionments_equal_expected(results, input, graph_manager, data_manager, trxn_manager)
-
-    return results
-
+    return plan.solve(check_expected_values=check_expected_values)
 
 
 def _solve_day(graph_manager, trxn_manager, data_manager, natural_flow_calculator,

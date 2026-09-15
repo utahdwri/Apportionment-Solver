@@ -25,12 +25,7 @@ from .graph_manager import GraphManager
 from .timeseries_manager import DailyDataManager
 from .trxn_schedule import TrxnSchedule
 from .natural_flow_calculator import NaturalFlowCalculator
-from .lp_solver import (
-    LPSolverError,
-    LPSolverFactory,
-    LPSolverProtocol,
-    resolve_solver_backend,
-)
+from .lp_solver import LPSolverError, LPSolverFactory, LPSolverProtocol
 
 
 # --- Configuration Constants ---
@@ -70,11 +65,12 @@ class Apportioner:
         self.nfc = nfc
         self.generate_audit = generate_audit
 
-        self._lp_solver_factory = (
-            lp_solver_factory
-            if lp_solver_factory is not None
-            else resolve_solver_backend().factory
-        )
+        if lp_solver_factory is None:
+            raise ValueError(
+                "The v2 branch requires an explicit LP engine factory. "
+                "Use compile_solver_input_v2() or solve()."
+            )
+        self._lp_solver_factory = lp_solver_factory
         self.cur_trxn_value: dict[str, float] = {}
         self.apportionments_audit: list[SolveStepResult] = []
         self._audit_sequence = 0
@@ -682,7 +678,10 @@ class Apportioner:
         # reallocation of the other variables. Use exact equality: solver
         # tolerances must not turn a nearly full right into a fully used one.
         # With auditing enabled, retain the solve and its objective evidence.
-        if not self.generate_audit:
+        if (
+            not self.generate_audit
+            and not getattr(self.engine, "force_explicit_priority_solves", False)
+        ):
             lower, upper = self.engine.get_variable_bounds(target_var)
             if lower == upper == self.cur_trxn_value.get(target_var, 0.0):
                 return
