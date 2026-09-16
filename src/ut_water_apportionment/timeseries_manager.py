@@ -36,6 +36,38 @@ class DailyDataManager:
 
         self.external_natural_flows = external_natural_flows or {}
 
+    def clone_runtime(
+        self,
+        *,
+        measurements: MeasurementCollection | None = None,
+        external_natural_flows: dict | None = None,
+    ) -> "DailyDataManager":
+        """Create a cheap per-run view over frozen graph/lag metadata.
+
+        Lag traversal depends only on accounting-graph structure.  A compiled
+        plan therefore computes it once and shares those read-only maps across
+        executions while each run gets fresh current-day data dictionaries.
+        """
+
+        measurements = self.measurements if measurements is None else measurements
+        if measurements is not self.measurements:
+            self._validate_measurement_references(self.gm, measurements)
+
+        clone = object.__new__(type(self))
+        clone.gm = self.gm
+        clone.measurements = measurements
+        clone.cur_date = None
+        clone.cur_flows_by_id = {}
+        clone.cur_storage_chg_by_id = {}
+        clone._zone_lags = self._zone_lags
+        clone._flow_lags = self._flow_lags
+        clone.external_natural_flows = (
+            self.external_natural_flows
+            if external_natural_flows is None
+            else external_natural_flows
+        )
+        return clone
+
     # TODO - this is needed only once -- consider redesign...
     @property
     def flow_lags(self) -> dict[str, float]:

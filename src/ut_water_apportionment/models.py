@@ -4,7 +4,11 @@ from enum import Enum
 from math import floor, isclose, isfinite
 import json
 from pathlib import Path
-from .loss_models import LossDefinition
+from .loss_models import (
+    LossDefinition,
+    LossInterval,
+    ResolvedLossRelation,
+)
 
 
 DEFAULT_TRXN_PRIORITY = 999999999
@@ -63,6 +67,475 @@ class SolverInput:
                 f"to {self.measurements.end_date}."
             )
 
+
+    def to_dict(self) -> dict:
+        """
+        Convert this SolverInput to a JSON-compatible dictionary.
+
+        Only dataclass fields that participate in construction are included.
+        Runtime/cache fields such as MeasurementCollection._series_by_id are
+        intentionally omitted.
+        """
+
+        def convert(value):
+            if isinstance(value, Enum):
+                return value.value
+
+            if is_dataclass(value):
+                return {
+                    f.name: convert(getattr(value, f.name))
+                    for f in fields(value)
+                    if f.init
+                }
+
+            if isinstance(value, dict):
+                return {
+                    str(key): convert(item)
+                    for key, item in value.items()
+                }
+
+            if isinstance(value, (list, tuple)):
+                return [convert(item) for item in value]
+
+            return value
+
+        return convert(self) # type: ignore
+
+    def to_json_text(self, indent:int | None = None):
+        """
+        Convert this SolverInput to JSON text.
+        """
+
+        payload = {
+            "format": "ut-water-apportionment-solver-input",
+            "version": 1,
+            "input": self.to_dict(),
+        }
+
+        return json.dumps(
+            payload,
+            indent=indent,
+            allow_nan=False,
+        )
+
+
+    def to_json(
+        self,
+        filename: str | Path,
+        *,
+        indent: int | None = None,
+    ) -> None:
+        """
+        Save this SolverInput to a portable JSON file.
+        """
+
+        Path(filename).write_text(
+            self.to_json_text(indent),
+            encoding="utf-8",
+        )
+
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SolverInput":
+        """
+        Reconstruct a SolverInput from the dictionary produced by to_dict().
+        """
+
+        def parse_enum(enum_type, value):
+            if value is None:
+                return None
+
+            if isinstance(value, enum_type):
+                return value
+
+            # Normal JSON produced by to_dict() stores Enum.value.
+            try:
+                return enum_type(value)
+            except ValueError:
+                pass
+
+            # Also tolerate strings such as "ZoneTypes.STREAM" or "STREAM".
+            name = str(value).split(".")[-1]
+
+            try:
+                return enum_type[name]
+            except KeyError as exc:
+                raise ValueError(
+                    f"Unknown {enum_type.__name__} value: {value!r}"
+                ) from exc
+
+
+        def parse_loss(value) -> LossDefinition:
+            if value is None:
+                return LossDefinition()
+
+            if isinstance(value, LossDefinition):
+                return value
+
+            segments = tuple(
+                ResolvedLossRelation(
+                    segment_index=int(segment["segment_index"]),
+                    min_driver_flow=float(
+                        segment["min_driver_flow"]
+                    ),
+                    max_driver_flow=(
+                        None
+                        if segment["max_driver_flow"] is None
+                        else float(segment["max_driver_flow"])
+                    ),
+                    loss_slope=float(segment["loss_slope"]),
+                    loss_intercept=float(
+                        segment["loss_intercept"]
+                    ),
+                )
+                for segment in value.get("segments", [])
+            )
+
+            intervals = tuple(
+                LossInterval(
+                    beg_date=str(interval["beg_date"]),
+                    end_date=str(interval["end_date"]),
+                    loss=parse_loss(interval["loss"]),
+                )
+                for interval in value.get("intervals", [])
+            )
+
+            default_data = value.get("default")
+
+            return LossDefinition(
+                segments=segments,
+                intervals=intervals,
+                default=(
+                    None
+                    if default_data is None
+                    else parse_loss(default_data)
+                ),
+            )
+
+
+        def parse_limit(value):
+            if value is None:
+                return None
+
+            if isinstance(value, (int, float)):
+                return value
+
+            if isinstance(value, AccountingLimit):
+                return value
+
+            return AccountingLimit(
+                intervals=[
+                    AccountingLimitInterval(
+                        beg_date=str(interval["beg_date"]),
+                        end_date=str(interval["end_date"]),
+                        value=float(interval["value"]),
+                    )
+                    for interval in value["intervals"]
+                ]
+            )
+
+
+        def parse_measurement(value) -> FlowMeasurement:
+            return FlowMeasurement(
+                measurement_id=str(value["measurement_id"]),
+                adjustment_factor=float(
+                    value.get("adjustment_factor", 1.0)
+                ),
+            )
+
+
+        def parse_transaction(value):
+            common = dict(
+                id=str(value["id"]),
+                priority=float(value["priority"]),
+                upper_limit=parse_limit(
+                    value.get("upper_limit")
+                ),
+                cumulative_limit=value.get(
+                    "cumulative_limit"
+                ),
+                cumulative_reset_before_MMDD=value.get(
+                    "cumulative_reset_before_MMDD"
+                ),
+                call_limit=parse_limit(
+                    value.get("call_limit")
+                ),
+                wrnum=value.get("wrnum"),
+                beg_date=value.get("beg_date"),
+                end_date=value.get("end_date"),
+            )
+
+            if "children_trxns" in value:
+                return TrxnGroup(
+                    **common,
+                    children_trxns=[
+                        parse_transaction(child)
+                        for child
+                        in value.get("children_trxns", [])
+                    ],
+                )
+
+            return PathTrxn(
+                **common,
+                path=[
+                    TrxnPathItem(
+                        flow_id=str(item["flow_id"]),
+                        factor=float(
+                            item.get("factor", 1.0)
+                        ),
+                        expected_values=(
+                            None
+                            if item.get("expected_values") is None
+                            else list(
+                                item["expected_values"]
+                            )
+                        ),
+                        loss_before=float(
+                            item.get("loss_before", 0.0)
+                        ),
+                        loss_after=float(
+                            item.get("loss_after", 0.0)
+                        ),
+                        remaining_factor=float(
+                            item.get(
+                                "remaining_factor",
+                                1.0,
+                            )
+                        ),
+                    )
+                    for item in value.get("path", [])
+                ],
+                from_account=value.get("from_account"),
+                to_account=value.get("to_account"),
+                is_slack=bool(
+                    value.get("is_slack", False)
+                ),
+            )
+
+
+        graph_data = data["accounting_graph"]
+
+        graph = AccountingGraph(
+            zones=[
+                Zone(
+                    id=str(zone["id"]),
+                    type=parse_enum(
+                        ZoneTypes,
+                        zone["type"],
+                    ),
+                    storage_meas_ids=[
+                        str(value)
+                        for value
+                        in zone.get(
+                            "storage_meas_ids",
+                            [],
+                        )
+                    ],
+                    accounts=[
+                        ZoneAccount(
+                            id=str(account["id"]),
+                            starting_balance=float(
+                                account.get(
+                                    "starting_balance",
+                                    0.0,
+                                )
+                            ),
+                            balance_ceiling=(
+                                None
+                                if account.get(
+                                    "balance_ceiling"
+                                ) is None
+                                else float(
+                                    account[
+                                        "balance_ceiling"
+                                    ]
+                                )
+                            ),
+                            balance_floor=(
+                                None
+                                if account.get(
+                                    "balance_floor"
+                                ) is None
+                                else float(
+                                    account[
+                                        "balance_floor"
+                                    ]
+                                )
+                            ),
+                        )
+                        for account
+                        in zone.get("accounts", [])
+                    ],
+                )
+                for zone in graph_data["zones"]
+            ],
+
+            interzone_flows=[
+                InterzoneFlow(
+                    id=str(flow["id"]),
+                    from_zone=str(flow["from_zone"]),
+                    to_zone=str(flow["to_zone"]),
+                    bidirectional=bool(
+                        flow.get(
+                            "bidirectional",
+                            False,
+                        )
+                    ),
+                    flow_type=parse_enum(
+                        FlowComponentsTypes,
+                        flow.get(
+                            "flow_type",
+                            FlowComponentsTypes
+                            .OBSERVATION
+                            .value,
+                        ),
+                    ),
+                    flow_measurements=[
+                        parse_measurement(value)
+                        for value
+                        in flow.get(
+                            "flow_measurements",
+                            [],
+                        )
+                    ],
+                    lag_from_zone=float(
+                        flow.get(
+                            "lag_from_zone",
+                            0.0,
+                        )
+                    ),
+                    lag_to_zone=float(
+                        flow.get(
+                            "lag_to_zone",
+                            0.0,
+                        )
+                    ),
+                    loss_from_zone=parse_loss(
+                        flow.get("loss_from_zone")
+                    ),
+                    loss_to_zone=parse_loss(
+                        flow.get("loss_to_zone")
+                    ),
+                    natural_flow_mode=(
+                        None
+                        if flow.get(
+                            "natural_flow_mode"
+                        ) is None
+                        else parse_enum(
+                            NaturalFlowMode,
+                            flow[
+                                "natural_flow_mode"
+                            ],
+                        )
+                    ),
+                    nf_measurements=[
+                        parse_measurement(value)
+                        for value
+                        in flow.get(
+                            "nf_measurements",
+                            [],
+                        )
+                    ],
+                    beg_date=str(
+                        flow.get(
+                            "beg_date",
+                            "1000-01-01",
+                        )
+                    ),
+                    end_date=str(
+                        flow.get(
+                            "end_date",
+                            "9999-12-31",
+                        )
+                    ),
+                )
+                for flow
+                in graph_data["interzone_flows"]
+            ],
+        )
+
+
+        measurement_data = data["measurements"]
+
+        measurements = MeasurementCollection(
+            series=[
+                MeasurementSeries(
+                    id=str(series["id"]),
+                    values=list(series["values"]),
+                )
+                for series
+                in measurement_data["series"]
+            ],
+            beg_date=str(
+                measurement_data["beg_date"]
+            ),
+            end_date=str(
+                measurement_data["end_date"]
+            ),
+        )
+
+
+        return cls(
+            accounting_graph=graph,
+            txns=[
+                parse_transaction(value)
+                for value in data["txns"]
+            ],
+            measurements=measurements,
+            beg_date=str(data["beg_date"]),
+            end_date=str(data["end_date"]),
+            external_natural_flows={
+                str(flow_id): {
+                    str(date): float(value)
+                    for date, value
+                    in values.items()
+                }
+                for flow_id, values
+                in data.get(
+                    "external_natural_flows",
+                    {},
+                ).items()
+            },
+        )
+
+
+    @classmethod
+    def from_json(
+        cls,
+        filename: str | Path,
+    ) -> "SolverInput":
+        """
+        Load a SolverInput saved by to_json().
+
+        A bare SolverInput dictionary is also accepted for convenience.
+        """
+
+        payload = json.loads(
+            Path(filename).read_text(
+                encoding="utf-8"
+            )
+        )
+
+        if (
+            isinstance(payload, dict)
+            and payload.get("format")
+            == "ut-water-apportionment-solver-input"
+        ):
+            version = payload.get("version")
+
+            if version != 1:
+                raise ValueError(
+                    "Unsupported SolverInput JSON "
+                    f"version: {version!r}"
+                )
+
+            data = payload["input"]
+
+        else:
+            # Also accept an unwrapped SolverInput dictionary.
+            data = payload
+
+        return cls.from_dict(data)
 
 
 @dataclass

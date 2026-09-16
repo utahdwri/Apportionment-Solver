@@ -32,6 +32,19 @@ class TrxnSchedule:
         self._validate_account_references()
 
         self._natural_flow_trxns = self._init_natural_flow_trxns()             # This helps to track the trxns that depend on NF available at a given zone.
+        self._nf_zone_by_trxn_id = {
+            trxn.id: zone_id
+            for zone_id, trxns in self._natural_flow_trxns.items()
+            for trxn in trxns
+        }
+        priority_groups: dict[float, list[PathTrxn | TrxnGroup]] = {}
+        for trxn in self.all_trxns:
+            priority = trxn.priority if trxn.priority is not None else -1
+            priority_groups.setdefault(priority, []).append(trxn)
+        self._priority_groups = tuple(
+            (priority, tuple(priority_groups[priority]))
+            for priority in sorted(priority_groups)
+        )
 
         self.lookup_flow_trxns = self._init_build_flow_trxns_lookup()
 
@@ -48,6 +61,33 @@ class TrxnSchedule:
         }
         self._prepared_date: str | None = None
 
+
+    def clone_runtime(self, gm: GraphManager | None = None) -> "TrxnSchedule":
+        """Create a cheap per-run copy while sharing frozen transaction structure.
+
+        ``TrxnSchedule.__init__`` performs validation, deep-copies every input
+        transaction, orders every path, and builds several structural lookup
+        tables.  Compiled-v2 has already frozen that structure, so repeating
+        those steps for every execution day is pure overhead.
+
+        The transaction/path objects and lookup tables are treated as immutable
+        after construction.  Only cross-day account/cumulative state and the
+        prepared-date marker are copied for a new run.
+        """
+
+        clone = object.__new__(type(self))
+        clone.gm = self.gm if gm is None else gm
+        clone.all_trxns = self.all_trxns
+        clone._max_daily_apportionment = self._max_daily_apportionment
+        clone.ordered_paths = self.ordered_paths
+        clone._natural_flow_trxns = self._natural_flow_trxns
+        clone._nf_zone_by_trxn_id = self._nf_zone_by_trxn_id
+        clone._priority_groups = self._priority_groups
+        clone.lookup_flow_trxns = self.lookup_flow_trxns
+        clone._account_balances = dict(self._account_balances)
+        clone._cumulative_used = dict(self._cumulative_used)
+        clone._prepared_date = None
+        return clone
 
 
     def _init_process_input_trxns(self, input_txns: list['PathTrxn | TrxnGroup']):
@@ -416,10 +456,7 @@ class TrxnSchedule:
             return []
 
     def get_nf_zone_id(self, trxn) -> str | None:
-        from_zone = self.get_from_zone(trxn)
-        if from_zone is not None and from_zone.id in self._natural_flow_trxns:
-            return from_zone.id
-        return None
+        return self._nf_zone_by_trxn_id.get(trxn.id)
 
     def get_from_zone(self, trxn: PathTrxn) -> Zone | None:
         ordered_path = self.ordered_paths.get(trxn.id, [])
@@ -585,24 +622,11 @@ class TrxnSchedule:
     def build_schedule(self, date:str) -> CoreSeqSchedule:
         # Convert the paths dictionary to an ordered schedule list by sorting the
         # paths by priority while grouping paths with the same priority.
-        vars = self.all_trxns
-
         output_list: list[CoreSeqScheduleItem] = []
 
-        varsByPriority: dict[float,list['PathTrxn | TrxnGroup']]  = {}
-        for v in vars:
-            p = v.priority if v.priority is not None else -1
-            if p not in varsByPriority:
-                varsByPriority[p] = []
-            varsByPriority[p].append(v)
-
-        # Get a list of the distinct priority values sorted from smallest to
-        # largest.
-        priorities = sorted(varsByPriority.keys())
-
-        # Now add the variables to the schedule, in priority order.
-        for p in priorities:
-            pvars = varsByPriority[p]
+        # Priority membership/order is structural and frozen at construction.
+        # Daily schedule building only needs to refresh limit-dependent factors.
+        for p, pvars in self._priority_groups:
 
             # If there is only one item with this priority, it must be either a
             # variable or a sequential subseries:

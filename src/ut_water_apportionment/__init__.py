@@ -24,6 +24,11 @@ from .models import (
     ZoneTypes,
     ZoneAccount,
 )
+from .loss_models import (
+    LossDefinition,
+    LossCurvePoint,
+    LossInterval,
+)
 
 # On this branch, the v2 compiler is the only compiled-formula implementation.
 compile_solver_input = compile_solver_input_v2
@@ -56,4 +61,7 @@ __all__ = [
     "Zone",
     "ZoneTypes",
     "ZoneAccount",
+    "LossDefinition",
+    "LossCurvePoint",
+    "LossInterval",
 ]

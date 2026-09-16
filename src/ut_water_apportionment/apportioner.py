@@ -79,6 +79,87 @@ class Apportioner:
         self.engine = self._build_linear_equations()
 
         self.feasibility_slacks:list[str] = []
+        self._nf_coefficients_materialized = False
+
+    def _materialize_nf_constraint_coefficients(self) -> None:
+        """Populate production-LP NF columns only when they are actually needed.
+
+        Compiled-v2 kernels normally execute from transformed IR and explicit
+        residual state, so rewriting thousands of source-LP coefficients each
+        day is wasted work. Auxiliary production-LP solves remain exact by
+        calling this method lazily before they build a numeric LP.
+        """
+        if self._nf_coefficients_materialized:
+            return
+        for z in self.gm.graph.zones:
+            if z.type != ZoneTypes.STREAM:
+                continue
+            coefficients = self.nfc.get_nf_constraint_coefficients(z.id)
+            for trxn in self.tm.get_nf_trxn_ids_for_zone(z.id):
+                anchor_var = self.tm.get_anchor_var(trxn)
+                if anchor_var is None:
+                    continue
+                for zone_id, coefficient in coefficients.items():
+                    self.engine.set_coefficient(
+                        PREFIX_NF_ZONE + zone_id,
+                        anchor_var,
+                        coefficient,
+                    )
+        self._nf_coefficients_materialized = True
+
+    def _ensure_auxiliary_lp_ready(self) -> None:
+        if getattr(self.engine, "defer_nf_coefficient_updates", False):
+            self._materialize_nf_constraint_coefficients()
+
+    def _solve_auxiliary_objective(
+        self,
+        variable_names: list[str],
+        *,
+        maximization: bool,
+        weights: dict[str, float] | None = None,
+    ) -> tuple[float, dict[str, float]]:
+        """Solve a non-priority objective without extending the v2 graph.
+
+        The compiled-v2 backend exposes a structural auxiliary-kernel method
+        for equal-priority loop decisions, spill locking, deterministic
+        tie-breaks, and final reconciliation. Other LP engines can continue to
+        use the ordinary objective interface.
+        """
+
+        self._ensure_auxiliary_lp_ready()
+        helper = getattr(self.engine, "solve_auxiliary_objective", None)
+        if helper is not None:
+            return helper(
+                variable_names,
+                maximization=maximization,
+                weights=weights,
+            )
+        return self.engine.solve_objective(
+            variable_names,
+            maximization=maximization,
+            weights=weights,
+        )
+
+    def _solve_auxiliary_objective_value(
+        self,
+        variable_names: list[str],
+        *,
+        maximization: bool,
+        weights: dict[str, float] | None = None,
+    ) -> float:
+        self._ensure_auxiliary_lp_ready()
+        helper = getattr(self.engine, "solve_auxiliary_objective_value", None)
+        if helper is not None:
+            return helper(
+                variable_names,
+                maximization=maximization,
+                weights=weights,
+            )
+        return self.engine.solve_objective_value(
+            variable_names,
+            maximization=maximization,
+            weights=weights,
+        )
 
 
     def _append_audit_record(
@@ -185,6 +266,20 @@ class Apportioner:
 
                     engine.set_coefficient(con_name, v2, 1.0)
                     engine.set_coefficient(con_name, v1, -rem_factor)
+                    if (
+                        hasattr(engine, "mark_parameterized_coefficient")
+                        and (l1_exit.is_time_varying or l2_enter.is_time_varying)
+                    ):
+                        # The LP coefficient remains numeric for the current
+                        # day, but V2 treats this matrix position as a runtime
+                        # scalar parameter.  For physically valid fractional
+                        # losses, -rem_factor is always in [-1, 0].
+                        engine.mark_parameterized_coefficient(
+                            con_name,
+                            v1,
+                            lower=-1.0,
+                            upper=0.0,
+                        )
 
 
         # 3. Natural Flow Constraints (only tied to anchor variables)
@@ -334,25 +429,15 @@ class Apportioner:
         )
 
 
-        # 2. Complete the NF Constraints (these constraints were created in
-        #    init but we didn't have all the info to complete them)
+        # 2. Complete the NF constraints. The transformed-v2 programs usually
+        # own the NF coefficients already, so production-matrix coefficients can
+        # be deferred. Bounds still carry today's NF amount and are always set.
+        self._nf_coefficients_materialized = False
+        if not getattr(self.engine, "defer_nf_coefficient_updates", False):
+            self._materialize_nf_constraint_coefficients()
+
         for z in self.gm.graph.zones:
             if z.type == ZoneTypes.STREAM:
-
-                # A. Update the coefs for all variables that are constrained.
-                coefficients = self.nfc.get_nf_constraint_coefficients(z.id)
-                for trxn in self.tm.get_nf_trxn_ids_for_zone(z.id):
-                    anchor_var = self.tm.get_anchor_var(trxn)
-                    if anchor_var is None:
-                        continue
-                    for zone_id, coefficient in coefficients.items():
-                        self.engine.set_coefficient(
-                            PREFIX_NF_ZONE + zone_id,
-                            anchor_var,
-                            coefficient,
-                        )
-
-                # B. Set the bounds to fix NF to the actual value.
                 con_name = PREFIX_NF_ZONE + z.id
                 nf_available = max(0, self.nfc.remaining_natural_at_zone[z.id])
 
@@ -400,7 +485,7 @@ class Apportioner:
 
             obj_value, solved_values = self._with_feasibility_fallback(
                 'solve for lock spills',
-                lambda: self.engine.solve_objective(
+                lambda: self._solve_auxiliary_objective(
                     anchor_spill_vars,
                     maximization=False
                 )
@@ -541,7 +626,7 @@ class Apportioner:
 
         _, variable_values = self._with_feasibility_fallback(
             'solve for nonpath vars',
-            lambda: self.engine.solve_objective(
+            lambda: self._solve_auxiliary_objective(
                 target_variables,
                 maximization=False
             )
@@ -590,7 +675,7 @@ class Apportioner:
 
         primary_value = self._with_feasibility_fallback(
             'solve for minimizing minus vars total',
-            lambda: self.engine.solve_objective_value(
+            lambda: self._solve_auxiliary_objective_value(
                 variable_names,
                 maximization=False,
             ),
@@ -608,7 +693,7 @@ class Apportioner:
             for name in variable_names:
                 _, values = self._with_feasibility_fallback(
                     f'lexicographic minimum for {name}',
-                    lambda name=name: self.engine.solve_objective(
+                    lambda name=name: self._solve_auxiliary_objective(
                         [name],
                         maximization=False,
                     ),
@@ -627,6 +712,11 @@ class Apportioner:
         return solved_values
 
     def _minimize_minus_vars(self, vars: list[PathTrxn | TrxnGroup]) -> dict[str, float]:
+        # This is a directional ambiguity tie-break, not the source of reported
+        # slack values.  In compiled-v2, reporting slacks are always derived
+        # afterward from the leftover measurement residual.  Bidirectional
+        # slack columns can still participate here as transient residual proxy
+        # columns so the historical storage/counterflow convention is preserved.
         origional_ub: dict[str, float] = {}
         minus_vars = self.tm.get_minus_vars(vars)
 
@@ -662,7 +752,13 @@ class Apportioner:
         for minus_var, ub in origional_ub.items():
             self.engine.update_variable_bounds(minus_var, ub=ub)
 
-    def _maximize_var(self, var: PathTrxn | TrxnGroup):
+    def _maximize_var(
+        self,
+        var: PathTrxn | TrxnGroup,
+        *,
+        use_equal_priority_kernel: bool = False,
+        commit_equal_priority_residual: bool = False,
+    ):
         """My earlier version of this function used _minimize_minus_vars and
         _reset_minus_vars to prevent apportionments from forcing a reservoir
         spill to increase the divertible natural flow."""
@@ -688,17 +784,38 @@ class Apportioner:
 
         origional_ub = self._minimize_minus_vars([var])
         value_before = self.cur_trxn_value.get(target_var, 0.0)
-        new_value = self._with_feasibility_fallback(
-            'solve to maximize var ' + var.id,
-            lambda: self.engine.maximize_and_update_variable(
-                target_var
-            )
+        equal_priority_solver = (
+            getattr(self.engine, "maximize_equal_priority_transaction", None)
+            if use_equal_priority_kernel
+            else None
         )
+        if equal_priority_solver is None:
+            new_value = self._with_feasibility_fallback(
+                'solve to maximize var ' + var.id,
+                lambda: self.engine.maximize_and_update_variable(
+                    target_var
+                )
+            )
+        else:
+            new_value = self._with_feasibility_fallback(
+                'solve deferred equal-priority var ' + var.id,
+                lambda: equal_priority_solver(var.id),
+            )
+            # The logical cohort kernel does not mutate production-LP bounds.
+            # Keep the authoritative current lower bound synchronized for later
+            # runtime parameter reads and final path reconstruction.
+            self.engine.update_variable_bounds(target_var, lb=new_value)
         self.cur_trxn_value[target_var] = new_value
 
         # Update the remaining NF
         delta = new_value - value_before
         self._apply_natural_flow_change(var, delta)
+        if commit_equal_priority_residual:
+            residual_hook = getattr(
+                self.engine, "commit_equal_priority_residual", None
+            )
+            if residual_hook is not None:
+                residual_hook(self, var, delta)
 
         # Add to audit history
         if self.generate_audit:
@@ -779,14 +896,33 @@ class Apportioner:
                 for var_name in var_names
             }
 
-            # Solve
-            var_values = self._with_feasibility_fallback(
-                'solve to maximize series',
-                lambda: self.engine.maximize_group_by_proportions(
-                    var_names,
-                    proportion_factors
-                )
+            # Solve. Compiled-v2 accepts logical transaction ids directly,
+            # so equal-priority execution no longer creates a temporary
+            # combined variable/rows over production path-leg anchors.
+            logical_group_solver = getattr(
+                self.engine, "maximize_equal_priority_transactions", None
             )
+            if logical_group_solver is None:
+                var_values = self._with_feasibility_fallback(
+                    'solve to maximize series',
+                    lambda: self.engine.maximize_group_by_proportions(
+                        var_names,
+                        proportion_factors
+                    )
+                )
+            else:
+                logical_factors = {
+                    vars_by_name[var_name].id: factor
+                    for var_name, factor in proportion_factors.items()
+                }
+                logical_values = self._with_feasibility_fallback(
+                    'solve compiled logical equal-priority series',
+                    lambda: logical_group_solver(logical_factors),
+                )
+                var_values = {
+                    var_name: logical_values[vars_by_name[var_name].id]
+                    for var_name in var_names
+                }
             member_steps = []
             audit_contexts = []
 
@@ -819,6 +955,12 @@ class Apportioner:
                     delta = var_value - values_before[var_name]
 
                     self._apply_natural_flow_change(var_obj, delta)
+
+                    residual_hook = getattr(
+                        self.engine, "commit_equal_priority_residual", None
+                    )
+                    if residual_hook is not None:
+                        residual_hook(self, var_obj, delta)
 
 
             # Identify every member that can no longer increase. This uses
@@ -861,7 +1003,11 @@ class Apportioner:
         # 2. Process the tiny-factor variables sequentially right after the group closes
         for var_obj in deferred_vars:
             logger.warning(f"Processing deferred tiny-factor variable sequentially: {var_obj.id}")
-            self._maximize_var(var_obj)
+            self._maximize_var(
+                var_obj,
+                use_equal_priority_kernel=True,
+                commit_equal_priority_residual=True,
+            )
 
 
     def _get_newly_maxed_vars(self, vars: list[PathTrxn | TrxnGroup]):
@@ -907,15 +1053,18 @@ class Apportioner:
 
             remaining[target_var] = (var, current_value, upper_bound)
 
-        def column_signature(variable_name: str) -> tuple[tuple[str, float], ...]:
-            """Return the variable's exact current constraint column.
+        def column_signature(variable_name: str) -> tuple:
+            """Return a structural column signature for headroom grouping.
 
-            Two non-bound-limited variables with the same column have the same
-            feasible effect for an infinitesimal increase. Therefore either
-            both have positive headroom or neither does. Grouping by the full
-            column is conservative: any parent/path/counterflow difference puts
-            variables in separate groups.
+            Compiled-v2 obtains this from the collapsed logical transaction
+            column. Other backends keep the production-LP path-column behavior.
             """
+
+            logical_signature = getattr(
+                self.engine, "equal_priority_column_signature", None
+            )
+            if logical_signature is not None:
+                return logical_signature(remaining[variable_name][0].id)
 
             variable = self.engine.vars[variable_name]
             signature: list[tuple[str, float]] = []
@@ -948,13 +1097,27 @@ class Apportioner:
                 return
 
             current_sum = sum(remaining[name][1] for name in target_vars)
-            maximum_sum = self._with_feasibility_fallback(
-                'check newly maxed vars',
-                lambda target_vars=target_vars: self.engine.solve_objective_value(
-                    target_vars,
-                    maximization=True,
-                ),
+            logical_classifier = getattr(
+                self.engine, "solve_equal_priority_objective_value", None
             )
+            if logical_classifier is None:
+                maximum_sum = self._with_feasibility_fallback(
+                    'check newly maxed vars',
+                    lambda target_vars=target_vars: self.engine.solve_objective_value(
+                        target_vars,
+                        maximization=True,
+                    ),
+                )
+            else:
+                transaction_ids = [
+                    remaining[name][0].id for name in target_vars
+                ]
+                maximum_sum = self._with_feasibility_fallback(
+                    'check newly maxed logical equal-priority vars',
+                    lambda transaction_ids=transaction_ids: logical_classifier(
+                        transaction_ids
+                    ),
+                )
 
             # Lower bounds already fix every representative at its current
             # allocation. Therefore any representative that can increase by
@@ -1410,7 +1573,7 @@ class Apportioner:
         # before finding the minimum feasible violation under the current bounds.
         self.engine.update_variable_bounds( 'FEAS_SUM', lb=0, ub=float('inf') )
 
-        _, solved_values = self.engine.solve_objective(
+        _, solved_values = self._solve_auxiliary_objective(
             ['FEAS_SUM'],
             maximization=False
         )

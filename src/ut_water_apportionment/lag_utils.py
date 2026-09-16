@@ -190,6 +190,18 @@ def unlag_apportionments(
 
     boundary_values = boundary_values or {}
 
+    # Zero lag is by far the common case and needs no per-series grouping,
+    # sorting, dataclass replacement, or recurrence.  Keep the same return
+    # value semantics (a new list) while validating that every output flow has
+    # a known lag just as the general path would.
+    used_flow_ids = {row.interzone_flow_id for row in apportionments}
+    if used_flow_ids and all(
+        flow_id in flow_lags
+        and isclose(float(flow_lags[flow_id]), 0.0, abs_tol=1e-12)
+        for flow_id in used_flow_ids
+    ):
+        return list(apportionments)
+
     # Use indices so the original result ordering is preserved.
     indices_by_series: dict[SeriesKey, list[int]] = defaultdict(list)
 

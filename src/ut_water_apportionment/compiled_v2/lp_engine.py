@@ -110,6 +110,8 @@ class LPSolver:
         self.vars: dict[str, _Variable] = {}
         self.cons: dict[str, _Constraint] = {}
         self._constraint_vars: dict[str, list[str]] = {}
+        self._v2_dynamic_bound_sides: set[tuple[str, str, str]] = set()
+        self._v2_dynamic_coefficients: dict[tuple[str, str], tuple[str, float, float]] = {}
 
         self._last_solution_values: dict[str, float] = {}
         self._last_variable_reduced_costs: dict[str, float | None] = {}
@@ -190,6 +192,31 @@ class LPSolver:
 
         self.cons[name] = _Constraint(name, lb_value, ub_value)
         self._constraint_vars[name] = []
+
+
+    def mark_parameterized_coefficient(
+        self,
+        constraint_name: str,
+        variable_name: str,
+        *,
+        slot: str | None = None,
+        lower: float = -inf,
+        upper: float = inf,
+    ) -> None:
+        """Mark one numeric LP coefficient as a runtime parameter.
+
+        The authoritative LP still stores the current numeric coefficient.
+        V2 records only that the coefficient occupies a stable matrix position
+        whose value may change between runtime dates.
+        """
+
+        if slot is None:
+            slot = f"coefficient[{constraint_name},{variable_name}]"
+        self._v2_dynamic_coefficients[(constraint_name, variable_name)] = (
+            slot,
+            float(lower),
+            float(upper),
+        )
 
     def set_coefficient(
         self,
