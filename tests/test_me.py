@@ -53,8 +53,8 @@ class A_Simple(unittest.TestCase):
         )
 
 
-        from ut_water_apportionment import compile_solver_input
-        plan = compile_solver_input(input)
+        from ut_water_apportionment import compile
+        plan = compile(input)
         print(plan.code())       # Actual symbolic MIN/MAX expressions.
 
 
@@ -102,8 +102,8 @@ class A_Simple(unittest.TestCase):
         )
 
 
-        from ut_water_apportionment import compile_solver_input
-        plan = compile_solver_input(input)
+        from ut_water_apportionment import compile
+        plan = compile(input)
         print(plan.code())       # Actual symbolic MIN/MAX expressions.
 
 

@@ -54,10 +54,14 @@ class TrxnSchedule:
             for zone in self.gm.graph.zones
             for account in zone.accounts
         }
+        # Cumulative caps apply to both path transactions and reservation
+        # groups.  A group's daily solved value is the amount reserved for its
+        # children that day, so accumulating it across days is exactly the same
+        # bookkeeping as accumulating a path transaction's anchor allocation.
         self._cumulative_used: dict[str, float] = {
             trxn.id: 0.0
             for trxn in self.all_trxns
-            if type(trxn) == PathTrxn and not trxn.is_slack
+            if not (isinstance(trxn, PathTrxn) and trxn.is_slack)
         }
         self._prepared_date: str | None = None
 
@@ -338,7 +342,7 @@ class TrxnSchedule:
         mmdd = current.strftime('%m%d')
 
         for trxn in self.all_trxns:
-            if type(trxn) != PathTrxn or trxn.is_slack:
+            if isinstance(trxn, PathTrxn) and trxn.is_slack:
                 continue
             if trxn.cumulative_reset_before_MMDD is None:
                 continue
@@ -356,7 +360,18 @@ class TrxnSchedule:
             raise ValueError('begin_day() must be called before commit_day().')
 
         for trxn in self.all_trxns:
-            if type(trxn) != PathTrxn or trxn.is_slack:
+            if isinstance(trxn, PathTrxn) and trxn.is_slack:
+                continue
+
+            if isinstance(trxn, TrxnGroup):
+                # Group variables represent the amount reserved for their
+                # children on this day.  That daily reservation is what a
+                # cumulative group cap limits across days.
+                allocation = max(0.0, float(variable_values.get(trxn.id, 0.0)))
+                if trxn.cumulative_limit is not None:
+                    self._cumulative_used[trxn.id] = (
+                        self._cumulative_used.get(trxn.id, 0.0) + allocation
+                    )
                 continue
 
             ordered_path = self.ordered_paths.get(trxn.id, [])

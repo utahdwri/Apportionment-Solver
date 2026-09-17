@@ -999,6 +999,38 @@ class TrxnBaseClass:
                 f'{self.upper_limit} '
             )
 
+        if isinstance(self.call_limit, (int, float)) and self.call_limit < 0:
+            raise ValueError(
+                f'Call limit cannot be negative: {self.call_limit} for Trxn {self.id}'
+            )
+
+        if self.cumulative_limit is not None:
+            if (
+                isinstance(self.cumulative_limit, bool)
+                or not isinstance(self.cumulative_limit, (int, float))
+                or not isfinite(self.cumulative_limit)
+                or self.cumulative_limit < 0
+            ):
+                raise ValueError(
+                    f'cumulative_limit must be a finite non-negative number: '
+                    f'{self.cumulative_limit!r} for Trxn {self.id}'
+                )
+
+        if self.cumulative_reset_before_MMDD is not None:
+            raw_mmdd = self.cumulative_reset_before_MMDD.replace('-', '')
+            if len(raw_mmdd) != 4 or not raw_mmdd.isdigit():
+                raise ValueError(
+                    f'cumulative_reset_MMDD must use MMDD or MM-DD format: '
+                    f'{self.cumulative_reset_before_MMDD!r} for Trxn {self.id}'
+                )
+            try:
+                date(2000, int(raw_mmdd[:2]), int(raw_mmdd[2:]))
+            except ValueError as exc:
+                raise ValueError(
+                    f'Invalid cumulative_reset_MMDD '
+                    f'{self.cumulative_reset_before_MMDD!r} for Trxn {self.id}'
+                ) from exc
+
         if self.priority < 0 or self.priority > DEFAULT_TRXN_PRIORITY:
             raise ValueError(
                 f'priority must be >= 0 and <= {DEFAULT_TRXN_PRIORITY}:'

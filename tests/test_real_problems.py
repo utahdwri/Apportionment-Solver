@@ -1,6 +1,6 @@
 import unittest
 from ut_water_apportionment import (
-    compile_solver_input_v2,
+    compile,
     SolverInput,
     SolverOutput,
 )
@@ -9,9 +9,21 @@ from ut_water_apportionment.loss_models import LossDefinition
 
 def solve(input: SolverInput, *, check_expected_values: bool = False) -> SolverOutput:
     """Run every retained production test through the frozen v2 compiler."""
-    return compile_solver_input_v2(input).solve(
+    from time import perf_counter
+    t0 = perf_counter()
+
+    compiled_system = compile(input)
+
+    print(f'Compile Time: {perf_counter() - t0}')
+    t0 = perf_counter()
+
+    results = compiled_system.solve(
         check_expected_values=check_expected_values
     )
+
+    print(f'Execute Time: {perf_counter() - t0}')
+
+    return results
 
 
 
