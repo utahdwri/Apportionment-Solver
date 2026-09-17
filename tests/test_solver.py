@@ -1,6 +1,6 @@
 import unittest
 from ut_water_apportionment import (
-    compile_solver_input_v2,
+    compile,
     AccountingGraph,
     AccountingLimit,
     AccountingLimitInterval,
@@ -22,8 +22,8 @@ from ut_water_apportionment.loss_models import LossDefinition
 
 
 def solve(input: SolverInput, *, check_expected_values: bool = False) -> SolverOutput:
-    """Run every retained production test through the frozen v2 compiler."""
-    return compile_solver_input_v2(input).solve(
+    """Run test_solver through the new block-LP compiler."""
+    return compile(input).solve(
         check_expected_values=check_expected_values
     )
 

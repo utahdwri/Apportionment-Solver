@@ -40,7 +40,7 @@ from ut_water_apportionment import (
     ZoneTypes,
     compile_solver_input_v2,
 )
-from ut_water_apportionment.compiled_v2.lp_engine import LPSolver as ScipyLPSolver
+from ut_water_apportionment.compiled_test.lp_engine import LPSolver as ScipyLPSolver
 from ut_water_apportionment.graph_manager import GraphManager
 from ut_water_apportionment.lag_utils import unlag_apportionments
 from ut_water_apportionment.natural_flow_calculator import NaturalFlowCalculator

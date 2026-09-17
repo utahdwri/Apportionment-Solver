@@ -555,8 +555,17 @@ class V2CompilationSession:
         return program.column_signature(transaction_id)
 
     def reset_execution_stats(self) -> None:
+        # These public legacy names are execution counters too, despite
+        # lacking the execution_ prefix. Keep preparation statistics intact.
+        runtime_names = {
+            "auxiliary_kernel_solves",
+            "equal_priority_scalar_auxiliary",
+            "derived_slack_reconciliations",
+            "derived_slack_values",
+            "derived_path_reconstructions",
+        }
         for key in list(self.stats):
-            if key.startswith("execution_"):
+            if key.startswith("execution_") or key in runtime_names:
                 del self.stats[key]
 
     @staticmethod
@@ -785,6 +794,12 @@ class V2CompilationSession:
             "structural_duplicate_regimes": self.stats["structural_duplicate_regimes"],
             "structural_duplicate_objectives": self.stats["structural_duplicate_objectives"],
             "auxiliary_kernel_solves": self.stats["auxiliary_kernel_solves"],
+            "execution_lexicographic_bound_shortcuts": self.stats[
+                "execution_lexicographic_bound_shortcuts"
+            ],
+            "execution_classification_witness_shortcuts": self.stats[
+                "execution_classification_witness_shortcuts"
+            ],
             "equal_priority_kernel_members": self.stats["equal_priority_kernel_members"],
             "equal_priority_compiled_kernels": self.stats["equal_priority_compiled_kernels"],
             "equal_priority_logical_members": self.stats["equal_priority_logical_members"],
@@ -1072,13 +1087,21 @@ class V2LPSolver(ScipyLPSolver):
         transaction_ids: list[str],
     ) -> float:
         """Maximum absolute sum used to classify blocked cohort members."""
+        value, _ = self.solve_equal_priority_objective(transaction_ids)
+        return value
+
+    def solve_equal_priority_objective(
+        self,
+        transaction_ids: list[str],
+    ) -> tuple[float, dict[str, float]]:
+        """Maximum sum plus a feasible witness for member classification."""
 
         program, parameters = self.v2_session.resolve_equal_priority_with_parameters(
             self, transaction_ids
         )
         self.v2_session.stats["execution_equal_priority_classification_solves"] += 1
         self.solve_count += 1
-        return program.maximize_member_sum(
+        return program.maximize_member_values(
             self, transaction_ids, parameters=parameters
         )
 

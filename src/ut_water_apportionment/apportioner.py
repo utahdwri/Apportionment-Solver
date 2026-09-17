@@ -668,14 +668,17 @@ class Apportioner:
 
         The primary objective remains the same as the historical LP objective:
         minimize the sum of all requested variables. Once that minimum sum is
-        fixed, each component is minimized in a stable order. Every tie-break
-        is therefore a scalar objective, which avoids requiring the formula
-        compiler to invent values for a nonunique optimal face.
+        fixed, each component is minimized in a stable order. A feasible
+        optimal witness already at a component's lower bound proves that
+        component's minimum without another LP solve. Positive values in a
+        nonunique witness still require the usual scalar tie-break.
         """
 
-        primary_value = self._with_feasibility_fallback(
+        if not variable_names:
+            return {}
+        primary_value, witness = self._with_feasibility_fallback(
             'solve for minimizing minus vars total',
-            lambda: self._solve_auxiliary_objective_value(
+            lambda: self._solve_auxiliary_objective(
                 variable_names,
                 maximization=False,
             ),
@@ -684,6 +687,21 @@ class Apportioner:
             name: self.engine.get_variable_bounds(name)
             for name in variable_names
         }
+        session = getattr(self.engine, "v2_session", None)
+
+        def at_lower_bound(name: str) -> bool:
+            value = witness.get(name)
+            # Exact equality is intentional: snapping a nearly feasible
+            # witness to a bound can violate the locked primary objective.
+            return value == original_bounds[name][0] and (
+                value == 0.0 or abs(value) >= SOLVER_TOL
+            )
+
+        if all(at_lower_bound(name) for name in variable_names):
+            if session is not None:
+                session.stats["execution_lexicographic_bound_shortcuts"] += len(variable_names)
+            return dict(witness)
+
         solved_values: dict[str, float] = {}
         self._set_lexicographic_objective_constraint(
             variable_names,
@@ -691,15 +709,27 @@ class Apportioner:
         )
         try:
             for name in variable_names:
-                _, values = self._with_feasibility_fallback(
-                    f'lexicographic minimum for {name}',
-                    lambda name=name: self._solve_auxiliary_objective(
-                        [name],
-                        maximization=False,
-                    ),
-                )
-                value = values[name]
+                if at_lower_bound(name):
+                    value = witness[name]
+                    if session is not None:
+                        session.stats["execution_lexicographic_bound_shortcuts"] += 1
+                else:
+                    # Request the whole witness, but minimize only this one
+                    # component. No backend-private solution state is needed.
+                    _, witness = self._with_feasibility_fallback(
+                        f'lexicographic minimum for {name}',
+                        lambda name=name: self._solve_auxiliary_objective(
+                            variable_names,
+                            maximization=False,
+                            weights={other: float(other == name) for other in variable_names},
+                        ),
+                    )
+                    value = witness[name]
                 if abs(value) < SOLVER_TOL:
+                    if value != 0.0:
+                        # The historical noise cleanup changes the witness;
+                        # obtain a fresh one before using another certificate.
+                        witness = {}
                     value = 0.0
                 solved_values[name] = value
                 # Preserve this tie-break while the next component is solved.
@@ -1013,8 +1043,10 @@ class Apportioner:
     def _get_newly_maxed_vars(self, vars: list[PathTrxn | TrxnGroup]):
         """Return the variables that cannot be increased further.
 
-        Classification uses only objective values, never arbitrary component
-        values from a nonunique maximum-sum face. Variables with identical LP
+        A maximum-sum objective proves when a whole batch is blocked. A
+        positive component increment is a feasible witness that its member
+        can increase; a zero increment alone never proves that it is blocked.
+        Variables with identical LP
         columns share the same positive-headroom status (after members already
         at their own upper bounds are removed), so only one representative from
         each identical column needs to participate in compiled objectives.
@@ -1100,7 +1132,21 @@ class Apportioner:
             logical_classifier = getattr(
                 self.engine, "solve_equal_priority_objective_value", None
             )
-            if logical_classifier is None:
+            witness_classifier = getattr(
+                self.engine, "solve_equal_priority_objective", None
+            )
+            witness = None
+            if witness_classifier is not None:
+                transaction_ids = [remaining[name][0].id for name in target_vars]
+                maximum_sum, logical_values = self._with_feasibility_fallback(
+                    'check newly maxed logical equal-priority vars',
+                    lambda: witness_classifier(transaction_ids),
+                )
+                witness = {
+                    name: logical_values[remaining[name][0].id]
+                    for name in target_vars
+                }
+            elif logical_classifier is None:
                 maximum_sum = self._with_feasibility_fallback(
                     'check newly maxed vars',
                     lambda target_vars=target_vars: self.engine.solve_objective_value(
@@ -1135,6 +1181,23 @@ class Apportioner:
 
             if len(target_vars) == 1:
                 return
+
+            if witness is not None:
+                unknown = [
+                    name for name in target_vars
+                    if witness[name] <= remaining[name][1] + SOLVER_TOL
+                ]
+                if len(unknown) < len(target_vars):
+                    session = getattr(self.engine, "v2_session", None)
+                    if session is not None:
+                        session.stats["execution_classification_witness_shortcuts"] += (
+                            len(target_vars) - len(unknown)
+                        )
+                    # Retest only unresolved members. A zero in one optimal
+                    # vector may just reflect an arbitrary allocation of a
+                    # shared capacity to a different member.
+                    classify(unknown)
+                    return
 
             midpoint = len(target_vars) // 2
             classify(target_vars[:midpoint])

@@ -17,25 +17,25 @@ from ut_water_apportionment import (
     compile_solver_input_v2,
 )
 from ut_water_apportionment.loss_models import LossDefinition, LossInterval
-from ut_water_apportionment.compiled_v2.model import (
+from ut_water_apportionment.compiled_test.model import (
     CompilerModel,
     ParamExpr,
     ParametricConstraint,
     ParametricVariable,
     SymbolicExpr,
 )
-from ut_water_apportionment.compiled_v2.transforms import (
+from ut_water_apportionment.compiled_test.transforms import (
     remove_redundant_constraint_sides,
 )
-from ut_water_apportionment.compiled_v2.runtime import (
+from ut_water_apportionment.compiled_test.runtime import (
     V2CompilationSession,
     V2LPSolver,
 )
-from ut_water_apportionment.compiled_v2.execution_ir import (
+from ut_water_apportionment.compiled_test.execution_ir import (
     ConstraintResidual,
     ResidualState,
 )
-from ut_water_apportionment.compiled_v2.program import (
+from ut_water_apportionment.compiled_test.program import (
     DirectScalarProgram,
     EqualPriorityProgram,
     ReducedLPProgram,

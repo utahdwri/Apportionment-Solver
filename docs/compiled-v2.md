@@ -466,6 +466,27 @@ three warmed repetitions.
 The runtime path is intentionally biased toward doing more work during
 preparation so repeated accounting days stay cheap:
 
+* Counterflow tie-breaking reuses feasible optimal solution vectors. After
+  minimizing the primary sum, a component already exactly at its lower bound
+  has a proven minimum and needs no scalar LP solve. Otherwise the original
+  ordered scalar minimization runs and returns a fresh witness for subsequent
+  components. Values merely near their bounds do not qualify; historical
+  floating-point cleanup invalidates the witness before another shortcut can
+  use it. Temporary component bounds and the primary-sum equality are restored
+  even if a later tie-break fails.
+* Equal-priority blocked-member classification reuses the maximum-sum witness.
+  A member with a positive increment exceeding the allocation tolerance is
+  proven able to increase and needs no recursive classification. Zero witness
+  increments are unresolved, not proof of blockage: on a nonunique optimal
+  face the shared capacity may have been assigned to another member. Only the
+  unresolved subset is solved again. These witness values are never committed
+  as allocations; the common-increment routine still determines allocation.
+* `report()` includes `execution_lexicographic_bound_shortcuts` and
+  `execution_classification_witness_shortcuts`. Legacy runtime counters such
+  as `auxiliary_kernel_solves` and `derived_slack_values` now reset with every
+  `plan.solve()` alongside the `execution_*` counters. Preparation counters
+  remain unchanged.
+
 * The indexed frozen program is lowered to executable Python once. Direct
   sequential priorities no longer dispatch through `DirectScalarProgram` at
   runtime: generated code performs the interval `min/max` calculation and

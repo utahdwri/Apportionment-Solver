@@ -27,7 +27,7 @@ def solve(
     whole-day LP execution path on this branch.  Difficult residual objectives
     are handled by v2 reduced LP kernels.
     """
-    from .compiled_v2 import compile_solver_input_v2
+    from .compiled_test import compile_solver_input_v2
 
     plan = compile_solver_input_v2(
         input,

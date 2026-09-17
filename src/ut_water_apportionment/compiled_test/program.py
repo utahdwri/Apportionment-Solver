@@ -554,7 +554,20 @@ class EqualPriorityProgram(V2Program):
         *,
         parameters: np.ndarray | None = None,
     ) -> float:
-        """Maximum absolute sum of selected logical members.
+        """Maximum absolute sum of selected logical members."""
+        value, _ = self.maximize_member_values(
+            engine, transaction_ids, parameters=parameters
+        )
+        return value
+
+    def maximize_member_values(
+        self,
+        engine,
+        transaction_ids: list[str],
+        *,
+        parameters: np.ndarray | None = None,
+    ) -> tuple[float, dict[str, float]]:
+        """Return the maximum sum and a feasible absolute-value witness.
 
         This is used only to decide which water-filling members are blocked.
         The objective is assembled numerically over the frozen logical columns;
@@ -562,7 +575,7 @@ class EqualPriorityProgram(V2Program):
         """
 
         if not transaction_ids:
-            return 0.0
+            return 0.0, {}
         unknown = set(transaction_ids) - set(self.member_ids)
         if unknown:
             raise KeyError(
@@ -592,6 +605,16 @@ class EqualPriorityProgram(V2Program):
                 f"{result.status}: {result.message}"
             )
 
+        values = {
+            transaction_id: self._absolute_member_value(
+                transaction_id,
+                float(result.x[self._index[transaction_id]]),
+                parameters,
+            )
+            for transaction_id in transaction_ids
+        }
+        # Preserve the previous objective summation order near the caller's
+        # classification tolerance while also exposing the feasible vector.
         increment_sum = sum(
             float(result.x[self._index[transaction_id]])
             for transaction_id in transaction_ids
@@ -600,7 +623,7 @@ class EqualPriorityProgram(V2Program):
             self._absolute_member_value(transaction_id, 0.0, parameters)
             for transaction_id in transaction_ids
         )
-        return current_sum + increment_sum
+        return current_sum + increment_sum, values
 
     def maximize_single_member(
         self,
