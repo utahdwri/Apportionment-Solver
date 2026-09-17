@@ -489,14 +489,104 @@ class LPKernel:
                 result = self._solve(state, proportions=factors)
                 calls += 1
                 self._commit(state, {name: factor * max(0.0, result[-1]) for name, factor in factors.items()})
+                # First classify blockers that are structurally obvious from the
+                # residual model. This avoids one scalar LP per active member in
+                # the common case where a variable limit or a monotone residual
+                # row has just been exhausted.
                 blocked = []
-                # First implementation deliberately uses scalar LPs for exact
-                # classification. A zero in one max-sum witness is ambiguous.
                 for name in active:
-                    witness = self._solve(state, weights={name: 1.0})
-                    calls += 1
-                    if witness[self.index[name]] <= TOL:
+                    variable = self.model.variables[name]
+                    upper = (
+                        None if variable.upper is None
+                        else value(variable.upper, state)
+                    )
+                    if upper is not None and upper <= TOL:
                         blocked.append(name)
+
+                blocked_set = set(blocked)
+                for constraint in self.model.constraints:
+                    coefficients = {
+                        variable_name: value(coefficient, state)
+                        for variable_name, coefficient
+                        in constraint.coefficients.items()
+                    }
+
+                    # A variable already frozen at zero cannot offset another
+                    # member's use of this row, so exclude it from the sign test.
+                    live_coefficients = {}
+                    for variable_name, coefficient in coefficients.items():
+                        variable = self.model.variables[variable_name]
+                        variable_upper = (
+                            None if variable.upper is None
+                            else value(variable.upper, state)
+                        )
+                        if variable_upper is not None and variable_upper <= TOL:
+                            continue
+                        live_coefficients[variable_name] = coefficient
+
+                    # sum(+a*x) <= 0 with no live negative coefficient means
+                    # every positive-coefficient target on this row is blocked.
+                    if (
+                        constraint.upper is not None
+                        and value(constraint.upper, state) <= TOL
+                        and not any(
+                            coefficient < -TOL
+                            for coefficient in live_coefficients.values()
+                        )
+                    ):
+                        for name in active:
+                            if (
+                                name not in blocked_set
+                                and coefficients.get(name, 0.0) > TOL
+                            ):
+                                blocked.append(name)
+                                blocked_set.add(name)
+
+                    # The symmetric lower-side case: 0 <= sum(-a*x).
+                    if (
+                        constraint.lower is not None
+                        and -value(constraint.lower, state) <= TOL
+                        and not any(
+                            coefficient > TOL
+                            for coefficient in live_coefficients.values()
+                        )
+                    ):
+                        for name in active:
+                            if (
+                                name not in blocked_set
+                                and coefficients.get(name, 0.0) < -TOL
+                            ):
+                                blocked.append(name)
+                                blocked_set.add(name)
+
+                # If no blocker is structurally provable, classify exactly with
+                # divide and conquer. For a convex residual LP, if every member
+                # of a subset can individually increase, averaging those feasible
+                # directions gives a feasible solution in which the whole subset
+                # increases. Therefore a zero common increment proves the subset
+                # contains at least one blocked member.
+                if not blocked:
+                    def classify(names):
+                        nonlocal calls
+                        names = list(names)
+                        if not names:
+                            return []
+                        witness = self._solve(
+                            state,
+                            proportions={name: 1.0 for name in names},
+                        )
+                        calls += 1
+                        if witness[-1] > TOL:
+                            return []
+                        if len(names) == 1:
+                            return names
+                        middle = len(names) // 2
+                        return (
+                            classify(names[:middle])
+                            + classify(names[middle:])
+                        )
+
+                    blocked = classify(active)
                 if not blocked:
                     raise BlockLPError("Proportional allocation made no blocking progress")
                 active = {name: c for name, c in active.items() if name not in blocked}
