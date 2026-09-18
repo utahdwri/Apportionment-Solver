@@ -19,6 +19,7 @@ from ut_water_apportionment import (
     ZoneTypes
 )
 from ut_water_apportionment.loss_models import LossDefinition
+from ut_water_apportionment.compile import UnsupportedBlockInput
 
 
 def solve(input: SolverInput, *, check_expected_values: bool = False) -> SolverOutput:
@@ -2261,9 +2262,9 @@ class I_TimeLags(unittest.TestCase):
                 self.assertEqual(result.value, 1+5+10)
 
 
-    def test_gain_calc_for_one_reach_with_fraction_day_lags(self):
+    def test_gain_calc_with_fraction_day_lags_is_rejected(self):
         """
-        Similar to previous but with non-integers
+        Fractional-day lags are not supported by the compiled solver yet.
         """
         input = SolverInput(
             beg_date='2000-01-03',
@@ -2298,16 +2299,10 @@ class I_TimeLags(unittest.TestCase):
             txns=[]
         )
 
-        # Expected natural flow at B>C: [?, ?, 0+2+10, 1+5+10, 2+4+10]
+        with self.assertRaisesRegex(UnsupportedBlockInput, "Fractional-day lags"):
+            solve(input)
 
-        results = solve(input)
-
-        for result in results.get_result_value(flow_id="B>C", date='2000-01-04'):
-            print(result)
-            if result.txn_id.endswith('_NF'):
-                self.assertEqual(result.value, 1*(0.2)+0*(0.8) + 2*(0.8)+0*(0.2) + 10 )
-
-    @unittest.skip('tests not complete yet')
+    @unittest.skip('Fractional-day allocation is not supported yet')
     def test_apportionments_with_fraction_day_lags(self):
         """
         Similar to previous but with trxn apportionments
@@ -2361,7 +2356,7 @@ class I_TimeLags(unittest.TestCase):
 
         self.assertAlmostEqual(1, results.get_result_value(date='2000-01-02', trxn_id='02-1', flow_id='A>1')[0].value, delta=1e-4)
 
-    @unittest.skip('tests not complete yet')
+    @unittest.skip('Fractional-day allocation is not supported yet')
     def test_single_transaction_across_different_fractional_lags(self):
         """
         A single physical transaction traverses two consecutive flows.

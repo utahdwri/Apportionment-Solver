@@ -75,6 +75,22 @@ class PythonPlanEmitter:
             used.add(name)
             self.slot_names[slot.index] = name
 
+        # Display labels are not symbol identities: IDs such as D-1 and D_1
+        # normalize to the same text. Prefix each graph tag with its unique
+        # structural index, retaining the label only for readability.
+        self.flow_tags: dict[str, str] = {}
+        self.zone_tags: dict[str, str] = {}
+        if hasattr(state_layout, "graph"):
+            graph = state_layout.graph.graph
+            self.flow_tags = {
+                flow.id: f"{index}_{_identifier(flow.id)}"
+                for index, flow in enumerate(graph.interzone_flows)
+            }
+            self.zone_tags = {
+                zone.id: f"{index}_{_identifier(zone.id)}"
+                for index, zone in enumerate(graph.zones)
+            }
+
     def emit(self, line: str = ""):
         self.lines.append(line)
 
@@ -204,6 +220,9 @@ class PythonPlanEmitter:
 
     def emit_commented_lp(self, model: BlockLP):
         for line in self.readable_lp_lines(model):
+            # User IDs may contain newlines or other control characters.
+            # Keep every rendered LP line inside its generated comment.
+            line = line.encode("unicode_escape").decode("ascii")
             self.emit("#" if not line else f"# {line}")
 
     def rewrite_formula_source(self, source: str, function_name: str) -> str:
@@ -240,7 +259,7 @@ class PythonPlanEmitter:
             self.emit(
                 indent
                 + f"state[{self.slot_names[index]}] += _change_{index}"
-                + f"  # {slots[index].name}"
+                + f"  # {slots[index].name!r}"
             )
 
     # ------------------------------------------------------------------
@@ -266,9 +285,10 @@ class PythonPlanEmitter:
 
         name = operation.name
         variable = model.variables[name]
-        safe = _identifier(name)
+        # Never let a transaction ID shadow state, builtins, or temporaries.
+        safe = "_allocation"
         self.emit(f"def {function_name}(state):")
-        self.emit(f"    # Direct formula for {name}")
+        self.emit(f"    # Direct formula for {name!r}")
         self.emit(f"    _lower = {self.scalar(variable.lower)}")
         self.emit(
             "    _upper = float('inf')"
@@ -286,7 +306,7 @@ class PythonPlanEmitter:
             lo = constraint.lower
             hi = constraint.upper
             self.emit("")
-            self.emit(f"    # {constraint.name}")
+            self.emit(f"    # {constraint.name!r}")
             self.emit(f"    _c{row_index} = {ccode}")
             if lo is not None:
                 self.emit(f"    _lo{row_index} = {self.scalar(lo)}")
@@ -417,7 +437,7 @@ class PythonPlanEmitter:
                 if name in constraint.coefficients
             ]
             consumption = " + ".join(pieces) if pieces else "0.0"
-            self.emit(f"    _capacity_{index} = {self.scalar(constraint.upper)}  # {constraint.name}")
+            self.emit(f"    _capacity_{index} = {self.scalar(constraint.upper)}  # {constraint.name!r}")
             self.emit(f"    _use_{index} = {consumption}")
             self.emit(f"    if _capacity_{index} < -TOL: raise BlockLPError({('Negative remaining capacity: ' + constraint.name)!r})")
             self.emit(f"    if _use_{index} > 1e-15:")
@@ -443,7 +463,7 @@ class PythonPlanEmitter:
                     continue
                 coeff = self.scalar(constraint.coefficients[name])
                 cap = self.scalar(constraint.upper)
-                self.emit(f"        _c = {coeff}  # {constraint.name}")
+                self.emit(f"        _c = {coeff}  # {constraint.name!r}")
                 self.emit("        if _c > 1e-15:")
                 self.emit(f"            _upper = min(_upper, max(0.0, {cap}) / _c)")
         self.emit("    else:")
@@ -562,7 +582,7 @@ class PythonPlanEmitter:
                 f"{name!r}: {self.scalar(coefficient)}"
                 for name, coefficient in constraint.coefficients.items()
             )
-            self.emit(f"    _coeffs_{index} = {{{coeff_entries}}}  # {constraint.name}")
+            self.emit(f"    _coeffs_{index} = {{{coeff_entries}}}  # {constraint.name!r}")
             self.emit(f"    _live_{index} = {{}}")
             for name in constraint.coefficients:
                 variable = model.variables[name]
@@ -597,7 +617,7 @@ class PythonPlanEmitter:
         self.emit(f"def {function_name}(state):")
         if isinstance(model.rule, Maximize):
             name, coefficient = next(iter(model.rule.coefficients.items()))
-            safe = _identifier(name)
+            safe = "_allocation"
             self.emit(f"    _objective = {self.scalar(coefficient)}")
             self.emit("    if not isfinite(_objective) or _objective <= 0:")
             self.emit(f"        return {external_name}.execute(state)")
@@ -672,10 +692,10 @@ class PythonPlanEmitter:
     # the same generated program.
     # ------------------------------------------------------------------
     def _flow_tag(self, flow_id: str) -> str:
-        return _identifier(flow_id)
+        return self.flow_tags[flow_id]
 
     def _zone_tag(self, zone_id: str) -> str:
-        return _identifier(zone_id)
+        return self.zone_tags[zone_id]
 
     def _deliver_name(self, flow_id: str, endpoint: str) -> str:
         return f"_deliver_{self._flow_tag(flow_id)}_{endpoint}"
@@ -767,7 +787,7 @@ class PythonPlanEmitter:
                     condition = "True"
                 else:
                     condition = f"state[{self.slot_names[active_slot.index]}] < 0.5"
-                self.emit(f"    if {condition}:  # {flow.id}")
+                self.emit(f"    if {condition}:  # {flow.id!r}")
                 self.emit("        if _selected is not None:")
                 self.emit(
                     f"            raise BlockLPError({('Natural flow at zone ' + zone_id + ' has multiple calculated outflows')!r})"
@@ -984,7 +1004,7 @@ class PythonPlanEmitter:
                 and {from_type, to_type} == {ZoneTypes.STREAM, ZoneTypes.SYSTEM_GAIN_LOSS}
             )
             if active is not None:
-                self.emit(f"    if state[{self.slot_names[active.index]}] >= 0.5:  # boundary {flow.id}")
+                self.emit(f"    if state[{self.slot_names[active.index]}] >= 0.5:  # boundary {flow.id!r}")
                 self.emit(f"        _value = state[{self.slot_names[boundary.index]}]")
                 self.emit(f"        state[{self.slot_names[layout.flow_natural[flow.id].index]}] = _value")
                 self.emit(f"        {self._flow_effect_name(flow.id)}(state, _value, boundary=True)")
@@ -1050,7 +1070,7 @@ class PythonPlanEmitter:
             flow = graph.get_flow_by_id(flow_id)
             active = layout.boundary_natural_active[flow_id]
             measured = layout.measurements[flow_id]
-            self.emit(f"    if state[{self.slot_names[active.index]}] >= 0.5:  # {flow_id}")
+            self.emit(f"    if state[{self.slot_names[active.index]}] >= 0.5:  # {flow_id!r}")
             self.emit(
                 f"        _already_apportioned = state[{self.slot_names[boundary.index]}] - state[{self.slot_names[measured.index]}]"
             )
@@ -1076,7 +1096,7 @@ class PythonPlanEmitter:
             flow = graph.get_flow_by_id(spill.flow_id)
             available = self.slot_names[spill.available.index]
             capacity = self.slot_names[spill.directional_capacity.index]
-            self.emit(f"    # Spill/import credit on {spill.flow_id} into {spill.receiving_zone}")
+            self.emit(f"    # Spill/import credit on {spill.flow_id!r} into {spill.receiving_zone!r}")
             self.emit(f"    _signed = float(state[{available}])")
             self.emit(f"    _residual = max(0.0, _signed * {spill.factor!r})")
             self.emit("    if _residual > SPILL_TOL:")

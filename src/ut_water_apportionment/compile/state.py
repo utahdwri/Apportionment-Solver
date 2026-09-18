@@ -269,12 +269,22 @@ def build_runtime_state_layout(input: SolverInput) -> RuntimeStateLayout:
     """Freeze structure and allocate slots without reading a representative day.
 
     This first implementation supports forward allocation, nested reservations,
-    daily/call/cumulative path limits, lags, fractional losses, and zone
+    daily/call/cumulative path limits, whole-day lags, fractional losses, and zone
     account balances, and signed/reverse transaction paths on bidirectional
     flows, plus a Pass-1/spill/replay reservoir sequence. It deliberately
-    rejects unconstrained physical flows instead of silently running different rules.
+    rejects fractional-day lags; independent daily allocation followed by
+    fractional unlagging does not preserve allocation feasibility.
     """
     problem = deepcopy(input)
+    for flow in problem.accounting_graph.interzone_flows:
+        for field_name in ("lag_from_zone", "lag_to_zone"):
+            lag = getattr(flow, field_name)
+            if not float(lag).is_integer():
+                raise UnsupportedBlockInput(
+                    "Fractional-day lags are not supported by the compiled solver: "
+                    f"flow {flow.id!r} has {field_name}={lag!r}. "
+                    "Use nonnegative whole-day lags."
+                )
     graph = GraphManager(problem.accounting_graph)
     natural_types = {ZoneTypes.STREAM, ZoneTypes.SYSTEM_GAIN_LOSS}
     # Storage change is already folded into residual interzone-flow measurements

@@ -835,7 +835,7 @@ def _compile_python_source(rows: list[_Row], guards, positive_guards=()) -> str:
     ]
     for index, expr in sorted(slots.items()):
         var = slot_vars[index]
-        lines.append(f'    {var} = float(state[{index}])  # {expr.name}')
+        lines.append(f'    {var} = float(state[{index}])  # {expr.name!r}')
     for index, name, sign in guards:
         var = slot_vars.get(index, f'float(state[{index}])')
         if sign > 0:

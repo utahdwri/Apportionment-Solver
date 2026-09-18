@@ -42,6 +42,11 @@ This tool performs after-the-fact accounting, calculating apportionments by wate
 
 The solver runs on a daily interval for a specified time period. Sub-daily intervals are not supported, nor are intervals longer than a day.
 
+Travel-time lags currently support **nonnegative whole days only**. Both
+`InterzoneFlow.lag_from_zone` and `lag_to_zone` must be integer-valued; `1.0`
+is accepted, but `0.5` and `1.5` are not. `compile()` and `solve()` raise
+`UnsupportedBlockInput` for fractional-day lags.
+
 ### 2.5. A Note on Units
 
 The solver does not prescribe what units should be used for measurements or transaction limits, but whatever is used must be consistent. For example, if you provide daily diversion measuements in cfs, you'd need to also provide storage measurements in cfs-days, storage limits in cfs-days, and transaction limits in cfs-days. Or everything in acre-feet. Or everything in whatever, so long as it's consistent across the provided input.

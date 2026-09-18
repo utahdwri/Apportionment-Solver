@@ -289,6 +289,11 @@ Generated state indexes are given readable constants, and formulas use named
 intermediate expressions rather than reconstructing the original `BlockLP` at
 runtime.
 
+Transaction IDs are labels, not Python local names: generated scalar allocations
+use a compiler-owned `_allocation` local. Flow and zone helper names include a
+unique structural index so distinct IDs such as `D-1` and `D_1` cannot collide.
+Original IDs remain unchanged in lookup keys, output, and escaped comments.
+
 ## Natural flow is part of the generated program
 
 Natural-flow calculation previously occurred before the compiled executor.  It
@@ -442,8 +447,8 @@ Implemented in the current block compiler:
 - nested group reservations and feasibility witnesses;
 - daily, call, and cumulative path limits;
 - cumulative group limits when they provide a finite effective daily cap;
-- fractional-day/path lags already represented by the surrounding schedule/data
-  system;
+- nonnegative whole-day lags (`lag_from_zone` and `lag_to_zone` must both be
+  integer-valued; values such as `1.0` are accepted);
 - varying fractional endpoint losses;
 - signed/reverse transaction paths where physically allowed;
 - bidirectional reservoir net-flow accounting;
@@ -459,12 +464,21 @@ Implemented in the current block compiler:
 
 Still deliberately unsupported:
 
+- fractional-day lags: compilation raises `UnsupportedBlockInput` identifying
+  the flow and lag field, before any daily allocation runs;
 - piecewise/absolute endpoint losses and segment-dependent transaction delivery;
 - formula structures that exceed configured symbolic projection safety budgets,
   except that those blocks transparently retain an `LPKernel` fallback.
 
 Unsupported accounting rules raise `UnsupportedBlockInput` rather than silently
 switching to a different solver interpretation.
+
+Fractional interpolation/inversion remains available in the measurement and lag
+utilities, but is not supported by the compiled solver. Independently unlagging
+daily allocations can create negative transaction values and fail to reproduce
+the original measured totals. Supporting fractional lags will require constraints
+across days and consistent boundary allocations; rounding the input lags or
+clipping reconstructed allocations is not a substitute.
 
 ## Validation
 
