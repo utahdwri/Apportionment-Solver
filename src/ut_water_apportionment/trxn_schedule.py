@@ -2,10 +2,7 @@ from collections.abc import Iterator
 from copy import deepcopy
 from datetime import date as Date
 from .models import (
-    AccountingGraph, AccountingLimit, CorePropSchedule, CorePropScheduleItem,
-    CoreScheduleVariable, CoreSeqSchedule, CoreSeqScheduleItem,
-    InterzoneFlow,
-    TrxnBaseClass, PathTrxn, TrxnGroup, TrxnPathItem, Zone, ZoneTypes
+    AccountingLimit, TrxnBaseClass, PathTrxn, TrxnGroup, TrxnPathItem, Zone, ZoneTypes
 )
 from .graph_manager import GraphManager
 
@@ -41,10 +38,7 @@ class TrxnSchedule:
         for trxn in self.all_trxns:
             priority = trxn.priority if trxn.priority is not None else -1
             priority_groups.setdefault(priority, []).append(trxn)
-        self._priority_groups = tuple(
-            (priority, tuple(priority_groups[priority]))
-            for priority in sorted(priority_groups)
-        )
+
 
         self.lookup_flow_trxns = self._init_build_flow_trxns_lookup()
 
@@ -86,7 +80,6 @@ class TrxnSchedule:
         clone.ordered_paths = self.ordered_paths
         clone._natural_flow_trxns = self._natural_flow_trxns
         clone._nf_zone_by_trxn_id = self._nf_zone_by_trxn_id
-        clone._priority_groups = self._priority_groups
         clone.lookup_flow_trxns = self.lookup_flow_trxns
         clone._account_balances = dict(self._account_balances)
         clone._cumulative_used = dict(self._cumulative_used)
@@ -415,28 +408,6 @@ class TrxnSchedule:
         return self._account_balances[key]
 
 
-    def get_account_outgoing_trxns(self, zone_id: str, account_id: str) -> list[PathTrxn]:
-        output = []
-        for trxn in self.all_trxns:
-            if type(trxn) != PathTrxn or trxn.is_slack or trxn.from_account != account_id:
-                continue
-            from_zone = self.get_from_zone(trxn)
-            if from_zone is not None and from_zone.id == zone_id:
-                output.append(trxn)
-        return output
-
-
-    def get_account_incoming_trxns(self, zone_id: str, account_id: str) -> list[PathTrxn]:
-        output = []
-        for trxn in self.all_trxns:
-            if type(trxn) != PathTrxn or trxn.is_slack or trxn.to_account != account_id:
-                continue
-            to_zone = self.get_to_zone(trxn)
-            if to_zone is not None and to_zone.id == zone_id:
-                output.append(trxn)
-        return output
-
-
     def get_from_account_var(self, trxn: PathTrxn) -> str:
         anchor = self.get_anchor_var(trxn)
         if anchor is None:
@@ -463,12 +434,6 @@ class TrxnSchedule:
             float(trxn.cumulative_limit) - self.get_cumulative_used(trxn),
         )
 
-
-    def get_nf_trxn_ids_for_zone(self, zone_id:str) -> list[PathTrxn]:
-        if zone_id in self._natural_flow_trxns:
-            return self._natural_flow_trxns[zone_id]
-        else:
-            return []
 
     def get_nf_zone_id(self, trxn) -> str | None:
         return self._nf_zone_by_trxn_id.get(trxn.id)
@@ -580,137 +545,6 @@ class TrxnSchedule:
     ) -> float | None:
         """Return the effective daily cap after upper/call/cumulative limits."""
         return self.get_transaction_limit_info(t, date)[0]
-
-
-    def get_minus_vars(self, vars: list[PathTrxn | TrxnGroup]) -> list[PathTrxn]:
-
-        def get_from(v: PathTrxn) -> tuple[Zone, InterzoneFlow]:
-            path = self.ordered_paths[v.id]
-            first_item = path[0]
-
-            f0 = self.gm.get_flow_by_id(first_item.flow_id)
-            if first_item.factor >= 0:
-                from_zone = self.gm.get_zone_by_id(f0.from_zone)
-            else:
-                from_zone = self.gm.get_zone_by_id(f0.to_zone)
-            return from_zone, f0
-
-        def get_to(v:PathTrxn) -> tuple[Zone, InterzoneFlow]:
-            path = self.ordered_paths[v.id]
-            last_item = path[-1]
-
-            fl = self.gm.get_flow_by_id(last_item.flow_id)
-            if last_item.factor < 0:
-                to_zone = self.gm.get_zone_by_id(fl.from_zone)
-            else:
-                to_zone = self.gm.get_zone_by_id(fl.to_zone)
-            return to_zone, fl
-
-        output: list[PathTrxn]  = []
-
-        for v in vars:
-            if type(v) == PathTrxn:
-                if len(v.path) > 0:
-
-                    # If the variable starts at a storage zone, we need to look
-                    # for slack variables flowing into that storage zone.
-                    from_zone, from_flow = get_from(v)
-
-                    if from_flow.bidirectional:
-                        for trxn, path_item in self.lookup_flow_trxns[from_flow.id]:
-                            ordered_trxn = self.ordered_paths.get(trxn.id, [])
-                            # Use len(ordered_trxn) to ensure loss expansions don't hide the slack status
-                            if trxn.is_slack and len(ordered_trxn) == 1:
-                                if get_to(trxn)[0] == from_zone:
-                                    output.append(trxn)
-
-                    # If the variable ends at a storage zone, we need to look
-                    # for slack variables flowing from that storage zone.
-                    to_zone, to_flow = get_to(v)
-                    if to_flow.bidirectional:
-                        for trxn, path_item in self.lookup_flow_trxns[to_flow.id]:
-                            if get_from(trxn)[0] == to_zone:
-                                output.append(trxn)
-        return output
-
-
-    def build_schedule(self, date:str) -> CoreSeqSchedule:
-        # Convert the paths dictionary to an ordered schedule list by sorting the
-        # paths by priority while grouping paths with the same priority.
-        output_list: list[CoreSeqScheduleItem] = []
-
-        # Priority membership/order is structural and frozen at construction.
-        # Daily schedule building only needs to refresh limit-dependent factors.
-        for p, pvars in self._priority_groups:
-
-            # If there is only one item with this priority, it must be either a
-            # variable or a sequential subseries:
-            if len(pvars) == 1:
-                item = CoreScheduleVariable(var=pvars[0])
-                output_list.append(CoreSeqScheduleItem(priority=p, item=item))
-
-
-            # Otherwise, it must be a proportional subseries:
-            elif len(pvars) > 1:
-                nested_sched = None
-
-                # Look for any variables that do not have an upper limit. Increase
-                # these together in equal-proportion before increasing the other
-                # variables that do have a limit.
-                unlimited_vars:list[PathTrxn] = []
-                for v in pvars:
-                    ub = self.get_transaction_upper_limit(v, date)
-                    if ub is None:
-                        if type(v) != PathTrxn:
-                            raise NotImplementedError('Trxn Groups with no upper limit are not supported!')
-                        unlimited_vars.append(v)
-
-                if len(unlimited_vars) > 0:
-                    nested_sched = CoreSeqSchedule(series=[])
-                    nested_sched.series.append(CoreSeqScheduleItem(
-                        priority=1,
-                        item=CorePropSchedule(
-                            series=[CorePropScheduleItem(
-                                factor=1,
-                                item=CoreScheduleVariable(var=v)
-                            ) for v in unlimited_vars]
-                        )
-                    ))
-
-                # Deal with variables that do have a limit.
-                proportional_subseries: list[CorePropScheduleItem] = []
-                cfs_sum = 0
-                for v2 in pvars:
-                    v2_ub = self.get_transaction_upper_limit(v2, date)
-                    if v2_ub is not None:
-                        cfs_sum += v2_ub
-                        citem = CorePropScheduleItem(
-                            factor=v2_ub,
-                            item=CoreScheduleVariable(var=v2)
-                        )
-                        proportional_subseries.append(citem)
-
-                # normalize the factor
-                for citem in proportional_subseries:
-                    if cfs_sum > 0:
-                        citem.factor /= cfs_sum
-
-                if nested_sched is None:
-                    output_list.append(CoreSeqScheduleItem(
-                        priority=p,
-                        item=CorePropSchedule(series=proportional_subseries)
-                    ))
-                else:
-                    nested_sched.series.append(CoreSeqScheduleItem(
-                        priority=1,
-                        item=CorePropSchedule(series=proportional_subseries)
-                    ))
-                    output_list.append(CoreSeqScheduleItem(
-                        priority=p,
-                        item=nested_sched
-                    ))
-
-        return CoreSeqSchedule(series=output_list)
 
 
     def get_path_item(self, trxn_id, interzone_flow_id):

@@ -735,10 +735,7 @@ class HelperUtilitiesTests(unittest.TestCase):
     def test_loop_through_date_range(self):
         """Test that the function that helps loop through days works as
         expected."""
-
-        from ut_water_apportionment.solver import (
-            _loop_through_date_range
-        )
+        from ut_water_apportionment.compile.runtime import _loop_through_date_range
 
         results = [d for d in _loop_through_date_range('2026-01-01',
                                                       '2026-01-05')]
@@ -1894,9 +1891,6 @@ class D_PrioritySeries(unittest.TestCase):
 
         results = solve(input, check_expected_values=True)
 
-        print('\nRESULTS: \n')
-        results.print_solve_steps()
-
 
     def test_Leahs_3_reach_problem2(self):
         input = SolverInput(
@@ -2363,8 +2357,6 @@ class I_TimeLags(unittest.TestCase):
             ]
         )
         results = solve(input, check_expected_values=False)
-
-        results.print_solve_steps()
         results.print_apportionments(txn_id='02-1')
 
         self.assertAlmostEqual(1, results.get_result_value(date='2000-01-02', trxn_id='02-1', flow_id='A>1')[0].value, delta=1e-4)
@@ -2509,8 +2501,6 @@ class I_TimeLags(unittest.TestCase):
             input,
             check_expected_values=False,
         )
-
-        results.print_solve_steps()
 
         results.print_apportionments(
             txn_id="TRXN",
@@ -2662,7 +2652,6 @@ class K_Accounting_Graph_Details(unittest.TestCase):
         )
 
         results = solve(input, check_expected_values=False)
-        results.print_solve_steps()
 
         for result in results.get_result_value(flow_id="A>DIV"):
             self.assertEqual(result.value, 20, 'Solver did not include the to-zone loss in the residual flow calculation!')
@@ -2778,7 +2767,6 @@ class K_Accounting_Graph_Details(unittest.TestCase):
         )
 
         results = solve(input, check_expected_values=False)
-        results.print_solve_steps()
 
         for result in results.get_result_value(flow_id="A>B"):
             if result.txn_id.endswith('_NF'):
@@ -2912,83 +2900,6 @@ class K_Accounting_Graph_Details(unittest.TestCase):
         )
 
 
-    def test_unconstrained_interzone_flow(self):
-        """ """
-        input = SolverInput(
-            beg_date='2000-01-01',
-            end_date='2000-01-01',
-            accounting_graph=AccountingGraph(
-                zones=[
-                    Zone(id="REACH-A", type=ZoneTypes.STREAM),
-                    Zone(id="SYS", type=ZoneTypes.SYSTEM_GAIN_LOSS),
-                    Zone(id="DIV", type=ZoneTypes.USE),
-                    Zone(id="DIV-1", type=ZoneTypes.USE),
-                    Zone(id="DIV-2", type=ZoneTypes.USE),
-                ],
-                interzone_flows=[
-                    InterzoneFlow(id="A>DIV", from_zone="REACH-A", to_zone="DIV", flow_measurements=[FlowMeasurement(measurement_id="A>DIV")]),
-                    InterzoneFlow(id="Gains", from_zone="SYS", to_zone="REACH-A", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
-                    InterzoneFlow(id="DIV1", from_zone="DIV", to_zone="DIV-1", flow_type=FlowComponentsTypes.UNCONSTRAINED),
-                    InterzoneFlow(id="DIV2", from_zone="DIV", to_zone="DIV-2", flow_type=FlowComponentsTypes.UNCONSTRAINED),
-                ]
-            ),
-            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01', series=[
-                MeasurementSeries(id="A>DIV", values=[ 10]),
-            ]),
-            txns=[
-                PathTrxn(id='TRXN_1', priority=1, upper_limit=6, path=[
-                    TrxnPathItem(flow_id='A>DIV'),
-                    TrxnPathItem(flow_id='DIV1', expected_values=[6])
-                ]),
-                PathTrxn(id='TRXN_2', priority=2, upper_limit=6, path=[
-                    TrxnPathItem(flow_id='A>DIV'),
-                    TrxnPathItem(flow_id='DIV2', expected_values=[4])
-                ]),
-            ]
-        )
-
-        solve(input, check_expected_values=True)
-
-    @unittest.skip('I\'m second-guessing this - not sure this feature would be a good idea')
-    def test_unconstrained_interzone_flow_outflow(self):
-        """ """
-        input = SolverInput(
-            beg_date='2000-01-01',
-            end_date='2000-01-01',
-            accounting_graph=AccountingGraph(
-                zones=[
-                    Zone(id="REACH-A", type=ZoneTypes.STREAM),
-                    Zone(id="REACH-B", type=ZoneTypes.STREAM),
-                    Zone(id="SYS", type=ZoneTypes.SYSTEM_GAIN_LOSS),
-                    Zone(id="DIV1", type=ZoneTypes.USE),
-                    Zone(id="DIV2", type=ZoneTypes.USE),
-                ],
-                interzone_flows=[
-                    InterzoneFlow(id="A>DIV1", from_zone="REACH-A", to_zone="DIV1", flow_measurements=[FlowMeasurement(measurement_id="A>DIV1")]),
-                    InterzoneFlow(id="B>DIV2", from_zone="REACH-B", to_zone="DIV2", flow_measurements=[FlowMeasurement(measurement_id="B>DIV2")]),
-                    InterzoneFlow(id="GainsA", from_zone="SYS", to_zone="REACH-A", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
-                    InterzoneFlow(id="GainsB", from_zone="SYS", to_zone="REACH-B", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
-                    InterzoneFlow(id="A>B", from_zone="REACH-A", to_zone="REACH-B", flow_type=FlowComponentsTypes.UNCONSTRAINED),
-                ]
-            ),
-            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01', series=[
-                MeasurementSeries(id="A>DIV1", values=[ 12]),
-                MeasurementSeries(id="B>DIV2", values=[ 8]),
-            ]),
-            txns=[
-                PathTrxn(id='TRXN_1', priority=1, upper_limit=6, path=[
-                    TrxnPathItem(flow_id='A>DIV1', expected_values=[6]),
-                ]),
-                PathTrxn(id='TRXN_2', priority=2, upper_limit=8, path=[
-                    TrxnPathItem(flow_id='A>B', expected_values=[8]),
-                    TrxnPathItem(flow_id='B>DIV2', expected_values=[8]),
-                ]),
-            ]
-        )
-
-        solve(input, check_expected_values=True)
-
-
 class RealProblems(unittest.TestCase):
     """When the solver doesn't work in the wild, copy the inputs and add a
     test case here before fixing it."""
@@ -3032,5 +2943,4 @@ class RealProblems(unittest.TestCase):
         input = parse_solver_input_from_dict(input_dict)
 
         results = solve(input)
-        results.print_solve_steps()
 

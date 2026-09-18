@@ -541,7 +541,6 @@ class SolverInput:
 @dataclass
 class SolverOutput:
     apportionments: list['SolverOutputApportionment']
-    solve_steps: list['SolveStepResult']
     solver_backend: str | None = None
     solve_method: str = "lp"
     compilation_report: dict | None = None
@@ -561,138 +560,6 @@ class SolverOutput:
 
         return output
 
-
-    def _get_solve_step_rows(
-        self,
-        date: str | None = None,
-    ) -> tuple[list[str], list[list[str]]]:
-        """Build the headers and rows used by solve-step output."""
-
-        def fmt_number(value: float | None) -> str:
-            if value is None:
-                return ''
-            return f'{value:.3f}'
-
-        headers = [
-            'Date',
-            'Seq',
-            'Variable',
-            'Before',
-            'After',
-            'Change',
-            'Factor',
-            'NF limit',
-            'Reason',
-        ]
-
-        groups = [
-            group
-            for group in self.solve_steps
-            if date is None or group.date == date
-        ]
-        groups.sort(key=lambda group: (group.date, group.sequence))
-
-        rows: list[list[str]] = []
-
-        for group in groups:
-
-            # Ordinary transaction/group variables.
-            for step in group.variables:
-                rows.append([
-                    group.date,
-                    str(group.sequence),
-                    step.variable_name,
-                    fmt_number(step.value_before),
-                    fmt_number(step.value_after),
-                    fmt_number(step.value_after - step.value_before),
-                    fmt_number(step.proportion_factor),
-                    'Y' if group.limited_by_natural_flow else '',
-                    group.reason or '',
-                ])
-
-            # Remaining natural-flow state after this sequence.
-            for zone_id, value in sorted(
-                group.remaining_natural_flow.items()
-            ):
-                rows.append([
-                    group.date,
-                    str(group.sequence),
-                    f'REMAINING_NF_{zone_id}',
-                    '',
-                    fmt_number(value),
-                    '',
-                    '',
-                    '',
-                    '',
-                ])
-
-        return headers, rows
-
-    def get_solve_steps_csv_string(
-        self,
-        date: str | None = None,
-    ) -> str:
-        """
-        Return a string representing one audit-table row for every variable
-        changed by a solve. The string is ready to save to a CSV file.
-
-        Remaining natural flow at each stream zone is included after the
-        transaction variables for each sequence.
-
-        When ``date`` is provided, only iterations for that date are included.
-        When it is omitted, all dates are included in chronological/sequence
-        order.
-        """
-
-        headers, rows = self._get_solve_step_rows(date)
-
-        import io
-        import csv
-
-        output = io.StringIO()
-        writer = csv.writer(output, lineterminator='\n')
-
-        writer.writerow(headers)
-        writer.writerows(rows)
-
-        return output.getvalue()
-
-    def print_solve_steps(self, date: str | None = None) -> None:
-        """Print the solve-step audit in table format."""
-
-        headers, rows = self._get_solve_step_rows(date)
-
-        if not rows:
-            date_text = f' for {date}' if date is not None else ''
-            print(
-                f'No apportionment audit records were found{date_text}.'
-            )
-            return
-
-        widths = [
-            max(
-                len(headers[index]),
-                *(len(row[index]) for row in rows)
-            )
-            for index in range(len(headers))
-        ]
-
-        def render(row: list[str]) -> str:
-            cells = []
-
-            for index, value in enumerate(row):
-                if index in {1, 3, 4, 5, 6}:
-                    cells.append(value.rjust(widths[index]))
-                else:
-                    cells.append(value.ljust(widths[index]))
-
-            return ' | '.join(cells)
-
-        print(render(headers))
-        print('-+-'.join('-' * width for width in widths))
-
-        for row in rows:
-            print(render(row))
 
     def print_apportionments(
         self,
@@ -793,29 +660,6 @@ class SolverOutputApportionment:
 
 
 @dataclass
-class SolveStepVariableResult:
-    variable_name: str
-    value_before: float
-    value_after: float
-    proportion_factor: float | None = None
-
-@dataclass
-class SolveStepResult:
-    """
-    Helps track each step or iteration of the solve to provide an audit log
-    explaining the results.
-    """
-    date: str
-    sequence: int
-    variables: list[SolveStepVariableResult] = field(default_factory=list)
-    reason: str | None = None
-    limited_by_natural_flow: bool = False
-    remaining_natural_flow: dict[str, float] = field(default_factory=dict)
-
-
-
-
-@dataclass
 class AccountingGraph:
     zones: list['Zone']
     interzone_flows: list['InterzoneFlow']
@@ -849,7 +693,6 @@ class FlowComponentsTypes(Enum):
     FLOW_BALANCE_OF_DESTINATION_ZONE = 'DESTINATION ZONE'
     FLOW_BALANCE_OF_SOURCE_ZONE = 'SOURCE ZONE'
     OVERLAPPING_SERVICE_AREAS = 'OVERLAPPING SERVICE AREAS'
-    UNCONSTRAINED = 'UNCONSTRAINED' #
     EMPTY = 'EMPTY'                                                            # TODO - This should not be an option long-term...
                                                                                #      - It's here to support legacy techniques that should be updated.
 @dataclass
@@ -1332,66 +1175,4 @@ class MeasurementCollection:
             return None
 
         return today - yesterday
-
-
-#
-# Classes used for purposes internal to the solver.
-#.
-
-
-@dataclass
-class CoreScheduleVariable:
-    var: PathTrxn | TrxnGroup
-
-    def __str__(self):
-        return f'ScheduleVariable: {self.var.id}'
-
-
-@dataclass
-class CoreSeqSchedule:
-    """ """
-    series: list['CoreSeqScheduleItem']
-
-    def __str__(self):
-
-        def tab(s:str):
-            return s.replace('\n', '\n...')
-        return (f'SeqSchedule: ' +
-                tab(''.join('\n('+str(idx+1)+'). '+str(i)
-                            for idx, i in enumerate(self.series))))
-
-
-@dataclass
-class CorePropSchedule:
-    """ """
-    series: list['CorePropScheduleItem']
-
-    def __str__(self):
-
-        def tab(s:str):
-            return s.replace('\n', '\n...')
-        return (f'PropSchedule: ' +
-                tab(''.join('\n(*). '+str(i)
-                            for idx, i in enumerate(self.series))))
-
-
-@dataclass
-class CoreSeqScheduleItem:
-    """A variable or sub-schedule along with the sequential priority."""
-    priority: float
-    item: CoreScheduleVariable | CoreSeqSchedule | CorePropSchedule
-
-    def __str__(self):
-        return f'SeqScheduleItem: priority={self.priority}, item={self.item}'
-
-
-@dataclass
-class CorePropScheduleItem:
-    """A variable or sub-schedule along with a proportionality factor."""
-    factor: float
-    item: CoreScheduleVariable | CoreSeqSchedule | CorePropSchedule
-
-    def __str__(self):
-        return f'PropScheduleItem: factor={self.factor}, item={self.item}'
-
 

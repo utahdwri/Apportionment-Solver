@@ -101,42 +101,6 @@ class GraphManager:
     def get_zone_inflows(self, zone_id: str) -> list[InterzoneFlow]:
         return self.lookup_zone_inflows.get(zone_id, [])
 
-    def traverse_downstream(self, zone_id: str) -> Generator[InterzoneFlow, None, None]:
-        """Loops through all downstream interzone-flows, only following streams."""
-        stream_outflow = None
-        next_zone_id = None
-        for f in self.get_zone_outflows(zone_id):
-            to_zone = self.get_zone_by_id(f.to_zone)
-            if to_zone.type == ZoneTypes.STREAM:
-                if stream_outflow is not None:
-                    raise ValueError('Cannot traverse downstream: stream network diverges.')
-                stream_outflow = f
-                next_zone_id = to_zone.id
-
-        if stream_outflow is not None and next_zone_id is not None:
-            yield stream_outflow
-            yield from self.traverse_downstream(next_zone_id)
-
-    def get_loss_route(self, zone_id: str) -> str:
-        """Finds the dynamically designated physical loss route for a given zone."""
-        candidates = []
-        # Check outflows (e.g., from REACH to SYSTEM)
-        for f in self.get_zone_outflows(zone_id):
-            if f.residual_for_losses and self.get_zone_by_id(f.to_zone).type == ZoneTypes.SYSTEM_GAIN_LOSS:
-                candidates.append(f)
-
-        # Check inflows (e.g., bidirectional from SYSTEM to REACH)
-        for f in self.get_zone_inflows(zone_id):
-            if f.residual_for_losses and self.get_zone_by_id(f.from_zone).type == ZoneTypes.SYSTEM_GAIN_LOSS:
-                candidates.append(f)
-
-        if len(candidates) == 1:
-            return candidates[0].id
-        elif len(candidates) > 1:
-            raise ValueError(f"Multiple loss routes found for zone {zone_id} with residual_for_losses=True")
-        else:
-            raise ValueError(f"No loss route found for zone {zone_id} with residual_for_losses=True")
-
     def set_implied_calculated_flow_boundaries(self):
         """Previous versions of the general solver assumed that a residual
         calculation was neccessary when no flow measurements were specified.
@@ -222,15 +186,3 @@ class GraphManager:
                     f"loss route; found {[f.id for f in loss_routes]}."
                 )
 
-
-        # 3. Zones with residual flows cannot have unconstrained flows.
-        for zone_id, flows in residual_flows_by_zone.items():
-            for f in self.get_zone_outflows(zone_id) + self.get_zone_inflows(zone_id):
-                if f.flow_type == FlowComponentsTypes.UNCONSTRAINED:
-                    raise ValueError(
-                        f'Zone {zone_id} is connected to an UNCONSTRAINED '
-                        f'interzone flow ({f.id}) while also having a residual-'
-                        'calculated flow. This not yet supported because the '
-                        'unconstrained flow is unknown when it is needed to '
-                        'calculate the residual flow.'
-                    )

@@ -29,7 +29,6 @@ guard lets the surrounding kernel use its exact LP fallback.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isfinite
 from typing import Callable
 
 from .lp import BlockLP, Slot

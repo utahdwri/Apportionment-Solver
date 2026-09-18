@@ -7,7 +7,7 @@ import numpy as np
 
 from ..graph_manager import GraphManager
 from ..models import (
-    FlowComponentsTypes, NaturalFlowMode, PathTrxn, SolverInput, TrxnGroup, ZoneTypes,
+    NaturalFlowMode, PathTrxn, SolverInput, TrxnGroup, ZoneTypes,
 )
 from ..timeseries_manager import DailyDataManager
 from ..trxn_schedule import TrxnSchedule
@@ -26,8 +26,6 @@ class SpillCreditSpec:
     receiving_zone: str
     available: Slot
     directional_capacity: Slot
-    credit_factor: Slot
-    nf_coefficients: dict[str, Slot]
 
 
 @dataclass
@@ -47,6 +45,15 @@ class RuntimeStateLayout:
     measurement_available: dict[str, Slot] = field(default_factory=dict)
     measurement_forward_remaining: dict[str, Slot] = field(default_factory=dict)
     measurement_reverse_remaining: dict[str, Slot] = field(default_factory=dict)
+    # Raw daily loss/NF inputs are bound by new_day(); all routing and NF
+    # accounting from those inputs is performed by the generated program.
+    loss_from_delivery: dict[str, Slot] = field(default_factory=dict)
+    loss_to_delivery: dict[str, Slot] = field(default_factory=dict)
+    specified_natural_flow: dict[str, Slot] = field(default_factory=dict)
+    boundary_natural_flow: dict[str, Slot] = field(default_factory=dict)
+    boundary_natural_active: dict[str, Slot] = field(default_factory=dict)
+    flow_natural: dict[str, Slot] = field(default_factory=dict)
+    natural_at_zone: dict[str, Slot] = field(default_factory=dict)
     natural_flow: dict[str, Slot] = field(default_factory=dict)
     flow_coefficients: dict[tuple[str, str], tuple[Slot, Slot]] = field(default_factory=dict)
     nf_coefficients: dict[tuple[str, str], tuple[Slot, Slot]] = field(default_factory=dict)
@@ -98,19 +105,17 @@ class RuntimeStateLayout:
                 result.update(self.descendants(child.id))
         return result
 
-    def new_day(self, date, data, schedule, natural_flow) -> np.ndarray:
-        """Initialize numeric state."""
+    def new_day(self, date, data, schedule) -> np.ndarray:
+        """Bind raw daily inputs into numeric state.
+
+        Natural-flow routing/calculation is deliberately *not* performed here.
+        The generated execute_day() program consumes these raw inputs and
+        initializes natural-flow state itself, so plan.code() contains the
+        complete numerical NF calculation.  ``natural_flow`` is retained as
+        an ignored compatibility argument for older tests/callers.
+        """
         data.set_day(date)
         schedule.begin_day(date)
-        natural_flow.calculate(
-            date=date, daily_flows=data.cur_flows_by_id,
-            specified_values=data.get_specified_natural_flow_values(date),
-            boundary_values=data.get_boundary_natural_flow_values(date),
-        )
-        natural_flow.apply_external_boundary_commitments(
-            daily_flows=data.cur_flows_by_id,
-            boundary_values=data.get_boundary_natural_flow_values(date),
-        )
         values = np.zeros(len(self.slots), dtype=float)
         for name, slot in self.measurements.items():
             measured = data.cur_flows_by_id[name].measured
@@ -145,11 +150,39 @@ class RuntimeStateLayout:
                 0.0 if target_direction_capacity > 1e-10 else inf
             )
 
-        for name, slot in self.natural_flow.items():
-            value = natural_flow.remaining_natural_at_zone.get(name, 0.0)
+        # Bind endpoint delivery factors.  These are raw inputs to generated
+        # loss-transform functions.  Today each endpoint is a single fractional
+        # loss; future piecewise support can replace the generated transform
+        # bodies without changing the surrounding NF calculation.
+        for flow in self.graph.graph.interzone_flows:
+            from_factor = 1.0 - flow.loss_from_zone.get_fraction(date)
+            to_factor = 1.0 - flow.loss_to_zone.get_fraction(date)
+            if (not isfinite(from_factor) or not isfinite(to_factor)
+                    or from_factor < 0 or to_factor < 0):
+                raise UnsupportedBlockInput(
+                    f"Invalid endpoint delivery factor for {flow.id!r}"
+                )
+            values[self.loss_from_delivery[flow.id].index] = from_factor
+            values[self.loss_to_delivery[flow.id].index] = to_factor
+
+        # Bind raw specified/boundary natural-flow inputs only.  Generated
+        # execute_day() applies them to the NF network.
+        specified_values = data.get_specified_natural_flow_values(date)
+        for flow_id, slot in self.specified_natural_flow.items():
+            value = float(specified_values.get(flow_id, 0.0))
             if not isfinite(value):
-                raise ValueError(f"Non-finite natural flow for {name!r} on {date}")
-            values[slot.index] = max(0.0, value)
+                raise ValueError(
+                    f"Specified natural flow for {flow_id!r} is non-finite on {date}"
+                )
+            values[slot.index] = value
+
+        boundary_values = data.get_boundary_natural_flow_values(date)
+        for flow_id, slot in self.boundary_natural_flow.items():
+            active = flow_id in boundary_values
+            value = float(boundary_values.get(flow_id, 0.0))
+            values[slot.index] = value
+            values[self.boundary_natural_active[flow_id].index] = 1.0 if active else 0.0
+
         # Account limits use the balance at the beginning of the day, matching
         # the legacy LP.  Incoming allocations during this day do not create
         # additional same-day withdrawal capacity (and vice versa).
@@ -189,20 +222,22 @@ class RuntimeStateLayout:
                     previous = path[index - 1]
                     upstream = self.graph.get_flow_by_id(previous.flow_id)
                     downstream = self.graph.get_flow_by_id(item.flow_id)
-                    upstream_exit_loss = (
-                        upstream.loss_to_zone
+                    upstream_factor = (
+                        values[self.loss_to_delivery[upstream.id].index]
                         if previous.factor > 0
-                        else upstream.loss_from_zone
+                        else values[self.loss_from_delivery[upstream.id].index]
                     )
-                    downstream_entry_loss = (
-                        downstream.loss_from_zone
+                    downstream_factor = (
+                        values[self.loss_from_delivery[downstream.id].index]
                         if item.factor > 0
-                        else downstream.loss_to_zone
+                        else values[self.loss_to_delivery[downstream.id].index]
                     )
-                    factor *= ((1.0 - upstream_exit_loss.get_fraction(date))
-                               * (1.0 - previous.loss_after)
-                               * (1.0 - downstream_entry_loss.get_fraction(date))
-                               * (1.0 - item.loss_before))
+                    factor *= (
+                        upstream_factor
+                        * (1.0 - previous.loss_after)
+                        * downstream_factor
+                        * (1.0 - item.loss_before)
+                    )
                 positive, negative = self.flow_coefficients[name, item.flow_id]
                 values[positive.index] = item.factor * factor
                 values[negative.index] = -item.factor * factor
@@ -212,38 +247,7 @@ class RuntimeStateLayout:
                 # is the cumulative remaining fraction after path losses.
                 positive, negative = self.to_account_coefficients[name]
                 values[positive.index], values[negative.index] = factor, -factor
-        for source in {key[0] for key in self.nf_coefficients}:
-            coefficients = natural_flow.get_nf_constraint_coefficients(source)
-            for zone in self.natural_flow:
-                positive, negative = self.nf_coefficients[source, zone]
-                value = coefficients.get(zone, 0.0)
-                if not isfinite(value) or value < 0:
-                    raise UnsupportedBlockInput("Non-monotone natural-flow routing")
-                values[positive.index], values[negative.index] = value, -value
 
-        # Spill credits enter the natural system at a physical stream zone and
-        # then route downstream using the same coefficients as an allocation
-        # originating at that zone.
-        for spill in self.spill_credits:
-            flow = self.graph.get_flow_by_id(spill.flow_id)
-            endpoint_loss = (
-                flow.loss_to_zone if spill.factor > 0 else flow.loss_from_zone
-            )
-            factor = 1.0 - endpoint_loss.get_fraction(date)
-            if not isfinite(factor) or factor < 0:
-                raise UnsupportedBlockInput(
-                    f"Invalid spill endpoint delivery factor for {spill.flow_id!r}"
-                )
-            values[spill.credit_factor.index] = factor
-            coefficients = (
-                natural_flow.get_nf_constraint_coefficients(spill.receiving_zone)
-                if spill.receiving_zone in self.natural_flow else {}
-            )
-            for zone, coefficient_slot in spill.nf_coefficients.items():
-                value = coefficients.get(zone, 0.0)
-                if not isfinite(value) or value < 0:
-                    raise UnsupportedBlockInput("Non-monotone spill NF routing")
-                values[coefficient_slot.index] = value
         return values
 
 
@@ -271,9 +275,6 @@ def build_runtime_state_layout(input: SolverInput) -> RuntimeStateLayout:
     rejects unconstrained physical flows instead of silently running different rules.
     """
     problem = deepcopy(input)
-    if any(flow.flow_type == FlowComponentsTypes.UNCONSTRAINED
-           for flow in problem.accounting_graph.interzone_flows):
-        raise UnsupportedBlockInput("UNCONSTRAINED flows need the post-allocation gain convention")
     graph = GraphManager(problem.accounting_graph)
     natural_types = {ZoneTypes.STREAM, ZoneTypes.SYSTEM_GAIN_LOSS}
     # Storage change is already folded into residual interzone-flow measurements
@@ -420,6 +421,30 @@ def build_runtime_state_layout(input: SolverInput) -> RuntimeStateLayout:
                 f"remaining_measured_reverse[{flow.id!r}]"
             )
 
+        # Raw endpoint delivery factors and flow-level NF values.  The generated
+        # program turns these factors into explicit deliver()/required_inflow()
+        # formulas.
+        layout.loss_from_delivery[flow.id] = layout.add(
+            f"loss_from_delivery[{flow.id!r}]", sign=1
+        )
+        layout.loss_to_delivery[flow.id] = layout.add(
+            f"loss_to_delivery[{flow.id!r}]", sign=1
+        )
+        layout.flow_natural[flow.id] = layout.add(
+            f"natural_flow_on_flow[{flow.id!r}]"
+        )
+        if flow.natural_flow_mode == NaturalFlowMode.SPECIFIED:
+            layout.specified_natural_flow[flow.id] = layout.add(
+                f"specified_natural_flow[{flow.id!r}]"
+            )
+        if flow.id in problem.external_natural_flows:
+            layout.boundary_natural_flow[flow.id] = layout.add(
+                f"boundary_natural_flow[{flow.id!r}]"
+            )
+            layout.boundary_natural_active[flow.id] = layout.add(
+                f"boundary_natural_active[{flow.id!r}]", sign=1
+            )
+
     # A replayed transaction that originates in a non-natural zone can require
     # opposite-direction reporting slack on its first bidirectional flow.  The
     # slot is a *runtime upper bound* for that slack witness.  Keeping it out of
@@ -464,25 +489,21 @@ def build_runtime_state_layout(input: SolverInput) -> RuntimeStateLayout:
             flow_id=flow.id, factor=factor, receiving_zone=receiving_zone,
             available=layout.measurement_available[flow.id],
             directional_capacity=directional,
-            credit_factor=layout.add(f"spill_credit_factor[{flow.id!r}]"),
-            nf_coefficients={
-                zone.id: layout.add(f"spill_nf_coefficient[{(flow.id, zone.id)!r}]")
-                for zone in graph.graph.zones if zone.type == ZoneTypes.STREAM
-            },
         ))
 
     for zone in graph.graph.zones:
         if zone.type == ZoneTypes.STREAM:
+            layout.natural_at_zone[zone.id] = layout.add(
+                f"natural_at_zone[{zone.id!r}]"
+            )
             layout.natural_flow[zone.id] = layout.add(f"remaining_nf[{zone.id!r}]")
     # Natural-flow routing topology is structural even though loss fractions may
     # vary by date.  Mark unreachable source/zone pairs as exact zero and mark
     # constant-loss routes with their exact constant coefficient.  Dynamic
     # reachable routes remain nonnegative symbolic slots.
     boundary_flow_ids = set(problem.external_natural_flows)
-    calculated_outflow_by_zone = {}
+    calculated_outflows_by_zone: dict[str, list] = {}
     for flow in graph.graph.interzone_flows:
-        if flow.id in boundary_flow_ids:
-            continue
         if flow.natural_flow_mode != NaturalFlowMode.CALCULATED:
             continue
         if not (
@@ -490,7 +511,7 @@ def build_runtime_state_layout(input: SolverInput) -> RuntimeStateLayout:
             and graph.get_zone_by_id(flow.to_zone).type == ZoneTypes.STREAM
         ):
             continue
-        calculated_outflow_by_zone[flow.from_zone] = flow
+        calculated_outflows_by_zone.setdefault(flow.from_zone, []).append(flow)
 
     def nf_coefficient_constant(source, destination):
         if source == destination:
@@ -498,11 +519,22 @@ def build_runtime_state_layout(input: SolverInput) -> RuntimeStateLayout:
         zone_id = source
         factor = 1.0
         visited = set()
-        while zone_id in calculated_outflow_by_zone:
+        while zone_id in calculated_outflows_by_zone:
             if zone_id in visited:
                 return None
             visited.add(zone_id)
-            flow = calculated_outflow_by_zone[zone_id]
+            candidates = calculated_outflows_by_zone[zone_id]
+            # Multiple possible calculated routes can be disambiguated by an
+            # active external boundary at runtime.  Their coefficient is thus
+            # structurally nonnegative but not a compile-time constant.
+            if len(candidates) != 1:
+                return None
+            flow = candidates[0]
+            # An externally supplied boundary cuts this route only on days when
+            # a boundary value is present, so any downstream coefficient is a
+            # runtime value even if the loss fractions themselves are constant.
+            if flow.id in boundary_flow_ids:
+                factor = None
             from_fraction = constant_fraction(flow.loss_from_zone)
             to_fraction = constant_fraction(flow.loss_to_zone)
             if from_fraction is None or to_fraction is None:

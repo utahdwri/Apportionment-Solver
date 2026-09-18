@@ -27,7 +27,7 @@ class CompiledPlan:
     replay_operations: list[DirectCalculationKernel | ProportionalCalculationKernel | ScalarFormulaKernel | LPKernel]
 
     source: str = field(init=False)
-    executor: Callable = field(init=False)
+    executor: Callable[..., int] = field(init=False)
 
     def __post_init__(self):
         # Kernel objects are compile-time IR.  Lower them once to one readable
@@ -37,7 +37,7 @@ class CompiledPlan:
             self.operations, self.replay_operations, self.state_layout
         )
         self.source = generated.source
-        self.executor, self.replay_executor = self._compile_generated_python(
+        self.executor = self._compile_generated_python(
             self.source, generated.namespace
         )
 
@@ -52,10 +52,10 @@ class CompiledPlan:
         return self.source
 
 
-    def _compile_generated_python(self, source, namespace=None):
+    def _compile_generated_python(self, source, namespace=None) -> Callable[..., int]:
         namespace = {} if namespace is None else dict(namespace)
         exec(builtins.compile(source, '<compiled-apportionment-plan>', 'exec'), namespace)
-        return namespace['execute_day'], namespace['execute_replay']
+        return namespace['execute']
 
 
 
@@ -546,7 +546,7 @@ def build_block_lp(
 
         # Every committed allocation increases its reported allocation and
         # consumes the transaction's remaining daily/call/cumulative limit.
-        effects = {
+        effects: dict[Slot, float | Slot]  = {
             layout.allocated[name]: 1.0,
             layout.limits[name]: -1.0,
         }

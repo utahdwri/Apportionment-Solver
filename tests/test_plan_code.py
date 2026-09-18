@@ -67,7 +67,7 @@ class PlanCodeTests(TestCase):
         self.assertIn('# Direct formula for TRXN_1', source)
         self.assertIn('TRXN_1 = _upper if _objective > 0 else _lower', source)
         self.assertIn('state[S_REMAINING_MEASURED_FORWARD_RIVER_USER]', source)
-        self.assertIn('def execute_day(state):', source)
+        self.assertIn("def execute(state):", source)
         self.assertNotIn('compile_direct_kernel(', source)
         self.assertNotIn('kernels = (', source)
 

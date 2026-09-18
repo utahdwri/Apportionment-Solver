@@ -1,13 +1,15 @@
-from typing import Generator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from math import isclose, isfinite
-from collections.abc import Iterator
 
 from .models import (
-    FlowComponentsTypes, InterzoneFlow, MeasurementCollection, NaturalFlowMode, Zone, ZoneTypes
+    FlowComponentsTypes,
+    InterzoneFlow,
+    MeasurementCollection,
+    NaturalFlowMode,
+    Zone,
+    ZoneTypes
 )
 from .graph_manager import GraphManager
-from .natural_flow_calculator import CurFlowInfo
 
 
 COALESCE_MISSING_FLOWS_TO_ZERO = True
@@ -407,3 +409,17 @@ class DailyDataManager:
 
 
 
+@dataclass
+class CurFlowInfo:
+    """Stores the total flow, natural flow, and total apportioned flow for an interzone-flow."""
+
+    # The measured flow should always match the input measurements.
+    measured: float = 0
+
+    # The natural flow includes any upstream-boundary natural flow specified in
+    # the input data.
+    natural: float = 0
+
+    # # This is the portion of the natural flow that excludes upstream-boundary
+    # # natural flow specified in the input data.
+    # available_natural: float = 0

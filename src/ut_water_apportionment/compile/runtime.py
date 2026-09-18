@@ -1,40 +1,15 @@
 """Daily data binding and reporting; allocation lives in generated operations."""
 from dataclasses import replace
 from math import isfinite
+from typing import Generator
 
-from ..lag_utils import unlag_apportionments
-from ..models import PathTrxn, SolverOutput, SolverOutputApportionment, ZoneTypes
-from ..natural_flow_calculator import NaturalFlowCalculator
 from .kernel import DirectCalculationKernel, LPKernel, ProportionalCalculationKernel, ScalarFormulaKernel
-from ..solver import _loop_through_date_range, assert_apportionments_equal_expected
+from ..lag_utils import unlag_apportionments
+from ..models import SolverInput, SolverOutput, SolverOutputApportionment, ZoneTypes, PathTrxn, TrxnPathItem
+from ..graph_manager import GraphManager
+from ..timeseries_manager import DailyDataManager
+from ..trxn_schedule import TrxnSchedule
 
-
-SPILL_TOL = 1e-7
-
-
-def _apply_spill_credits(layout, state):
-    """Lock Pass-1 spill/import residuals and add routed natural-flow credit."""
-    total_credit = 0.0
-    for spill in layout.spill_credits:
-        signed = float(state[spill.available.index])
-        residual = max(0.0, signed * spill.factor)
-        if residual <= SPILL_TOL:
-            continue
-
-        # Keep the signed reporting residual intact, but remove this amount from
-        # replay availability. It is now fixed reporting slack/spill.
-        state[spill.available.index] = 0.0
-        state[spill.directional_capacity.index] = 0.0
-
-        credit = residual * float(state[spill.credit_factor.index])
-        if credit <= SPILL_TOL:
-            continue
-        total_credit += credit
-        for zone, coefficient_slot in spill.nf_coefficients.items():
-            coefficient = float(state[coefficient_slot.index])
-            if coefficient:
-                state[layout.natural_flow[zone].index] += credit * coefficient
-    return total_credit
 
 
 def solve_plan(plan, measurements, *, check_expected_values=False):
@@ -42,23 +17,15 @@ def solve_plan(plan, measurements, *, check_expected_values=False):
     problem = layout.input if measurements is None else replace(layout.input, measurements=measurements)
     data = layout.data.clone_runtime(measurements=problem.measurements)
     schedule = layout.schedule.clone_runtime()
-    natural = NaturalFlowCalculator(layout.graph)
     output = []
     lp_solves = 0
     days = 0
     for date in _loop_through_date_range(problem.beg_date, problem.end_date):
-        state = layout.new_day(date, data, schedule, natural)
+        state = layout.new_day(date, data, schedule)
 
-        # PASS 1 excludes future counterflow witnesses.
+        # The generated execute_day() now owns natural-flow initialization,
+        # Pass 1, spill/import NF credit, and reservoir replay.
         lp_solves += plan.executor(state)
-
-        # Lock/credit unavoidable spill, then replay for reservoir-capable
-        # systems even when spill is zero. A zero-spill replay is what permits
-        # an earlier storage inflow to respond to storage deliveries that Pass 1
-        # has now actually committed.
-        _apply_spill_credits(layout, state)
-        if layout.spill_credits:
-            lp_solves += plan.replay_executor(state)
 
         days += 1
         for group, slot in layout.groups.items():
@@ -95,7 +62,7 @@ def solve_plan(plan, measurements, *, check_expected_values=False):
                     and layout.graph.get_zone_by_id(flow.from_zone).type == ZoneTypes.STREAM
                     and layout.graph.get_zone_by_id(flow.to_zone).type == ZoneTypes.STREAM)
                 if stream_slack:
-                    nf = data.cur_flows_by_id[flow.id].natural
+                    nf = float(state[layout.flow_natural[flow.id].index])
                     output.extend([
                         SolverOutputApportionment(date, flow.id, txn.id + '_NF', nf * item.factor, True),
                         SolverOutputApportionment(date, flow.id, txn.id + '_CPI', (amount - nf) * item.factor, amount > nf, ''),
@@ -104,7 +71,7 @@ def solve_plan(plan, measurements, *, check_expected_values=False):
                     output.append(SolverOutputApportionment(date, flow.id, txn.id, amount * item.factor, item.factor > 0, ''))
         schedule.commit_day(variable_values)
     result = SolverOutput(
-        apportionments=unlag_apportionments(output, data.flow_lags), solve_steps=[],
+        apportionments=unlag_apportionments(output, data.flow_lags),
         solver_backend='scipy-highs-block-kernels', solve_method='block_lp',
         compilation_report={
             'priority_blocks': len(plan.operations),
@@ -139,3 +106,127 @@ def solve_plan(plan, measurements, *, check_expected_values=False):
     if check_expected_values:
         assert_apportionments_equal_expected(result, problem, layout.graph, data, schedule)
     return result
+
+
+
+def assert_apportionments_equal_expected(
+    results: SolverOutput,
+    input: SolverInput,
+    gm: GraphManager,
+    dm: DailyDataManager,
+    tm: TrxnSchedule
+) -> None:
+    """Check if each of the apportionment results match the expected value
+    to 4 decimal places.
+
+    If a values does not match what is expected, it will include
+    the system report string.
+
+    Skips apportionment results that don't have a defined expected value.
+
+    Raises an exception if no apportionment results have an expected value.
+    """
+
+    message:str = ''
+
+    cnt = 0
+    for t in tm.traverse_vars(input.txns):
+        if type(t) == PathTrxn:
+            for p in t.path:
+                if p.expected_values is not None:
+                    idx = 0
+                    for date in _loop_through_date_range(input.beg_date,
+                                                        input.end_date):
+
+                        expected_value = p.expected_values[idx]
+                        computed_values = results.get_result_value(date=date,
+                                trxn_id=t.id, flow_id=p.flow_id)
+
+                        if not computed_values:
+                            raise ValueError(f'(date, trxn_id, flow_id) of {(date, t.id, p.flow_id)} not found.')
+                        elif len(computed_values) > 1:
+                            raise ValueError('Multiple results found')
+                        computed_value = computed_values[0].value
+
+                        if expected_value is not None:
+                            cnt += 1
+                            if abs(expected_value - computed_value) >= 1e-4:
+                                msg = (message +
+                                    f'Var "{t.id}": computed ({computed_value}) != ' +
+                                    f'expected ({expected_value}) on {date}\n' +
+                                    (system_report_str(results, idx, date, gm, dm, tm) if input is not None else '')
+                                )
+                                raise AssertionError(msg)
+                        idx += 1
+    if cnt == 0:
+        raise Exception('No trxn path-items were given an expected_value!')
+
+
+# --- Helper Methods
+
+
+def _loop_through_date_range(beg_date: str, end_date: str) -> Generator[str, None, None]:
+    """Iterate through each date from beg_date to end_date inclusive."""
+    from datetime import datetime, timedelta
+    a_date = datetime.strptime(beg_date, "%Y-%m-%d").date()
+    b_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+    current_date = a_date
+    while current_date <= b_date:
+        yyyy_mm_dd = current_date.isoformat()
+        yield yyyy_mm_dd
+        current_date += timedelta(days=1)
+
+
+
+def system_report_str(
+        results:SolverOutput,
+        day_idx:int,
+        date:str,
+        gm:GraphManager,
+        dm:DailyDataManager,
+        tm:TrxnSchedule
+        ) -> str:
+    """Displays the inflow and outflow totals and apportionments for stream
+    zones, comparing the apportionments to the expected values. Useful for
+    debuging."""
+    def warn_if_value_is_incorrect(path_item:TrxnPathItem, value:float|None):
+        if path_item.expected_values is not None:
+            expected_value = path_item.expected_values[day_idx]
+            if expected_value is not None and value is not None:
+                if abs(expected_value - value) > 1e-4:
+                    return ('*** NOT EQUAL TO EXPECTED VALUE OF '
+                        + f'{expected_value:9.4f}')
+        return ''
+
+
+    dm.set_day(date)
+
+    out = ''
+    for n in gm.graph.zones:
+        if n.type == ZoneTypes.STREAM:
+
+            storage_change =  dm.cur_storage_chg_by_id[n.id].measured # n.storage_chg
+
+            out += '\n' + n.id + f'(\u0394S={storage_change:9.4f})'
+
+            for f in gm.get_zone_outflows(n.id):
+                flow_value = dm.cur_flows_by_id[f.id].measured
+
+                out += f'\n {flow_value:9.4f} >> {f.to_zone}'
+                for i in results.get_result_value(date=date, flow_id=f.id):
+                    path_item = tm.get_path_item(i.txn_id, f.id)
+                    out += f'\n      {i.txn_id: <26} = {i.value:9.4f}   ({i.reason})'
+                    out += warn_if_value_is_incorrect(path_item, i.value)
+
+            for f in gm.get_zone_inflows(n.id):
+                flow_value = dm.cur_flows_by_id[f.id].measured
+
+                out += f'\n {flow_value:9.4f} << {f.from_zone}'
+                for i in results.get_result_value(date=date, flow_id=f.id):
+                    path_item = tm.get_path_item(i.txn_id, f.id)
+                    out += f'\n      {i.txn_id: <26} = {i.value:9.4f}   ({i.reason})'
+                    out += warn_if_value_is_incorrect(path_item, i.value)
+
+    return out
+

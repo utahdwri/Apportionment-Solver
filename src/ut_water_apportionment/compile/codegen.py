@@ -1,8 +1,8 @@
 """Generate the human-readable Python program that is also executed by CompiledPlan.
 
 The block kernels are compile-time IR.  This module lowers them to one ordinary
-Python module containing the exact ``execute_day`` / ``execute_replay``
-functions used at runtime.  ``CompiledPlan.code()`` returns this same source.
+Python module containing the exact ``execute`` function used at runtime.
+``CompiledPlan.code()`` returns this same source.
 """
 from __future__ import annotations
 
@@ -15,8 +15,10 @@ from .kernel import (
     LPKernel,
     ProportionalCalculationKernel,
     ScalarFormulaKernel,
+    TOL
 )
 from .lp import BlockLP, Maximize, Proportional, Slot
+from ..models import NaturalFlowMode, ZoneTypes
 
 
 _IDENTIFIER_RE = re.compile(r"[^0-9A-Za-z_]+")
@@ -580,6 +582,463 @@ class PythonPlanEmitter:
         self.emit("    return _calls")
         self.emit("")
 
+    # ------------------------------------------------------------------
+    # Compiled natural-flow program.
+    #
+    # DailyDataManager/new_day() binds only raw measured flows, specified NF,
+    # external-boundary NF, and endpoint delivery factors.  Everything below is
+    # emitted once at compile time and is part of the exact program returned by
+    # plan.code().
+    #
+    # The small deliver()/required_inflow() functions are intentional extension
+    # points for future piecewise losses.  Today they are linear fractional
+    # transforms.  A later piecewise compiler can replace their bodies while the
+    # propagation, system-gain, boundary, spill, and transaction code remains in
+    # the same generated program.
+    # ------------------------------------------------------------------
+    def _flow_tag(self, flow_id: str) -> str:
+        return _identifier(flow_id)
+
+    def _zone_tag(self, zone_id: str) -> str:
+        return _identifier(zone_id)
+
+    def _deliver_name(self, flow_id: str, endpoint: str) -> str:
+        return f"_deliver_{self._flow_tag(flow_id)}_{endpoint}"
+
+    def _required_name(self, flow_id: str, endpoint: str) -> str:
+        return f"_required_inflow_{self._flow_tag(flow_id)}_{endpoint}"
+
+    def _propagate_name(self, zone_id: str) -> str:
+        return f"_nf_propagate_{self._zone_tag(zone_id)}"
+
+    def _route_name(self, zone_id: str) -> str:
+        return f"_nf_selected_outflow_{self._zone_tag(zone_id)}"
+
+    def _routing_coeff_name(self, zone_id: str) -> str:
+        return f"_nf_routing_coefficients_from_{self._zone_tag(zone_id)}"
+
+    def _adjust_remaining_name(self, zone_id: str) -> str:
+        return f"_nf_adjust_remaining_from_{self._zone_tag(zone_id)}"
+
+    def _flow_effect_name(self, flow_id: str) -> str:
+        return f"_nf_apply_flow_{self._flow_tag(flow_id)}"
+
+    def _calculated_losses_name(self, zone_id: str) -> str:
+        return f"_nf_calculated_endpoint_losses_{self._zone_tag(zone_id)}"
+
+    def _calculated_stream_outflows(self):
+        graph = self.state_layout.graph
+        result = {}
+        for flow in graph.graph.interzone_flows:
+            if flow.natural_flow_mode != NaturalFlowMode.CALCULATED:
+                continue
+            if not (
+                graph.get_zone_by_id(flow.from_zone).type == ZoneTypes.STREAM
+                and graph.get_zone_by_id(flow.to_zone).type == ZoneTypes.STREAM
+            ):
+                continue
+            result.setdefault(flow.from_zone, []).append(flow)
+        return result
+
+    def emit_loss_transform_functions(self):
+        layout = self.state_layout
+        self.emit("# " + "=" * 76)
+        self.emit("# ENDPOINT LOSS TRANSFORMS")
+        self.emit("# " + "=" * 76)
+        self.emit("# Fractional today; these functions are the future piecewise-loss boundary.")
+        self.emit("")
+        for flow in layout.graph.graph.interzone_flows:
+            for endpoint, slot_map in (
+                ("from", layout.loss_from_delivery),
+                ("to", layout.loss_to_delivery),
+            ):
+                factor_slot = slot_map[flow.id]
+                deliver = self._deliver_name(flow.id, endpoint)
+                required = self._required_name(flow.id, endpoint)
+                self.emit(f"def {deliver}(state, value):")
+                self.emit(f"    _factor = state[{self.slot_names[factor_slot.index]}]")
+                self.emit("    if not isfinite(_factor) or _factor < -TOL:")
+                self.emit(f"        raise BlockLPError({('Invalid delivery factor for ' + flow.id + ' ' + endpoint)!r})")
+                self.emit("    if abs(value) <= NF_TOL:")
+                self.emit("        return 0.0")
+                self.emit("    return value * max(0.0, _factor)")
+                self.emit("")
+                self.emit(f"def {required}(state, remaining):")
+                self.emit(f"    _factor = state[{self.slot_names[factor_slot.index]}]")
+                self.emit("    if not isfinite(_factor) or _factor < -TOL:")
+                self.emit(f"        raise BlockLPError({('Invalid delivery factor for ' + flow.id + ' ' + endpoint)!r})")
+                self.emit("    if abs(remaining) <= NF_TOL:")
+                self.emit("        return 0.0")
+                self.emit("    if _factor <= TOL:")
+                self.emit(f"        raise BlockLPError({('Cannot invert zero-delivery loss for ' + flow.id + ' ' + endpoint)!r})")
+                self.emit("    return remaining / _factor")
+                self.emit("")
+
+    def emit_nf_route_selectors(self):
+        layout = self.state_layout
+        candidates_by_zone = self._calculated_stream_outflows()
+        for zone_id in layout.natural_flow:
+            candidates = candidates_by_zone.get(zone_id, [])
+            fn = self._route_name(zone_id)
+            self.emit(f"def {fn}(state):")
+            if not candidates:
+                self.emit("    return None")
+                self.emit("")
+                continue
+            self.emit("    _selected = None")
+            for flow in candidates:
+                active_slot = layout.boundary_natural_active.get(flow.id)
+                if active_slot is None:
+                    condition = "True"
+                else:
+                    condition = f"state[{self.slot_names[active_slot.index]}] < 0.5"
+                self.emit(f"    if {condition}:  # {flow.id}")
+                self.emit("        if _selected is not None:")
+                self.emit(
+                    f"            raise BlockLPError({('Natural flow at zone ' + zone_id + ' has multiple calculated outflows')!r})"
+                )
+                self.emit(f"        _selected = {flow.id!r}")
+            self.emit("    return _selected")
+            self.emit("")
+
+    def emit_nf_propagation_functions(self):
+        layout = self.state_layout
+        graph = layout.graph
+        candidates_by_zone = self._calculated_stream_outflows()
+        for zone_id, natural_slot in layout.natural_at_zone.items():
+            fn = self._propagate_name(zone_id)
+            route_fn = self._route_name(zone_id)
+            self.emit(f"def {fn}(state, delta, _visited=()):")
+            self.emit("    if abs(delta) <= NF_TOL:")
+            self.emit("        return")
+            self.emit(f"    if {zone_id!r} in _visited:")
+            self.emit("        raise BlockLPError('Calculated natural-flow routes contain a cycle')")
+            self.emit(f"    state[{self.slot_names[natural_slot.index]}] += delta")
+            candidates = candidates_by_zone.get(zone_id, [])
+            if not candidates:
+                self.emit("    return")
+                self.emit("")
+                continue
+            self.emit(f"    _flow = {route_fn}(state)")
+            self.emit("    if _flow is None:")
+            self.emit("        return")
+            self.emit(f"    _visited = _visited + ({zone_id!r},)")
+            for i, flow in enumerate(candidates):
+                prefix = "if" if i == 0 else "elif"
+                flow_natural_slot = layout.flow_natural[flow.id]
+                deliver_from = self._deliver_name(flow.id, "from")
+                deliver_to = self._deliver_name(flow.id, "to")
+                downstream = self._propagate_name(flow.to_zone)
+                self.emit(f"    {prefix} _flow == {flow.id!r}:")
+                self.emit(f"        _old = state[{self.slot_names[flow_natural_slot.index]}]")
+                self.emit(f"        _source = state[{self.slot_names[natural_slot.index]}]")
+                if not flow.bidirectional:
+                    self.emit("        _source = max(0.0, _source)")
+                self.emit(f"        _new = {deliver_from}(state, _source)")
+                self.emit(f"        _old_at_destination = {deliver_to}(state, _old)")
+                self.emit(f"        _new_at_destination = {deliver_to}(state, _new)")
+                self.emit(f"        state[{self.slot_names[flow_natural_slot.index]}] = _new")
+                self.emit(
+                    f"        {downstream}(state, _new_at_destination - _old_at_destination, _visited)"
+                )
+            self.emit("")
+
+    def emit_nf_flow_effect_functions(self):
+        layout = self.state_layout
+        graph = layout.graph
+        for flow in graph.graph.interzone_flows:
+            fn = self._flow_effect_name(flow.id)
+            deliver_from = self._deliver_name(flow.id, "from")
+            deliver_to = self._deliver_name(flow.id, "to")
+            required_from = self._required_name(flow.id, "from")
+            required_to = self._required_name(flow.id, "to")
+            from_stream = graph.get_zone_by_id(flow.from_zone).type == ZoneTypes.STREAM
+            to_stream = graph.get_zone_by_id(flow.to_zone).type == ZoneTypes.STREAM
+            self.emit(f"def {fn}(state, natural, boundary=False):")
+            self.emit("    if abs(natural) <= NF_TOL:")
+            self.emit("        return")
+            self.emit("    if natural > 0:")
+            if to_stream:
+                self.emit(f"        _destination = {deliver_to}(state, natural)")
+                self.emit(f"        {self._propagate_name(flow.to_zone)}(state, _destination)")
+            if from_stream:
+                self.emit("        if not boundary:")
+                self.emit(f"            _source = {required_from}(state, natural)")
+                self.emit(f"            {self._propagate_name(flow.from_zone)}(state, -_source)")
+            self.emit("        return")
+            self.emit("    _magnitude = -natural")
+            if from_stream:
+                self.emit(f"    _destination = {deliver_from}(state, _magnitude)")
+                self.emit(f"    {self._propagate_name(flow.from_zone)}(state, _destination)")
+            if to_stream:
+                self.emit("    if not boundary:")
+                self.emit(f"        _source = {required_to}(state, _magnitude)")
+                self.emit(f"        {self._propagate_name(flow.to_zone)}(state, -_source)")
+            self.emit("")
+
+    def emit_nf_calculated_loss_functions(self):
+        layout = self.state_layout
+        graph = layout.graph
+        for zone_id in layout.natural_flow:
+            fn = self._calculated_losses_name(zone_id)
+            self.emit(f"def {fn}(state):")
+            self.emit("    _total_loss = 0.0")
+            for flow in graph.get_zone_inflows(zone_id):
+                measured = self.slot_names[layout.measurements[flow.id].index]
+                deliver = self._deliver_name(flow.id, "to")
+                required = self._required_name(flow.id, "to")
+                tag = self._flow_tag(flow.id)
+                self.emit(f"    _measured_{tag} = state[{measured}]")
+                self.emit(f"    if _measured_{tag} >= 0:")
+                self.emit(f"        _remaining = {deliver}(state, _measured_{tag})")
+                self.emit(f"        _total_loss += _measured_{tag} - _remaining")
+                self.emit("    else:")
+                self.emit(f"        _before = {required}(state, -_measured_{tag})")
+                self.emit(f"        _total_loss += _before + _measured_{tag}")
+            for flow in graph.get_zone_outflows(zone_id):
+                measured = self.slot_names[layout.measurements[flow.id].index]
+                deliver = self._deliver_name(flow.id, "from")
+                required = self._required_name(flow.id, "from")
+                tag = self._flow_tag(flow.id)
+                self.emit(f"    _measured_{tag} = state[{measured}]")
+                self.emit(f"    if _measured_{tag} >= 0:")
+                self.emit(f"        _before = {required}(state, _measured_{tag})")
+                self.emit(f"        _total_loss += _before - _measured_{tag}")
+                self.emit("    else:")
+                self.emit(f"        _remaining = {deliver}(state, -_measured_{tag})")
+                self.emit(f"        _total_loss += -_measured_{tag} - _remaining")
+            self.emit("    return _total_loss")
+            self.emit("")
+
+    def emit_nf_routing_coefficient_functions(self):
+        layout = self.state_layout
+        candidates_by_zone = self._calculated_stream_outflows()
+        stream_zones = tuple(layout.natural_flow)
+        for source in stream_zones:
+            fn = self._routing_coeff_name(source)
+            self.emit(f"def {fn}(state):")
+            self.emit(f"    _coefficients = {{{source!r}: 1.0}}")
+            self.emit("    _factor = 1.0")
+            self.emit(f"    _zone = {source!r}")
+            self.emit("    _visited = set()")
+            self.emit("    while True:")
+            self.emit("        if _zone in _visited:")
+            self.emit("            raise BlockLPError('Calculated natural-flow routes contain a cycle')")
+            self.emit("        _visited.add(_zone)")
+            for i, zone_id in enumerate(stream_zones):
+                prefix = "if" if i == 0 else "elif"
+                candidates = candidates_by_zone.get(zone_id, [])
+                self.emit(f"        {prefix} _zone == {zone_id!r}:")
+                if not candidates:
+                    self.emit("            break")
+                    continue
+                self.emit(f"            _flow = {self._route_name(zone_id)}(state)")
+                self.emit("            if _flow is None:")
+                self.emit("                break")
+                for j, flow in enumerate(candidates):
+                    branch = "if" if j == 0 else "elif"
+                    from_factor = layout.loss_from_delivery[flow.id]
+                    to_factor = layout.loss_to_delivery[flow.id]
+                    self.emit(f"            {branch} _flow == {flow.id!r}:")
+                    self.emit(
+                        f"                _factor *= state[{self.slot_names[from_factor.index]}] * state[{self.slot_names[to_factor.index]}]"
+                    )
+                    self.emit(f"                _zone = {flow.to_zone!r}")
+                self.emit("            if _factor <= NF_TOL:")
+                self.emit("                break")
+                self.emit("            _coefficients[_zone] = _factor")
+            self.emit("        else:")
+            self.emit("            break")
+            self.emit("    return _coefficients")
+            self.emit("")
+
+            adjust = self._adjust_remaining_name(source)
+            self.emit(f"def {adjust}(state, amount):")
+            self.emit("    if abs(amount) <= NF_TOL:")
+            self.emit("        return")
+            self.emit(f"    _coefficients = {fn}(state)")
+            for zone_id, remaining_slot in layout.natural_flow.items():
+                self.emit(f"    _coefficient = _coefficients.get({zone_id!r}, 0.0)")
+                self.emit("    if _coefficient:")
+                self.emit(f"        state[{self.slot_names[remaining_slot.index]}] += amount * _coefficient")
+                self.emit(f"        if abs(state[{self.slot_names[remaining_slot.index]}]) <= NF_TOL:")
+                self.emit(f"            state[{self.slot_names[remaining_slot.index]}] = 0.0")
+            self.emit("")
+
+    def emit_nf_initialization(self):
+        layout = self.state_layout
+        graph = layout.graph
+        self.emit("# " + "=" * 76)
+        self.emit("# NATURAL-FLOW INITIALIZATION")
+        self.emit("# " + "=" * 76)
+        self.emit("def _initialize_natural_flow(state):")
+        self.emit("    # Reset generated NF state for this day.")
+        for slot in layout.natural_at_zone.values():
+            self.emit(f"    state[{self.slot_names[slot.index]}] = 0.0")
+        for slot in layout.natural_flow.values():
+            self.emit(f"    state[{self.slot_names[slot.index]}] = 0.0")
+        for slot in layout.flow_natural.values():
+            self.emit(f"    state[{self.slot_names[slot.index]}] = 0.0")
+        for positive, negative in layout.nf_coefficients.values():
+            self.emit(f"    state[{self.slot_names[positive.index]}] = 0.0")
+            self.emit(f"    state[{self.slot_names[negative.index]}] = 0.0")
+
+        self.emit("")
+        self.emit("    # Natural-flow routing coefficients used by transaction constraints.")
+        sources = sorted({source for source, _ in layout.nf_coefficients})
+        for source in sources:
+            self.emit(f"    _coefficients = {self._routing_coeff_name(source)}(state)")
+            for zone_id in layout.natural_flow:
+                pair = layout.nf_coefficients.get((source, zone_id))
+                if pair is None:
+                    continue
+                positive, negative = pair
+                self.emit(f"    _value = _coefficients.get({zone_id!r}, 0.0)")
+                self.emit(f"    state[{self.slot_names[positive.index]}] = _value")
+                self.emit(f"    state[{self.slot_names[negative.index]}] = -_value")
+
+        self.emit("")
+        self.emit("    # Boundary flows and calculated system gains/losses.")
+        for flow in graph.graph.interzone_flows:
+            active = layout.boundary_natural_active.get(flow.id)
+            boundary = layout.boundary_natural_flow.get(flow.id)
+            from_type = graph.get_zone_by_id(flow.from_zone).type
+            to_type = graph.get_zone_by_id(flow.to_zone).type
+            is_system_calculated = (
+                flow.natural_flow_mode == NaturalFlowMode.CALCULATED
+                and {from_type, to_type} == {ZoneTypes.STREAM, ZoneTypes.SYSTEM_GAIN_LOSS}
+            )
+            if active is not None:
+                self.emit(f"    if state[{self.slot_names[active.index]}] >= 0.5:  # boundary {flow.id}")
+                self.emit(f"        _value = state[{self.slot_names[boundary.index]}]")
+                self.emit(f"        state[{self.slot_names[layout.flow_natural[flow.id].index]}] = _value")
+                self.emit(f"        {self._flow_effect_name(flow.id)}(state, _value, boundary=True)")
+                if is_system_calculated:
+                    self.emit("    else:")
+                    indent = "        "
+                else:
+                    continue
+            elif is_system_calculated:
+                indent = "    "
+            else:
+                continue
+
+            measured_slot = layout.measurements[flow.id]
+            if from_type == ZoneTypes.SYSTEM_GAIN_LOSS and to_type == ZoneTypes.STREAM:
+                expression = (
+                    f"state[{self.slot_names[measured_slot.index]}] + "
+                    f"{self._calculated_losses_name(flow.to_zone)}(state)"
+                )
+            elif from_type == ZoneTypes.STREAM and to_type == ZoneTypes.SYSTEM_GAIN_LOSS:
+                expression = (
+                    f"state[{self.slot_names[measured_slot.index]}] - "
+                    f"{self._calculated_losses_name(flow.from_zone)}(state)"
+                )
+            else:
+                continue
+            self.emit(indent + f"_value = {expression}")
+            if not flow.bidirectional:
+                self.emit(indent + "_value = max(0.0, _value)")
+            self.emit(indent + f"state[{self.slot_names[layout.flow_natural[flow.id].index]}] = _value")
+            self.emit(indent + f"{self._flow_effect_name(flow.id)}(state, _value)")
+
+        self.emit("")
+        self.emit("    # Specified natural-flow imports/diversions/storage flows.")
+        for flow in graph.graph.interzone_flows:
+            specified = layout.specified_natural_flow.get(flow.id)
+            if specified is None:
+                continue
+            active = layout.boundary_natural_active.get(flow.id)
+            if active is not None:
+                self.emit(f"    if state[{self.slot_names[active.index]}] < 0.5:")
+                indent = "        "
+            else:
+                indent = "    "
+            self.emit(indent + f"_value = state[{self.slot_names[specified.index]}]")
+            if not flow.bidirectional:
+                self.emit(indent + "if _value < -TOL:")
+                self.emit(indent + f"    raise BlockLPError({('Specified natural flow cannot be negative for ' + flow.id)!r})")
+            self.emit(indent + f"state[{self.slot_names[layout.flow_natural[flow.id].index]}] = _value")
+            self.emit(indent + f"{self._flow_effect_name(flow.id)}(state, _value)")
+
+        self.emit("")
+        self.emit("    # Preserve original NF as the initial remaining-NF state.")
+        for zone_id, natural_slot in layout.natural_at_zone.items():
+            remaining_slot = layout.natural_flow[zone_id]
+            self.emit(
+                f"    state[{self.slot_names[remaining_slot.index]}] = max(0.0, state[{self.slot_names[natural_slot.index]}])"
+            )
+
+        self.emit("")
+        self.emit("    # Remove natural flow already apportioned outside external boundaries.")
+        for flow_id, boundary in layout.boundary_natural_flow.items():
+            flow = graph.get_flow_by_id(flow_id)
+            active = layout.boundary_natural_active[flow_id]
+            measured = layout.measurements[flow_id]
+            self.emit(f"    if state[{self.slot_names[active.index]}] >= 0.5:  # {flow_id}")
+            self.emit(
+                f"        _already_apportioned = state[{self.slot_names[boundary.index]}] - state[{self.slot_names[measured.index]}]"
+            )
+            self.emit(
+                f"        _amount_at_entry = {self._deliver_name(flow_id, 'to')}(state, _already_apportioned)"
+            )
+            if graph.get_zone_by_id(flow.to_zone).type == ZoneTypes.STREAM:
+                self.emit(
+                    f"        {self._adjust_remaining_name(flow.to_zone)}(state, -_amount_at_entry)"
+                )
+        self.emit("")
+
+    def emit_spill_credit_function(self):
+        layout = self.state_layout
+        graph = layout.graph
+        self.emit("def _apply_spill_credits(state):")
+        self.emit("    _total_credit = 0.0")
+        if not layout.spill_credits:
+            self.emit("    return 0.0")
+            self.emit("")
+            return
+        for spill in layout.spill_credits:
+            flow = graph.get_flow_by_id(spill.flow_id)
+            available = self.slot_names[spill.available.index]
+            capacity = self.slot_names[spill.directional_capacity.index]
+            self.emit(f"    # Spill/import credit on {spill.flow_id} into {spill.receiving_zone}")
+            self.emit(f"    _signed = float(state[{available}])")
+            self.emit(f"    _residual = max(0.0, _signed * {spill.factor!r})")
+            self.emit("    if _residual > SPILL_TOL:")
+            self.emit(f"        state[{available}] = 0.0")
+            self.emit(f"        state[{capacity}] = 0.0")
+            endpoint = "to" if spill.factor > 0 else "from"
+            self.emit(
+                f"        _credit = {self._deliver_name(spill.flow_id, endpoint)}(state, _residual)"
+            )
+            self.emit("        if _credit > SPILL_TOL:")
+            self.emit("            _total_credit += _credit")
+            self.emit(
+                f"            {self._adjust_remaining_name(spill.receiving_zone)}(state, _credit)"
+            )
+        self.emit("    return _total_credit")
+        self.emit("")
+
+    def emit_natural_flow_program(self):
+        # Tiny codegen unit tests sometimes use a slots-only stand-in layout.
+        # Keep those tests useful without requiring a full accounting graph.
+        if not hasattr(self.state_layout, "graph") or not hasattr(self.state_layout, "natural_flow"):
+            self.emit("def _initialize_natural_flow(state):")
+            self.emit("    return None")
+            self.emit("")
+            self.emit("def _apply_spill_credits(state):")
+            self.emit("    return 0.0")
+            self.emit("")
+            return
+        self.emit_loss_transform_functions()
+        self.emit_nf_route_selectors()
+        self.emit_nf_propagation_functions()
+        self.emit_nf_flow_effect_functions()
+        self.emit_nf_calculated_loss_functions()
+        self.emit_nf_routing_coefficient_functions()
+        self.emit_nf_initialization()
+        self.emit_spill_credit_function()
+
     def emit_lp(self, operation: LPKernel, function_name: str, external_name: str):
         self.add_external(external_name, operation)
         self.emit_commented_lp(operation.model)
@@ -602,15 +1061,30 @@ class PythonPlanEmitter:
             raise TypeError(f"Unknown compiled operation: {operation!r}")
 
     def build(self, operations, replay_operations) -> GeneratedPlanSource:
-        self.emit('"""Generated apportionment program.  This exact source is executed by CompiledPlan."""')
+        """Generate the python code that will execute the calculations."""
+
         self.emit("from math import isfinite, isinf, isnan")
-        self.emit("from ut_water_apportionment.compile.kernel import BlockLPError, TOL")
-        self.emit("from ut_water_apportionment.compile.formula import FormulaEvaluationError, FormulaGuardFailed")
         self.emit("")
-        self.emit("# Runtime state layout.  Formula code below uses these names instead of raw indexes.")
+        self.emit("# Numerical tolerances.")
+        self.emit(f"TOL = {TOL!r}")
+        self.emit("NF_TOL = 1e-6")
+        self.emit("SPILL_TOL = 1e-7")
+        self.emit("")
+        self.emit("# Errors raised by the compiled calculation.")
+        self.emit("class BlockLPError(RuntimeError):")
+        self.emit("    pass")
+        self.emit("class FormulaGuardFailed(RuntimeError):")
+        self.emit("    pass")
+        self.emit("class FormulaEvaluationError(RuntimeError):")
+        self.emit("    pass")
+        self.emit("")
+        self.emit("# Use names in place of slot indexes for more readable code.")
         for slot in sorted(self.state_layout.slots.values(), key=lambda value: value.index):
-            self.emit(f"{self.slot_names[slot.index]} = {slot.index}  # {slot.name}")
+            self.emit(f"{self.slot_names[slot.index]} = {slot.index}")
         self.emit("")
+
+        # Natural-flow setup is part of the same generated/executed program.
+        self.emit_natural_flow_program()
 
         pass_names = []
         for index, operation in enumerate(operations):
@@ -632,18 +1106,25 @@ class PythonPlanEmitter:
             self.emit("# " + "=" * 76)
             self.emit_operation(operation, fn, ext)
 
-        self.emit("def execute_day(state):")
+        self.emit("def execute(state):")
+        self.emit("    _initialize_natural_flow(state)")
         self.emit("    lp_solves = 0")
+        self.emit("")
+        self.emit("    # 1st pass")
         for fn in pass_names:
             self.emit(f"    lp_solves += {fn}(state)")
+        self.emit("")
+        self.emit("    # Apply spill/import natural-flow credits after 1st pass")
+        self.emit("    _apply_spill_credits(state)")
+        if getattr(self.state_layout, "spill_credits", None):
+            self.emit("")
+            self.emit("    # Replay the priority program using the updated NF state.")
+            for fn in replay_names:
+                self.emit(f"    lp_solves += {fn}(state)")
+        self.emit("")
         self.emit("    return lp_solves")
         self.emit("")
-        self.emit("def execute_replay(state):")
-        self.emit("    lp_solves = 0")
-        for fn in replay_names:
-            self.emit(f"    lp_solves += {fn}(state)")
-        self.emit("    return lp_solves")
-        self.emit("")
+
         return GeneratedPlanSource("\n".join(self.lines), dict(self.namespace))
 
 

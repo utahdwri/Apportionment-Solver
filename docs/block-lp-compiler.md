@@ -1,136 +1,498 @@
-# Block-first LP compiler
+# Block-first LP / formula compiler
 
-This is the first executable implementation of the `compile/compile.py`
-sketch. Every priority block currently runs an LP kernel. Direct formulas and
-analytical proportional loops are deliberately deferred. This establishes the
-accounting contract for later optimizations; it is not a performance release.
+The block compiler is now the main experimental path for converting a `SolverInput`
+into a reusable daily apportionment program.  It begins with the same linear
+accounting problem used by the LP solver, but compiles each priority block as far
+as possible into direct Python formulas before retaining a numerical LP fallback.
 
-## Apply and use
+The end product is a `CompiledPlan` whose `code()` method returns the **exact
+human-readable Python module that is executed**.  The generated program now
+includes natural-flow initialization, priority allocation, reservoir spill/import
+credit, and replay.  Kernel objects are compile-time intermediate representation
+(IR); once compilation is complete, the generated Python is the runtime program.
 
-Apply `block_lp_kernels.patch` from the root of the supplied `project(2).zip`
-package (the directory containing `src` and `tests`):
-
-```sh
-git apply --check block_lp_kernels.patch
-git apply block_lp_kernels.patch
-```
-
-The existing public `solve` and `compile_solver_input_v2` APIs are unchanged.
-Opt into the new implementation explicitly:
+## Basic use
 
 ```python
 from ut_water_apportionment.compile import compile
 
 plan = compile(solver_input)
+
+# Inspect the exact generated program.
+print(plan.code())
+
+# Execute the compiled program over the SolverInput period.
 result = plan.solve(check_expected_values=True)
 
-# Reuse the structure with another MeasurementCollection for the same period.
+# The same compiled structure can be reused with replacement measurement values.
 result = plan.solve(measurements=updated_measurements)
 
-print(plan.code())
 print(result.compilation_report)
 ```
 
-Each `solve()` starts with fresh daily and cumulative accounting state. The
-plan owns a copy of the input. Changes to graph structure, transactions, limits,
-or the simulation period require a new plan; measurement values can be replaced
-without recompiling. The existing dependencies, including SciPy, are sufficient.
+A change to graph structure, transactions, paths, priorities, limits, accounts,
+or the simulation period requires recompilation.  Daily measurement values,
+loss fractions, specified natural flow, boundary natural flow, cumulative state,
+and account balances remain runtime inputs.
 
-## Three building functions
+## Compiler pipeline
 
-* `build_runtime_state_layout(input)` snapshots the structure and assigns numeric
-  slots for allocations, remaining transaction limits, reference cfs, remaining
-  group reservations, measured flows, natural flows, and routing coefficients.
-  It does not read or specialize to a representative day's measurements.
-* `priority_blocks(input)` groups transactions in priority order. Children at
-  or before their parent's priority are moved immediately after it, using the
-  existing schedule convention. Proportional reference cfs bind to each day's
-  effective limits, including call and cumulative limits.
-* `build_block_lp(input, block, layout)` emits the existing `BlockLP`
-  representation from `compile/lp.py`. One variable represents a transaction's
-  increment; fractional path losses become runtime coefficient slots rather
-  than additional path-leg variables.
+Compilation proceeds in four stages for each priority block:
 
-For manual inspection:
-
-```python
-from ut_water_apportionment.compile import (
-    build_runtime_state_layout, priority_blocks, build_block_lp,
-)
-
-layout = build_runtime_state_layout(solver_input)
-models = [build_block_lp(layout.input, block, layout)
-          for block in priority_blocks(layout.input)]
+```text
+build_block_lp()
+      |
+      v
+try_compile_direct_calculation()
+      |
+      v
+try_compile_proportional_calculation()
+      |
+      v
+try_compile_scalar_formula()
+      |
+      v
+LPKernel fallback
 ```
 
-## Reservations and state updates
+The same sequence is compiled twice when reservoir replay can matter:
 
-An ordinary block contains its targets. Group allocations need additional
-descendant variables to demonstrate that their reserved amount can be delivered.
-Outstanding senior reservations also remain represented while intervening
-outside transactions are allocated. Consequently, a large group subtree can
-still produce a large kernel.
+```text
+PASS 1 program
+REPLAY program
+```
 
-Only target increments are committed. Auxiliary descendant solutions are
-feasibility witnesses, not allocations. A group allocation creates a reservation;
-its child allocations discharge that reservation. Physical flow and natural-flow
-capacities are consumed when path transactions are committed. This avoids
-premature child allocation and counting a reservation twice.
+Pass 1 deliberately excludes unnecessary future reservoir counterflow.  Replay
+can introduce real opposite-direction feasibility witnesses after Pass 1 has
+established storage deliveries and spill/import credit.
 
-Updates resolve all coefficient slots before changing any state, then aggregate
-changes. Each subsequent kernel sees the updated residual capacities. Committed
-transactions are represented by their accounting effects, rather than being
-reoptimized as free variables.
+## Structural builders
 
-## Execution and transparency
+### `build_runtime_state_layout(input)`
 
-`plan.code()` returns the actual executed daily Python source, including each
-`BlockLP` definition and the sequence of kernel calls. Its `execute_day(state)`
-expects a prepared numeric state array; the package supplies daily data binding,
-natural-flow calculation, kernel implementation, and output reporting. It is
-not a standalone replacement for those dependencies.
+Freezes solver structure and assigns numeric runtime slots.  Important slot
+families include:
 
-Singleton blocks maximize their target. Equal-priority blocks use proportional
-increments, commit the shared increment, and solve scalar LPs to identify blocked
-members before redistributing. Unlimited members share equally before finite
-members, following the existing solver convention. Very small proportional
-factors are deferred, also following the existing solver. LP matrices are bound
-and solved at runtime, so this baseline can still be slow.
+- transaction allocations and effective daily limits;
+- proportional reference cfs;
+- remaining group reservations;
+- signed measured-flow residuals;
+- forward and reverse measured-flow capacity;
+- storage-account withdrawal/deposit capacity;
+- endpoint delivery factors;
+- specified and external-boundary natural-flow inputs;
+- natural flow at zones and on flows;
+- routed natural-flow coefficient slots;
+- spill/replay capacity and credit state.
 
-The report includes kernel count, maximum kernel variable count, slot count,
-and actual LP solve count. Later formula compilers can replace kernels while
-retaining the same slot and update contract.
+`new_day()` now performs **data binding**, not the complete numerical solve.  It
+loads current measurements, loss factors, limits, account balances, and raw
+specified/boundary NF values.  The generated Python calculates the natural-flow
+network from those inputs.
 
-## Initial support boundary
+### `priority_blocks(input)`
 
-Implemented: forward paths on non-bidirectional allocated flows; sequential and
-equal-priority allocation; nested group reservations; daily, call, and cumulative
-path limits; daily proportional references; lags; varying fractional losses;
-and existing natural-flow preparation, including specified and external values.
+Produces stable priority cohorts.  Existing parent/child priority correction is
+preserved: a child whose priority is equal to or earlier than its parent is
+placed immediately after the parent.  Transactions are not filtered based on a
+representative day, because a later day may activate a currently inactive limit.
 
-Not yet implemented: storage and storage accounts, account transfers, reverse
-or bidirectional transaction allocation, spill/import credit replay,
-unconstrained physical flows, piecewise/absolute losses, cumulative group
-limits, and groups without finite daily limits. These raise
-`UnsupportedBlockInput` rather than silently switching accounting rules or
-falling back to the old full-system solver. Bidirectional natural balancing
-flows are permitted when they are not transaction paths.
+### `build_block_lp(input, block, layout, replay=False)`
 
-In particular, the Duchesne and Uinta cases that require storage cannot yet use
-this backend. Opposing-flow elimination will need an explicit implementation
-when reverse transaction allocation is added.
+Builds the incremental linear problem for one priority cohort.  Unlike the old
+whole-system equations, a block variable represents an **additional transaction
+allocation**, not a separate variable for every path leg.
+
+Path delivery, losses, NF routing, and account deposit factors are represented by
+runtime coefficients.  This makes the block model much smaller while preserving
+the same accounting constraints.
+
+## Block variables and witnesses
+
+A block can contain two kinds of variables.
+
+### Target variables
+
+These are the transactions at the priority currently being allocated.  Only
+these variables are committed to runtime state.
+
+### Witness variables
+
+Witnesses exist only to prove feasibility.  They include:
+
+- descendants of a group target, showing that a new reservation can eventually
+  be delivered;
+- descendants of an outstanding senior reservation while an intervening outside
+  transaction is allocated;
+- replay-only real counterflow transactions needed to prove reservoir-edge net
+  flow feasibility;
+- narrowly scoped replay reporting-slack witnesses where a storage outflow must
+  be represented without inventing unnecessary Pass-1 counterflow.
+
+Witness solutions are discarded after the block calculation.  They are never
+mistaken for committed allocations.
+
+## Block constraints
+
+The current block representation can contain:
+
+- transaction upper bounds;
+- signed or directional measurement capacity rows;
+- natural-flow capacity rows;
+- storage-account withdrawal and deposit rows;
+- group reservation equalities;
+- reservoir net-flow coupling rows;
+- replay-only counterflow/slack rows.
+
+A committed target increment updates all affected runtime capacities before the
+next priority block executes.
+
+## Direct calculations
+
+A one-target block with no required coupled optimization is compiled to a
+`DirectCalculationKernel` and then emitted as ordinary Python interval logic.
+
+The common case is conceptually:
+
+```python
+TRXN_1 = min(
+    remaining_limit_TRXN_1,
+    remaining_measurement / flow_coefficient,
+    remaining_nf / nf_coefficient,
+)
+```
+
+Runtime coefficients retain an explicit zero case.  A slot whose structural sign
+is nonnegative may still evaluate to exactly zero on a particular day, so the
+generated program uses the same three-way logic as the original interval solver:
+
+```text
+coefficient == 0  -> test row feasibility, do not divide
+coefficient > 0   -> ordinary lower/upper conversion
+coefficient < 0   -> reverse lower/upper conversion
+```
+
+The current generated direct code remains slightly more general than most
+apportionment blocks require; future cleanup can omit lower-bound machinery from
+blocks that are structurally upper-bound-only.
+
+## Analytical proportional calculations
+
+Equal-priority blocks that contain only monotone upper-capacity coupling compile
+to a `ProportionalCalculationKernel`.
+
+For active members with proportional factors `f_i`, the next common increment is
+computed from bounds such as:
+
+```text
+g <= remaining_limit_i / f_i
+
+g <= remaining_row_capacity /
+     sum(row_coefficient_i * f_i for active i)
+```
+
+The kernel commits the common increment, determines which transactions became
+blocked, removes them, and continues with the remaining cohort.  Unlimited
+reference members and tiny proportional shares retain the legacy allocation
+conventions.
+
+The coupled-block fast path also detects many blocked transactions directly from
+exhausted residual rows, avoiding one LP classification solve per active member.
+
+## Symbolic scalar formula compiler
+
+Blocks that are not simple direct or monotone proportional calculations are
+passed to `try_compile_scalar_formula()` before falling back to an LP.
+
+The scalar compiler treats the block as a parametric linear program.  For a
+proportional solve it introduces a common scalar objective `g`, then eliminates
+witness/coupled variables until the feasible interval for `g` is expressed as
+runtime formulas.
+
+The compiler performs:
+
+1. equality substitution where possible;
+2. symbolic coefficient/RHS projection;
+3. Fourier-Motzkin-style elimination using cross multiplication rather than
+   specializing to one day's coefficient values;
+4. canonicalization and merging of equivalent row shapes;
+5. removal of structurally redundant inequalities;
+6. expression-DAG construction;
+7. lowering of that DAG to straight-line Python.
+
+Conceptually the result is:
+
+```python
+lower = max(lower_formula_1, lower_formula_2, ...)
+upper = min(upper_formula_1, upper_formula_2, ...)
+
+if upper < lower - tolerance:
+    ...
+
+g = upper
+```
+
+Loss/routing coefficients that vary by date remain runtime slot reads inside the
+already-compiled formulas.  There is **no runtime formula cache and no runtime
+projection**.
+
+Projection currently has a row budget of 5000.  If symbolic projection becomes
+too large or requires unsupported assumptions, compilation retains an exact
+`LPKernel` for that block rather than failing the whole plan.
+
+## LP fallback
+
+An unresolved block is explicit in `plan.code()`.  The generated program includes
+a readable commented rendering of its variables, allocation rule, constraints,
+and committed state updates, followed by the actual fallback call, for example:
+
+```python
+# Numerical LP fallback
+#
+# VARIABLES
+#     ...
+#
+# CONSTRAINTS
+#     ...
+
+def _pass1_block_17(state):
+    return _PASS1_FALLBACK_17.execute(state)
+```
+
+The LP object is injected into the generated module's execution namespace.  This
+keeps the generated code truthful: every remaining numerical optimization is
+visible as an explicit fallback call.
+
+## One generated program
+
+`CompiledPlan.__post_init__()` lowers all compile-time kernels into one Python
+module using `compile/codegen.py`:
+
+```text
+compile-time kernel IR
+        |
+        v
+Python source
+        |
+        +--> plan.code()
+        |
+        +--> exec(...)
+                 |
+                 +--> execute_day(state)
+                 +--> execute_replay(state)
+```
+
+There is no separate pretty-print representation.  The source shown by
+`plan.code()` is the source Python actually executes.
+
+Generated state indexes are given readable constants, and formulas use named
+intermediate expressions rather than reconstructing the original `BlockLP` at
+runtime.
+
+## Natural flow is part of the generated program
+
+Natural-flow calculation previously occurred before the compiled executor.  It
+is now part of the generated Python.
+
+`new_day()` binds the raw daily inputs, including:
+
+- measured interzone flows;
+- endpoint delivery factors;
+- specified NF values;
+- external-boundary NF values and active flags;
+- transaction/group limits;
+- storage-account balances.
+
+`execute_day(state)` then performs the numerical NF calculation before Pass 1.
+The generated source contains:
+
+1. endpoint loss-transform helpers;
+2. NF route selection and downstream propagation;
+3. calculated endpoint-loss adjustments used by system gain/loss zones;
+4. routed NF coefficients used by transaction constraints;
+5. specified natural-flow propagation;
+6. external-boundary natural-flow handling and prior-commitment removal;
+7. initialization of `remaining_nf[...]` and flow-level NF reporting values.
+
+The compatibility path in `RuntimeStateLayout.new_day(..., natural_flow=...)`
+still exists for tests/manual callers, but normal `solve_plan()` does not use a
+`NaturalFlowCalculator` to initialize the compiled execution state.
+
+## Loss-transform boundary and future piecewise losses
+
+The generated NF code intentionally uses loss-transform helpers rather than
+hard-coding NF as only a product of scalar coefficients.  Conceptually each
+endpoint exposes operations like:
+
+```python
+deliver(q)
+required_inflow(delivered)
+```
+
+With the currently supported fractional loss these reduce to multiplication and
+division by a runtime delivery factor.
+
+This boundary is intended for future piecewise-linear loss support.  A later
+compiler can replace a helper body with segment logic such as:
+
+```python
+if q <= breakpoint_1:
+    ...
+elif q <= breakpoint_2:
+    ...
+else:
+    ...
+```
+
+without rewriting NF routing, boundary handling, or spill-credit propagation.
+
+Piecewise losses are **not yet supported** by the block compiler.  Supporting
+piecewise incremental transaction losses will additionally require accounting
+for the existing/base physical flow through a lossy reach, because incremental
+loss across a breakpoint depends on the flow already present.  The current
+loss-transform abstraction is intended to be the entry point for that work.
+
+## Reservoirs, signed flow, and replay
+
+Bidirectional reservoir accounting uses signed physical residuals together with
+nonnegative directional capacities.
+
+Pass 1 avoids the old pattern of introducing all possible reverse variables,
+minimizing them, temporarily fixing them, maximizing the target, and releasing
+the fixes.  Instead it structurally omits unnecessary future counterflow.
+
+After Pass 1, generated code determines unavoidable non-natural-to-natural
+residual flow, locks the corresponding replay capacity, converts the delivered
+amount into downstream natural-flow credit, and then runs the precompiled replay
+program.
+
+Replay may be required even when physical spill credit is zero, because a first
+pass can establish a legitimate storage delivery that allows an earlier
+reservoir-inflow transaction to increase without creating an artificial flow
+loop.
+
+## Storage accounts and cumulative group limits
+
+Storage-account balances persist through `TrxnSchedule` across days.  The block
+LP only needs beginning-of-day withdrawal/deposit capacity:
+
+```text
+withdrawal capacity = balance - floor
+deposit capacity    = ceiling - balance
+```
+
+A withdrawal consumes anchor allocation 1:1.  A deposit consumes ceiling
+capacity using the delivered amount at the final path leg, so path losses are
+respected.
+
+Group cumulative limits are also cross-day schedule state rather than new LP
+structure.  Each day's effective group upper bound is obtained from the normal
+schedule limit calculation, including daily/call/cumulative restrictions.  The
+final daily group allocation is committed to cumulative use at the end of the
+day.  A cumulative limit may supply the group's finite effective cap even when
+there is no ordinary daily upper limit.
+
+## Daily execution
+
+Normal execution is now approximately:
+
+```text
+for each date:
+    bind raw daily inputs into state
+
+    execute_day(state):
+        initialize natural flow
+        run PASS 1 formulas/kernels
+        calculate and apply spill/import NF credit
+        run replay formulas/kernels when applicable
+
+    verify reservations
+    construct output apportionments/slack reporting
+    commit group cumulative use and account balances
+```
+
+Output reporting, lag/unlag handling, cross-day account state, and cumulative
+schedule bookkeeping remain outside the generated daily formula module.
+
+## Compilation report
+
+`SolverOutput.compilation_report` currently reports, among other fields:
+
+- `priority_blocks`;
+- `direct_calculations`;
+- `proportional_calculations`;
+- `scalar_formulas`;
+- `lp_kernels`;
+- `maximum_formula_rows`;
+- `maximum_kernel_variables`;
+- `runtime_slots`;
+- `execution_days`;
+- `execution_lp_solves`;
+- `spill_replay_flows`;
+- `runtime_compilation` (currently `False`).
+
+A plan that fully reduces to formulas should report `execution_lp_solves == 0`.
+
+## Current support boundary
+
+Implemented in the current block compiler:
+
+- sequential priority allocation;
+- equal-priority proportional allocation and redistribution;
+- nested group reservations and feasibility witnesses;
+- daily, call, and cumulative path limits;
+- cumulative group limits when they provide a finite effective daily cap;
+- fractional-day/path lags already represented by the surrounding schedule/data
+  system;
+- varying fractional endpoint losses;
+- signed/reverse transaction paths where physically allowed;
+- bidirectional reservoir net-flow accounting;
+- storage zones and storage accounts;
+- Pass-1 / spill-credit / replay reservoir behavior;
+- specified natural flow;
+- external-boundary natural flow and prior commitments;
+- compiled NF routing and initialization;
+- direct formulas;
+- analytical proportional formulas;
+- fully symbolic scalar projection to Python formulas;
+- exact small-LP fallback when a block cannot be reduced safely.
+
+Still deliberately unsupported:
+
+- piecewise/absolute endpoint losses and segment-dependent transaction delivery;
+- formula structures that exceed configured symbolic projection safety budgets,
+  except that those blocks transparently retain an `LPKernel` fallback.
+
+Unsupported accounting rules raise `UnsupportedBlockInput` rather than silently
+switching to a different solver interpretation.
 
 ## Validation
 
-Run the focused contracts with:
+Useful focused tests include:
 
-```sh
-PYTHONPATH=src python -m unittest tests.test_block_compile -v
+```text
+tests/test_block_compile.py
+tests/test_block_direct.py
+tests/test_block_proportional.py
+tests/test_block_symbolic_formula.py
+tests/test_block_accounts.py
+tests/test_block_group_cumulative.py
+tests/test_block_reverse.py
+tests/test_plan_code.py
+tests/test_real_problems.py
 ```
 
-The 18 tests cover daily state reuse, priority correction, sequential and
-proportional allocation, blocked-member redistribution, unlimited references,
-nested and competing reservations, cumulative resets, runtime loss factors,
-specified natural flow, executable source replay, empty transaction lists,
-and explicit rejection of unsupported inputs. Supported fixtures compare
-outputs with the existing solver. Existing solver tests remain unchanged.
+The real-problem Duchesne and Uinta comparisons have been useful regression
+fixtures because they exercise nested reservations, storage/replay, signed flow,
+natural-flow routing, and larger symbolic formulas together.
+
+The intended correctness rule is:
+
+> Compilation may replace an LP with equations only when the generated program
+> is algebraically equivalent for the supported runtime parameter regime.  If
+> that cannot be proven within the compiler's current rules/budget, retain the
+> exact LP fallback.
+
+That principle keeps the generated program fast on common blocks while allowing
+new or unusual accounting structures to remain correct before they receive a
+specialized formula implementation.
