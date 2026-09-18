@@ -4,9 +4,19 @@ from typing import TypeAlias
 
 @dataclass(frozen=True)
 class Slot:
-    """A position in the runtime state array."""
+    """A position in the runtime state array.
+
+    ``sign`` is structural metadata used only when a slot is an LP coefficient:
+    ``+1`` means the runtime value is nonnegative, ``-1`` means nonpositive,
+    and ``0`` means no sign guarantee is available.  Bounds/state slots do not
+    need sign metadata.
+    """
     index: int
     name: str  # For readable generated code and diagnostics.
+    sign: int = 0
+    source_index: int | None = None
+    source_factor: float = 1.0
+    constant_value: float | None = None
 
 
 Scalar: TypeAlias = float | Slot

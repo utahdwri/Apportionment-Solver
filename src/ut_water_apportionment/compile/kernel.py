@@ -597,12 +597,208 @@ class LPKernel:
         return calls
 
 
+
+@dataclass
+class ScalarFormulaKernel:
+    """Execute a scalar block objective from a formula compiled before solve().
+
+    ``formula_source`` is produced by symbolic projection during ``compile()``.
+    It contains no runtime projection/cache: every scalar query is answered by
+    straight-line Python arithmetic over state slots and proportional factors.
+    The numerical LP remains an exact safety fallback if a structural sign
+    guard or formula feasibility guard is violated at runtime.
+    """
+
+    model: BlockLP
+    formula_source: str
+    maximum_intermediate_rows: int = 0
+    final_formula_rows: int = 0
+
+    def __post_init__(self):
+        from .formula import ScalarFormulaProgram
+
+        self.fallback = LPKernel(self.model)
+        self.names = self.fallback.names
+        self.index = self.fallback.index
+        if isinstance(self.model.rule, Maximize):
+            if len(self.model.rule.coefficients) != 1:
+                raise ValueError("Scalar formula Maximize requires one objective target")
+            self.targets = tuple(self.model.rule.coefficients)
+        elif isinstance(self.model.rule, Proportional):
+            self.targets = tuple(self.model.rule.reference_cfs)
+        else:
+            raise ValueError(f"Unknown scalar formula rule: {self.model.rule!r}")
+        if set(self.model.updates) - set(self.targets):
+            raise ValueError("Only scalar-formula targets may commit state updates")
+        self._maximum = ScalarFormulaProgram(
+            self.formula_source,
+            self.maximum_intermediate_rows,
+            self.final_formula_rows,
+            (),
+        ).compile()
+
+    def _scalar_maximum(self, state, factors):
+        from .formula import FormulaEvaluationError, FormulaGuardFailed
+        try:
+            return self._maximum(state, factors), 0
+        except (FormulaGuardFailed, FormulaEvaluationError, ArithmeticError, OverflowError):
+            pass
+
+        if len(factors) == 1 and next(iter(factors.values())) == 1.0:
+            name = next(iter(factors))
+            result = self.fallback._solve(state, weights={name: 1.0})
+            return max(0.0, float(result[self.index[name]])), 1
+        result = self.fallback._solve(state, proportions=factors)
+        return max(0.0, float(result[-1])), 1
+
+    def _structural_blockers(self, state, active):
+        blocked = []
+        for name in active:
+            variable = self.model.variables[name]
+            upper = None if variable.upper is None else value(variable.upper, state)
+            if upper is not None and upper <= TOL:
+                blocked.append(name)
+
+        blocked_set = set(blocked)
+        for constraint in self.model.constraints:
+            coefficients = {
+                variable_name: value(coefficient, state)
+                for variable_name, coefficient in constraint.coefficients.items()
+            }
+            live_coefficients = {}
+            for variable_name, coefficient in coefficients.items():
+                variable = self.model.variables[variable_name]
+                variable_upper = (
+                    None if variable.upper is None
+                    else value(variable.upper, state)
+                )
+                if variable_upper is not None and variable_upper <= TOL:
+                    continue
+                live_coefficients[variable_name] = coefficient
+
+            if (
+                constraint.upper is not None
+                and value(constraint.upper, state) <= TOL
+                and not any(c < -TOL for c in live_coefficients.values())
+            ):
+                for name in active:
+                    if name not in blocked_set and coefficients.get(name, 0.0) > TOL:
+                        blocked.append(name)
+                        blocked_set.add(name)
+
+            if (
+                constraint.lower is not None
+                and -value(constraint.lower, state) <= TOL
+                and not any(c > TOL for c in live_coefficients.values())
+            ):
+                for name in active:
+                    if name not in blocked_set and coefficients.get(name, 0.0) < -TOL:
+                        blocked.append(name)
+                        blocked_set.add(name)
+        return blocked
+
+    def execute(self, state):
+        if not self.names:
+            return 0
+
+        if isinstance(self.model.rule, Maximize):
+            name, coefficient_scalar = next(iter(self.model.rule.coefficients.items()))
+            coefficient = value(coefficient_scalar, state)
+            if not isfinite(coefficient) or coefficient <= 0:
+                return self.fallback.execute(state)
+            increment, calls = self._scalar_maximum(state, {name: 1.0})
+            _commit_updates(self.model, state, {name: increment})
+            return calls
+
+        references = {
+            name: value(c, state)
+            for name, c in self.model.rule.reference_cfs.items()
+        }
+        if any(np.isnan(c) or c < 0 for c in references.values()):
+            raise BlockLPError("Invalid proportional reference cfs")
+
+        phases = [
+            {name: 1.0 for name, cfs in references.items() if np.isposinf(cfs)},
+            {name: cfs for name, cfs in references.items()
+             if isfinite(cfs) and cfs > 0},
+        ]
+        deferred = []
+        calls = 0
+
+        for active in phases:
+            while active:
+                scale = max(active.values())
+                total = sum(factor / scale for factor in active.values())
+                factors = {
+                    name: (factor / scale) / total
+                    for name, factor in active.items()
+                }
+                tiny = [name for name, factor in factors.items() if factor < 1e-6]
+                if tiny:
+                    deferred.extend(tiny)
+                    active = {
+                        name: cfs for name, cfs in active.items()
+                        if name not in tiny
+                    }
+                    continue
+
+                increment, scalar_calls = self._scalar_maximum(state, factors)
+                calls += scalar_calls
+                _commit_updates(
+                    self.model, state,
+                    {name: factor * increment for name, factor in factors.items()},
+                )
+
+                blocked = self._structural_blockers(state, active)
+                if not blocked:
+                    def classify(names):
+                        nonlocal calls
+                        names = list(names)
+                        if not names:
+                            return []
+                        witness, scalar_calls = self._scalar_maximum(
+                            state, {name: 1.0 for name in names}
+                        )
+                        calls += scalar_calls
+                        if witness > TOL:
+                            return []
+                        if len(names) == 1:
+                            return names
+                        middle = len(names) // 2
+                        return classify(names[:middle]) + classify(names[middle:])
+                    blocked = classify(active)
+
+                if not blocked:
+                    raise BlockLPError("Proportional allocation made no blocking progress")
+                active = {
+                    name: cfs for name, cfs in active.items()
+                    if name not in blocked
+                }
+
+        for name in deferred:
+            increment, scalar_calls = self._scalar_maximum(state, {name: 1.0})
+            calls += scalar_calls
+            _commit_updates(self.model, state, {name: increment})
+        return calls
+
 def compile_direct_kernel(lp_model: BlockLP) -> DirectCalculationKernel:
     return DirectCalculationKernel(lp_model)
 
 
 def compile_proportional_kernel(lp_model: BlockLP) -> ProportionalCalculationKernel:
     return ProportionalCalculationKernel(lp_model)
+
+
+def compile_scalar_formula_kernel(
+    lp_model: BlockLP,
+    formula_source: str,
+    *,
+    maximum_intermediate_rows: int = 0,
+    final_formula_rows: int = 0,
+) -> ScalarFormulaKernel:
+    return ScalarFormulaKernel(
+        lp_model, formula_source, maximum_intermediate_rows, final_formula_rows
+    )
 
 
 def compile_lp_kernel(lp_model: BlockLP) -> LPKernel:

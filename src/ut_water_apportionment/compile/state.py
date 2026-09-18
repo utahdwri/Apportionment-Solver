@@ -6,7 +6,9 @@ from math import inf, isfinite
 import numpy as np
 
 from ..graph_manager import GraphManager
-from ..models import FlowComponentsTypes, PathTrxn, SolverInput, TrxnGroup, ZoneTypes
+from ..models import (
+    FlowComponentsTypes, NaturalFlowMode, PathTrxn, SolverInput, TrxnGroup, ZoneTypes,
+)
 from ..timeseries_manager import DailyDataManager
 from ..trxn_schedule import TrxnSchedule
 from .lp import Slot
@@ -54,15 +56,39 @@ class RuntimeStateLayout:
     spill_credits: list[SpillCreditSpec] = field(default_factory=list)
     replay_counterflow_slack_limits: dict[tuple[str, int], Slot] = field(default_factory=dict)
 
-    def add(self, name: str) -> Slot:
+    def add(
+        self, name: str, *, sign: int = 0,
+        source_index: int | None = None, source_factor: float = 1.0,
+        constant_value: float | None = None,
+    ) -> Slot:
         if name in self.slots:
             raise ValueError(f"Duplicate runtime slot: {name}")
-        slot = Slot(len(self.slots), name)
+        if sign not in (-1, 0, 1):
+            raise ValueError(f"Invalid slot sign metadata: {sign}")
+        slot = Slot(
+            len(self.slots), name, sign,
+            source_index=source_index, source_factor=source_factor,
+            constant_value=constant_value,
+        )
         self.slots[name] = slot
         return slot
 
-    def coefficient_pair(self, name: str) -> tuple[Slot, Slot]:
-        return self.add(name), self.add("negative_" + name)
+    def coefficient_pair(
+        self, name: str, *, first_sign: int = 1,
+        constant_value: float | None = None,
+    ) -> tuple[Slot, Slot]:
+        """Create a coefficient and its exact negation with structural signs."""
+        if first_sign not in (-1, 1):
+            raise ValueError("Coefficient-pair sign must be +1 or -1")
+        first = self.add(
+            name, sign=first_sign, constant_value=constant_value
+        )
+        second = self.add(
+            "negative_" + name, sign=-first_sign,
+            source_index=first.index, source_factor=-1.0,
+            constant_value=(None if constant_value is None else -constant_value),
+        )
+        return first, second
 
     def descendants(self, name: str) -> set[str]:
         result = {name}
@@ -263,6 +289,59 @@ def build_runtime_state_layout(input: SolverInput) -> RuntimeStateLayout:
         txn.id: txn for txn in schedule.all_trxns
         if not (isinstance(txn, PathTrxn) and txn.is_slack)
     }
+
+    # Coefficients with the same physical path-prefix formula are exact aliases,
+    # even though older layouts allocated a separate runtime slot per
+    # transaction.  Sharing them preserves that algebraic identity for the
+    # symbolic formula compiler (for example a + (-a) cancels exactly).
+    flow_coefficient_cache: dict[tuple, tuple[Slot, Slot]] = {}
+    account_coefficient_cache: dict[tuple, tuple[Slot, Slot]] = {}
+
+    def path_factor_signature(path, index):
+        transitions = []
+        for j in range(1, index + 1):
+            previous = path[j - 1]
+            item = path[j]
+            transitions.append((
+                previous.flow_id, previous.factor > 0, float(previous.loss_after),
+                item.flow_id, item.factor > 0, float(item.loss_before),
+            ))
+        return tuple(transitions)
+
+    def constant_fraction(loss):
+        definitions = [interval.loss for interval in loss.intervals]
+        if loss.default is not None:
+            definitions.append(loss.default)
+        if not loss.intervals:
+            definitions.append(loss)
+        values = {float(definition.segments[0].loss_slope) for definition in definitions}
+        return next(iter(values)) if len(values) == 1 else None
+
+    def path_factor_constant(path, index):
+        factor = 1.0
+        for j in range(1, index + 1):
+            previous = path[j - 1]
+            item = path[j]
+            upstream = graph.get_flow_by_id(previous.flow_id)
+            downstream = graph.get_flow_by_id(item.flow_id)
+            upstream_exit_loss = (
+                upstream.loss_to_zone if previous.factor > 0 else upstream.loss_from_zone
+            )
+            downstream_entry_loss = (
+                downstream.loss_from_zone if item.factor > 0 else downstream.loss_to_zone
+            )
+            upstream_fraction = constant_fraction(upstream_exit_loss)
+            downstream_fraction = constant_fraction(downstream_entry_loss)
+            if upstream_fraction is None or downstream_fraction is None:
+                return None
+            factor *= (
+                (1.0 - upstream_fraction)
+                * (1.0 - previous.loss_after)
+                * (1.0 - downstream_fraction)
+                * (1.0 - item.loss_before)
+            )
+        return factor
+
     for name, txn in layout.transactions.items():
         if isinstance(txn, TrxnGroup):
             # A cumulative cap is just another source for today's effective
@@ -279,19 +358,40 @@ def build_runtime_state_layout(input: SolverInput) -> RuntimeStateLayout:
             for child in txn.children_trxns:
                 layout.parents[child.id] = name
         else:
-            for item in schedule.ordered_paths[name]:
+            path = schedule.ordered_paths[name]
+            for index, item in enumerate(path):
                 flow = graph.get_flow_by_id(item.flow_id)
-                # A negative transaction component may traverse a physically
-                # non-bidirectional reach as long as the *net* measured flow is
-                # still reconciled by the ordinary forward residual slack. This
-                # is used by exchange paths between reservoirs.
-                layout.flow_coefficients[name, item.flow_id] = layout.coefficient_pair(
-                    f"flow_coefficient[{(name, item.flow_id)!r}]"
+                # The runtime coefficient is item.factor times a cumulative
+                # product determined entirely by this path prefix.  Transactions
+                # with the same prefix therefore share one coefficient slot.
+                signature = (
+                    'flow', float(item.factor), path_factor_signature(path, index)
                 )
+                pair = flow_coefficient_cache.get(signature)
+                if pair is None:
+                    path_constant = path_factor_constant(path, index)
+                    coefficient_constant = (
+                        None if path_constant is None
+                        else float(item.factor) * path_constant
+                    )
+                    pair = layout.coefficient_pair(
+                        f"flow_coefficient[{(name, item.flow_id)!r}]",
+                        first_sign=1 if item.factor > 0 else -1,
+                        constant_value=coefficient_constant,
+                    )
+                    flow_coefficient_cache[signature] = pair
+                layout.flow_coefficients[name, item.flow_id] = pair
             if txn.to_account is not None:
-                layout.to_account_coefficients[name] = layout.coefficient_pair(
-                    f"to_account_coefficient[{name!r}]"
-                )
+                signature = ('to_account', path_factor_signature(path, len(path) - 1))
+                pair = account_coefficient_cache.get(signature)
+                if pair is None:
+                    account_constant = path_factor_constant(path, len(path) - 1)
+                    pair = layout.coefficient_pair(
+                        f"to_account_coefficient[{name!r}]",
+                        constant_value=account_constant,
+                    )
+                    account_coefficient_cache[signature] = pair
+                layout.to_account_coefficients[name] = pair
         layout.allocated[name] = layout.add(f"allocated[{name!r}]")
         layout.limits[name] = layout.add(f"remaining_limit[{name!r}]")
         layout.reference_cfs[name] = layout.add(f"reference_cfs[{name!r}]")
@@ -374,10 +474,52 @@ def build_runtime_state_layout(input: SolverInput) -> RuntimeStateLayout:
     for zone in graph.graph.zones:
         if zone.type == ZoneTypes.STREAM:
             layout.natural_flow[zone.id] = layout.add(f"remaining_nf[{zone.id!r}]")
+    # Natural-flow routing topology is structural even though loss fractions may
+    # vary by date.  Mark unreachable source/zone pairs as exact zero and mark
+    # constant-loss routes with their exact constant coefficient.  Dynamic
+    # reachable routes remain nonnegative symbolic slots.
+    boundary_flow_ids = set(problem.external_natural_flows)
+    calculated_outflow_by_zone = {}
+    for flow in graph.graph.interzone_flows:
+        if flow.id in boundary_flow_ids:
+            continue
+        if flow.natural_flow_mode != NaturalFlowMode.CALCULATED:
+            continue
+        if not (
+            graph.get_zone_by_id(flow.from_zone).type == ZoneTypes.STREAM
+            and graph.get_zone_by_id(flow.to_zone).type == ZoneTypes.STREAM
+        ):
+            continue
+        calculated_outflow_by_zone[flow.from_zone] = flow
+
+    def nf_coefficient_constant(source, destination):
+        if source == destination:
+            return 1.0
+        zone_id = source
+        factor = 1.0
+        visited = set()
+        while zone_id in calculated_outflow_by_zone:
+            if zone_id in visited:
+                return None
+            visited.add(zone_id)
+            flow = calculated_outflow_by_zone[zone_id]
+            from_fraction = constant_fraction(flow.loss_from_zone)
+            to_fraction = constant_fraction(flow.loss_to_zone)
+            if from_fraction is None or to_fraction is None:
+                factor = None
+            elif factor is not None:
+                factor *= (1.0 - from_fraction) * (1.0 - to_fraction)
+            zone_id = flow.to_zone
+            if zone_id == destination:
+                return factor
+        return 0.0
+
     sources = {schedule.get_nf_zone_id(t) for t in layout.transactions.values()}
     for source in sorted(sources - {None}):
         for zone in layout.natural_flow:
+            constant = nf_coefficient_constant(source, zone)
             layout.nf_coefficients[source, zone] = layout.coefficient_pair(
-                f"nf_coefficient[{(source, zone)!r}]"
+                f"nf_coefficient[{(source, zone)!r}]",
+                constant_value=constant,
             )
     return layout

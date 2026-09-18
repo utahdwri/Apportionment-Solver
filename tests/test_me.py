@@ -1,5 +1,6 @@
 import unittest
 from ut_water_apportionment import (
+    compile,
     solve,
     AccountingGraph,
     AccountingLimit,
@@ -53,9 +54,8 @@ class A_Simple(unittest.TestCase):
         )
 
 
-        from ut_water_apportionment import compile
         plan = compile(input)
-        print(plan.code())       # Actual symbolic MIN/MAX expressions.
+        print(plan._generate_python())
 
 
         print('2)')
@@ -102,7 +102,6 @@ class A_Simple(unittest.TestCase):
         )
 
 
-        from ut_water_apportionment import compile
         plan = compile(input)
         print(plan.code())       # Actual symbolic MIN/MAX expressions.
 

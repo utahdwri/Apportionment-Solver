@@ -8,7 +8,8 @@ from typing import Callable
 from ..models import PathTrxn, SolverInput, TrxnGroup, ZoneTypes
 from .kernel import (
     DirectCalculationKernel, LPKernel, ProportionalCalculationKernel,
-    compile_direct_kernel, compile_lp_kernel, compile_proportional_kernel,
+    ScalarFormulaKernel, compile_direct_kernel, compile_lp_kernel,
+    compile_proportional_kernel, compile_scalar_formula_kernel,
 )
 from .lp import BlockLP, Constraint, Maximize, Proportional, Slot, Variable
 from .state import RuntimeStateLayout, build_runtime_state_layout
@@ -23,8 +24,8 @@ class PriorityBlock:
 @dataclass
 class CompiledPlan:
     state_layout: RuntimeStateLayout
-    operations: list[DirectCalculationKernel | ProportionalCalculationKernel | LPKernel]
-    replay_operations: list[DirectCalculationKernel | ProportionalCalculationKernel | LPKernel]
+    operations: list[DirectCalculationKernel | ProportionalCalculationKernel | ScalarFormulaKernel | LPKernel]
+    replay_operations: list[DirectCalculationKernel | ProportionalCalculationKernel | ScalarFormulaKernel | LPKernel]
 
     source: str = field(init=False)
     executor: Callable = field(init=False)
@@ -53,24 +54,29 @@ class CompiledPlan:
             'from ut_water_apportionment.compile.lp import (',
             '    Slot, Variable, Constraint, Maximize, Proportional, BlockLP)',
             'from ut_water_apportionment.compile.kernel import (',
-            '    compile_direct_kernel, compile_proportional_kernel, compile_lp_kernel)',
+            '    compile_direct_kernel, compile_proportional_kernel,',
+            '    compile_scalar_formula_kernel, compile_lp_kernel)',
             '',
             '# Runtime slot layout:',
         ]
         for slot in state_layout.slots.values():
             lines.append(f"# state[{slot.index}] = {slot.name!r}")
         def emit_operation(operation):
+            model_source = pformat(operation.model, width=100, sort_dicts=False)
             if isinstance(operation, DirectCalculationKernel):
-                compiler = 'compile_direct_kernel'
-            elif isinstance(operation, ProportionalCalculationKernel):
-                compiler = 'compile_proportional_kernel'
-            else:
-                compiler = 'compile_lp_kernel'
-            return (
-                f'    {compiler}('
-                + pformat(operation.model, width=100, sort_dicts=False)
-                + '),'
-            )
+                return f'    compile_direct_kernel({model_source}),'
+            if isinstance(operation, ProportionalCalculationKernel):
+                return f'    compile_proportional_kernel({model_source}),'
+            if isinstance(operation, ScalarFormulaKernel):
+                return (
+                    '    compile_scalar_formula_kernel('
+                    + model_source
+                    + ', '
+                    + repr(operation.formula_source)
+                    + f', maximum_intermediate_rows={operation.maximum_intermediate_rows!r}'
+                    + f', final_formula_rows={operation.final_formula_rows!r}),'
+                )
+            return f'    compile_lp_kernel({model_source}),'
 
         lines.extend(['', 'kernels = ('])
         for operation in routine:
@@ -122,7 +128,12 @@ def compile(input: SolverInput) -> CompiledPlan:
         if operation is None:
             operation = try_compile_proportional_calculation(lp_model)
 
-        # Fall back to having to solve a small lp problem.
+        # General symbolic scalar formula compiler.  Projection is performed
+        # here, once, while runtime coefficients remain Slot expressions.
+        if operation is None:
+            operation = try_compile_scalar_formula(lp_model)
+
+        # Final exact fallback.
         if operation is None:
             operation = compile_lp_kernel(lp_model)
         operations.append(operation)
@@ -133,6 +144,8 @@ def compile(input: SolverInput) -> CompiledPlan:
         replay_operation = try_compile_direct_calculation(replay_model)
         if replay_operation is None:
             replay_operation = try_compile_proportional_calculation(replay_model)
+        if replay_operation is None:
+            replay_operation = try_compile_scalar_formula(replay_model)
         if replay_operation is None:
             replay_operation = compile_lp_kernel(replay_model)
         replay_operations.append(replay_operation)
@@ -726,6 +739,12 @@ def try_compile_proportional_calculation(lp_model):
             return None
         for coefficient in constraint.coefficients.values():
             if isinstance(coefficient, Slot):
+                # A structurally nonpositive runtime coefficient means this is
+                # not a monotone water-filling row.  Let the static symbolic
+                # formula compiler handle the coupled case instead of selecting
+                # this kernel and discovering the sign only during solve().
+                if coefficient.sign < 0:
+                    return None
                 coefficient_slots.add(coefficient.index)
                 continue
             coefficient = float(coefficient)
@@ -745,4 +764,55 @@ def try_compile_proportional_calculation(lp_model):
         return None
 
     return compile_proportional_kernel(lp_model)
+
+def try_compile_scalar_formula(lp_model, *, max_rows=5000):
+    """Compile a remaining scalar LP objective to static symbolic Python.
+
+    This stage permits reservation/counterflow witnesses, equalities, lower
+    bounds, mixed-sign rows, and runtime-varying loss/routing coefficients.
+    The coefficients are kept as symbolic Slot expressions during projection;
+    only their structural sign metadata is used.  No day is bound and no
+    runtime formula cache is created.
+
+    If symbolic sign analysis or the projection-size budget is insufficient,
+    return ``None`` and preserve the exact numerical LP fallback.
+    """
+    from .formula import FormulaTooLarge, FormulaUnsupported, compile_scalar_program
+
+    targets = set(lp_model.updates)
+    if not targets:
+        return None
+    if isinstance(lp_model.rule, Proportional):
+        if set(lp_model.rule.reference_cfs) != targets:
+            return None
+        ordered_targets = tuple(lp_model.rule.reference_cfs)
+    elif isinstance(lp_model.rule, Maximize):
+        if len(lp_model.rule.coefficients) != 1:
+            return None
+        name, coefficient = next(iter(lp_model.rule.coefficients.items()))
+        if name not in targets or isinstance(coefficient, Slot):
+            return None
+        coefficient = float(coefficient)
+        if not isfinite(coefficient) or coefficient <= 0:
+            return None
+        ordered_targets = (name,)
+    else:
+        return None
+
+    if set(lp_model.updates) - set(lp_model.variables):
+        return None
+
+    try:
+        program = compile_scalar_program(
+            lp_model, ordered_targets, max_rows=max_rows
+        )
+    except (FormulaTooLarge, FormulaUnsupported, ValueError, ArithmeticError, OverflowError):
+        return None
+
+    return compile_scalar_formula_kernel(
+        lp_model,
+        program.source,
+        maximum_intermediate_rows=program.maximum_intermediate_rows,
+        final_formula_rows=program.final_rows,
+    )
 

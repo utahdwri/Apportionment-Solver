@@ -10,6 +10,17 @@ from ut_water_apportionment.loss_models import LossDefinition
 def solve(input: SolverInput, *, check_expected_values: bool = False) -> SolverOutput:
     """Run every retained production test through the frozen v2 compiler."""
     from time import perf_counter
+    from ut_water_apportionment import solve # this is the old solver that does not compile anything
+
+    input.beg_date = input.beg_date[:-5] + '01-01'
+    input.end_date = input.end_date[:-5] + '12-31'
+
+    t0 = perf_counter()
+
+    #solve(input)
+    print(f'Orig. Execute Time: {perf_counter() - t0}')
+
+
     t0 = perf_counter()
 
     compiled_system = compile(input)

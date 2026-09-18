@@ -5,7 +5,7 @@ from math import isfinite
 from ..lag_utils import unlag_apportionments
 from ..models import PathTrxn, SolverOutput, SolverOutputApportionment, ZoneTypes
 from ..natural_flow_calculator import NaturalFlowCalculator
-from .kernel import DirectCalculationKernel, LPKernel, ProportionalCalculationKernel
+from .kernel import DirectCalculationKernel, LPKernel, ProportionalCalculationKernel, ScalarFormulaKernel
 from ..solver import _loop_through_date_range, assert_apportionments_equal_expected
 
 
@@ -120,6 +120,15 @@ def solve_plan(plan, measurements, *, check_expected_values=False):
                 isinstance(op, ProportionalCalculationKernel)
                 for op in (*plan.operations, *plan.replay_operations)
             ),
+            'scalar_formulas': sum(
+                isinstance(op, ScalarFormulaKernel)
+                for op in (*plan.operations, *plan.replay_operations)
+            ),
+            'maximum_formula_rows': max((
+                op.maximum_intermediate_rows
+                for op in (*plan.operations, *plan.replay_operations)
+                if isinstance(op, ScalarFormulaKernel)
+            ), default=0),
             'runtime_slots': len(layout.slots),
             'execution_days': days, 'execution_lp_solves': lp_solves,
             'spill_replay_flows': len(layout.spill_credits),
