@@ -1,7 +1,6 @@
 import builtins
 from copy import deepcopy
 from dataclasses import dataclass, field
-from pprint import pformat
 from math import isfinite
 from typing import Callable
 
@@ -31,10 +30,16 @@ class CompiledPlan:
     executor: Callable = field(init=False)
 
     def __post_init__(self):
-        self.source = self._generate_python(
+        # Kernel objects are compile-time IR.  Lower them once to one readable
+        # Python module; this exact source is both returned by code() and exec'd.
+        from .codegen import generate_plan_source
+        generated = generate_plan_source(
             self.operations, self.replay_operations, self.state_layout
         )
-        self.executor, self.replay_executor = self._compile_generated_python(self.source)
+        self.source = generated.source
+        self.executor, self.replay_executor = self._compile_generated_python(
+            self.source, generated.namespace
+        )
 
 
     def solve(self, measurements=None, *, check_expected_values=False):
@@ -47,58 +52,9 @@ class CompiledPlan:
         return self.source
 
 
-    def _generate_python(self, routine, replay_routine, state_layout):
-        """Emit the actual daily executor and readable definitions of every LP."""
-        lines = [
-            '"""Generated block-LP daily routine. state is a prepared numeric array."""',
-            'from ut_water_apportionment.compile.lp import (',
-            '    Slot, Variable, Constraint, Maximize, Proportional, BlockLP)',
-            'from ut_water_apportionment.compile.kernel import (',
-            '    compile_direct_kernel, compile_proportional_kernel,',
-            '    compile_scalar_formula_kernel, compile_lp_kernel)',
-            '',
-            '# Runtime slot layout:',
-        ]
-        for slot in state_layout.slots.values():
-            lines.append(f"# state[{slot.index}] = {slot.name!r}")
-        def emit_operation(operation):
-            model_source = pformat(operation.model, width=100, sort_dicts=False)
-            if isinstance(operation, DirectCalculationKernel):
-                return f'    compile_direct_kernel({model_source}),'
-            if isinstance(operation, ProportionalCalculationKernel):
-                return f'    compile_proportional_kernel({model_source}),'
-            if isinstance(operation, ScalarFormulaKernel):
-                return (
-                    '    compile_scalar_formula_kernel('
-                    + model_source
-                    + ', '
-                    + repr(operation.formula_source)
-                    + f', maximum_intermediate_rows={operation.maximum_intermediate_rows!r}'
-                    + f', final_formula_rows={operation.final_formula_rows!r}),'
-                )
-            return f'    compile_lp_kernel({model_source}),'
-
-        lines.extend(['', 'kernels = ('])
-        for operation in routine:
-            lines.append(emit_operation(operation))
-        lines.extend([')', '', 'replay_kernels = ('])
-        for operation in replay_routine:
-            lines.append(emit_operation(operation))
-        lines.extend([')', '', 'def execute_day(state):', '    lp_solves = 0'])
-        for index, operation in enumerate(routine):
-            lines.append(f"    # Pass 1 allocate {list(operation.model.updates)!r}")
-            lines.append(f"    lp_solves += kernels[{index}].execute(state)")
-        lines.extend(['    return lp_solves', '', 'def execute_replay(state):', '    lp_solves = 0'])
-        for index, operation in enumerate(replay_routine):
-            lines.append(f"    # Replay allocate {list(operation.model.updates)!r}")
-            lines.append(f"    lp_solves += replay_kernels[{index}].execute(state)")
-        lines.extend(['    return lp_solves', ''])
-        return '\n'.join(lines)
-
-
-    def _compile_generated_python(self, source):
-        namespace = {}
-        exec(builtins.compile(source, '<block-lp-plan>', 'exec'), namespace)
+    def _compile_generated_python(self, source, namespace=None):
+        namespace = {} if namespace is None else dict(namespace)
+        exec(builtins.compile(source, '<compiled-apportionment-plan>', 'exec'), namespace)
         return namespace['execute_day'], namespace['execute_replay']
 
 

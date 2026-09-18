@@ -55,7 +55,7 @@ class A_Simple(unittest.TestCase):
 
 
         plan = compile(input)
-        print(plan._generate_python())
+        print(plan.code())
 
 
         print('2)')
