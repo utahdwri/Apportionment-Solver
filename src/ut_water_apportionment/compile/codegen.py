@@ -17,7 +17,7 @@ from .kernel import (
     ScalarFormulaKernel,
     TOL
 )
-from .lp import BlockLP, Maximize, Proportional, Slot
+from .lp import BlockLP, Maximize, Proportional, Slot, Scalar
 from ..models import NaturalFlowMode, ZoneTypes
 
 
@@ -41,6 +41,24 @@ class GeneratedPlanSource:
 
 
 class PythonPlanEmitter:
+    """Generate the executable Python program for a compiled apportionment plan.
+
+    PythonPlanEmitter lowers the compiler's kernel-level intermediate representation
+    into readable Python source. The emitted source is both returned by
+    ``CompiledPlan.code()`` and executed to perform the runtime calculations, so
+    there is a single authoritative representation of the compiled plan.
+
+    The generated program includes runtime state-slot aliases, natural-flow
+    initialization and routing, Pass 1 allocation blocks, spill-credit handling,
+    replay blocks, and a single ``execute(state)`` entry point. Individual compiler
+    kernels are emitted as direct calculations, proportional water-filling
+    calculations, scalar formulas, or explicit numerical LP fallbacks.
+
+    Runtime-varying values are referenced through state slots rather than embedded
+    as fixed constants, allowing the same generated program to be reused across
+    days without recompilation.
+    """
+
     def __init__(self, state_layout):
         self.state_layout = state_layout
         self.lines: list[str] = []
@@ -60,7 +78,7 @@ class PythonPlanEmitter:
     def emit(self, line: str = ""):
         self.lines.append(line)
 
-    def scalar(self, value) -> str:
+    def scalar(self, value:Scalar) -> str:
         if isinstance(value, Slot):
             return f"state[{self.slot_names[value.index]}]"
         number = float(value)
@@ -80,7 +98,7 @@ class PythonPlanEmitter:
     # only as comments, so slot *names* are much easier to understand than
     # executable ``state[S_...]`` expressions.
     # ------------------------------------------------------------------
-    def readable_scalar(self, value) -> str:
+    def readable_scalar(self, value:Scalar) -> str:
         if isinstance(value, Slot):
             return value.name
         number = float(value)
@@ -90,7 +108,7 @@ class PythonPlanEmitter:
             return "NAN"
         return repr(number)
 
-    def readable_linear_expression(self, coefficients: dict[str, object]) -> list[str]:
+    def readable_linear_expression(self, coefficients: dict[str, Scalar]) -> list[str]:
         """Render a linear expression as one readable term per line."""
         lines: list[str] = []
         for name, coefficient in coefficients.items():
@@ -228,8 +246,24 @@ class PythonPlanEmitter:
     # ------------------------------------------------------------------
     # Direct kernel.
     # ------------------------------------------------------------------
-    def emit_direct(self, operation: DirectCalculationKernel, function_name: str):
+    def emit_direct(
+        self,
+        operation: DirectCalculationKernel,
+        function_name: str
+    ):
+        """Emit Python for an exact one-variable maximization.
+
+        The direct kernel has already reduced the block LP to one target variable.
+        Generated code intersects its runtime bounds and scalar constraints, chooses
+        the maximizing feasible endpoint, and applies the compiled state updates.
+        """
         model = operation.model
+
+        if not isinstance(model.rule, Maximize):
+            raise TypeError(
+                "DirectCalculationKernel requires a Maximize allocation rule"
+            )
+
         name = operation.name
         variable = model.variables[name]
         safe = _identifier(name)
@@ -247,7 +281,7 @@ class PythonPlanEmitter:
         self.emit("        raise BlockLPError('Non-finite variable bound')")
 
         for row_index, constraint in enumerate(model.constraints):
-            coefficient = constraint.coefficients.get(name, 0.0)
+            coefficient: Scalar = constraint.coefficients.get(name, 0.0)
             ccode = self.scalar(coefficient)
             lo = constraint.lower
             hi = constraint.upper
@@ -334,8 +368,32 @@ class PythonPlanEmitter:
     # ------------------------------------------------------------------
     # Monotone proportional kernel.
     # ------------------------------------------------------------------
-    def emit_proportional(self, operation: ProportionalCalculationKernel, function_name: str, external_name: str):
+    def emit_proportional(
+        self,
+        operation: ProportionalCalculationKernel,
+        function_name: str,
+        external_name: str
+    ):
+        """Emit Python for an equal-priority proportional allocation.
+
+        The proportional kernel represents a block in which all target transactions
+        share the available capacity according to their runtime reference CFS values.
+        The generated code repeatedly computes the largest common proportional
+        increment allowed by the remaining transaction limits and shared constraints,
+        commits that increment, removes any newly blocked transactions, and continues
+        until no further allocation is possible.
+
+        Runtime Slot values are emitted as state lookups so proportions, capacities,
+        and constraint coefficients may vary by day without recompilation.
+        """
+
         model = operation.model
+
+        if not isinstance(model.rule, Proportional):
+            raise TypeError(
+                "DirectCalculationKernel requires a Proportional allocation rule"
+            )
+
         targets = tuple(operation.targets)
         self.add_external(external_name, operation.fallback)
 
@@ -447,7 +505,24 @@ class PythonPlanEmitter:
     # ------------------------------------------------------------------
     # General scalar-formula kernel.
     # ------------------------------------------------------------------
-    def emit_scalar_formula(self, operation: ScalarFormulaKernel, function_name: str, external_name: str):
+    def emit_scalar_formula(
+        self,
+        operation: ScalarFormulaKernel,
+        function_name: str,
+        external_name: str
+    ):
+        """Emit Python for a statically projected scalar formula kernel.
+
+        The scalar-formula kernel represents a block whose LP has been projected at
+        compile time into explicit formulas for the target allocations. The generated
+        code evaluates those formulas from the current runtime state, checks any
+        compiled feasibility guards, and applies the resulting state updates.
+
+        Slot-valued quantities remain runtime state lookups, so coefficients, bounds,
+        and other daily inputs may vary without recompiling the symbolic projection.
+        If a runtime guard fails, the generated code may invoke the kernel's numerical
+        LP fallback when one is available.
+        """
         model = operation.model
         self.add_external(external_name, operation.fallback)
         maximum_name = function_name + "_maximum_formula"

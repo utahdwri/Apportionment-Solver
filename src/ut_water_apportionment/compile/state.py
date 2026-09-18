@@ -547,7 +547,8 @@ def build_runtime_state_layout(input: SolverInput) -> RuntimeStateLayout:
         return 0.0
 
     sources = {schedule.get_nf_zone_id(t) for t in layout.transactions.values()}
-    for source in sorted(sources - {None}):
+    valid_sources = {source for source in sources if source is not None}
+    for source in sorted(valid_sources):
         for zone in layout.natural_flow:
             constant = nf_coefficient_constant(source, zone)
             layout.nf_coefficients[source, zone] = layout.coefficient_pair(
