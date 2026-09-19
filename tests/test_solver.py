@@ -20,6 +20,7 @@ from ut_water_apportionment import (
 )
 from ut_water_apportionment.loss_models import LossDefinition
 from ut_water_apportionment.compile import UnsupportedBlockInput
+from ut_water_apportionment.models import NaturalFlowMode
 
 
 def solve(input: SolverInput, *, check_expected_values: bool = False) -> SolverOutput:
@@ -1514,6 +1515,41 @@ class B_Reservoirs(unittest.TestCase):
         results = solve(input, check_expected_values=True)
 
 
+    def test_nested_counterflow(self):
+        """ChatGPT discovered this issue and made a test that I corrected."""
+        problem = SolverInput(
+            AccountingGraph(
+                zones=[
+                    Zone("S", ZoneTypes.SYSTEM_GAIN_LOSS),
+                    Zone("R", ZoneTypes.STREAM),
+                    Zone("RES", ZoneTypes.STORAGE),
+                    Zone("U", ZoneTypes.USE)],
+                interzone_flows=[
+                    InterzoneFlow("X", "R", "RES", bidirectional=True, flow_measurements=[FlowMeasurement("X")]),
+                    InterzoneFlow("D", "R", "U", flow_measurements=[FlowMeasurement("D")]),
+                    InterzoneFlow("G", "S", "R", bidirectional=True)
+                ],
+            ),
+            [
+                PathTrxn(id="FILL", priority=1, upper_limit=10, path=[TrxnPathItem("X", expected_values=[10])]),
+                TrxnGroup(
+                    "P", priority=2, upper_limit=0, children_trxns=[
+                        PathTrxn("RELEASE", priority=3, upper_limit=10, path=[TrxnPathItem("X", factor=-1), TrxnPathItem("D", expected_values=[10])])
+                    ],
+                )
+            ],
+            MeasurementCollection(
+                [
+                    MeasurementSeries("X", [0]),
+                    MeasurementSeries("D", [10])
+                ],
+                "2025-01-01", "2025-01-01",
+            ),
+            "2025-01-01", "2025-01-01",
+        )
+        solve(problem, check_expected_values=True)
+
+
 class B_Imports(unittest.TestCase):
 
     def test_1(self):
@@ -2617,6 +2653,37 @@ class J_Losses(unittest.TestCase):
 
         results = solve(input, check_expected_values=True)
 
+
+    def test_source_endpoint_loss_is_charged_to_natural_flow(self):
+
+        problem =  SolverInput(
+            AccountingGraph(
+                zones=[
+                    Zone("S", ZoneTypes.SYSTEM_GAIN_LOSS),
+                    Zone("R", ZoneTypes.STREAM),
+                    Zone("U", ZoneTypes.USE),
+                ],
+                interzone_flows=[
+                    InterzoneFlow("D", "R", "U", flow_measurements=[FlowMeasurement("Q")], loss_from_zone=LossDefinition.linear(0.5)),
+                    InterzoneFlow("G", "S", "R", bidirectional=True,
+                                  flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE,
+                                  natural_flow_mode = NaturalFlowMode.SPECIFIED,
+                                  nf_measurements = [FlowMeasurement("NF")]
+                    ),
+                ]
+            ),
+            txns=[
+                PathTrxn(id="A", priority=1, upper_limit=10, path=[TrxnPathItem("D", expected_values=[2.0])], )
+            ],
+            measurements=MeasurementCollection([
+                MeasurementSeries("Q", [10]),
+                MeasurementSeries("NF", [4])
+            ], "2025-01-01", "2025-01-01"),
+            beg_date="2025-01-01",
+            end_date="2025-01-01",
+        )
+
+        solve(problem, check_expected_values=True)
 
 
 class K_Accounting_Graph_Details(unittest.TestCase):

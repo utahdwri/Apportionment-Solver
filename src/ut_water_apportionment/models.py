@@ -659,11 +659,10 @@ class SolverOutputApportionment:
     reason: str | None = None  # New field to identify the limiting factor
 
 
-@dataclass
+@dataclass()
 class AccountingGraph:
     zones: list['Zone']
     interzone_flows: list['InterzoneFlow']
-
 
 @dataclass
 class Zone:

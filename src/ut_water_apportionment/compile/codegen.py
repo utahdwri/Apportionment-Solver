@@ -18,7 +18,7 @@ from .kernel import (
     TOL
 )
 from .lp import BlockLP, Maximize, Proportional, Slot, Scalar
-from ..models import NaturalFlowMode, ZoneTypes
+from ..models import NaturalFlowMode, ZoneTypes, PathTrxn
 
 
 _IDENTIFIER_RE = re.compile(r"[^0-9A-Za-z_]+")
@@ -977,6 +977,9 @@ class PythonPlanEmitter:
         for positive, negative in layout.nf_coefficients.values():
             self.emit(f"    state[{self.slot_names[positive.index]}] = 0.0")
             self.emit(f"    state[{self.slot_names[negative.index]}] = 0.0")
+        for positive, negative in layout.transaction_nf_coefficients.values():
+            self.emit(f"    state[{self.slot_names[positive.index]}] = 0.0")
+            self.emit(f"    state[{self.slot_names[negative.index]}] = 0.0")
 
         self.emit("")
         self.emit("    # Natural-flow routing coefficients used by transaction constraints.")
@@ -989,6 +992,41 @@ class PythonPlanEmitter:
                     continue
                 positive, negative = pair
                 self.emit(f"    _value = _coefficients.get({zone_id!r}, 0.0)")
+                self.emit(f"    state[{self.slot_names[positive.index]}] = _value")
+                self.emit(f"    state[{self.slot_names[negative.index]}] = -_value")
+
+        self.emit("")
+        self.emit("    # Convert transaction anchor units to source-zone NF withdrawal units.")
+        for name, transaction in layout.transactions.items():
+            if not isinstance(transaction, PathTrxn):
+                continue
+            source = layout.schedule.get_nf_zone_id(transaction)
+            if source is None:
+                continue
+            path = layout.schedule.ordered_paths[name]
+            if not path:
+                continue
+            item = path[0]
+            if item.loss_before >= 1.0:
+                self.emit(
+                    f"    raise SolverError({('First path loss leaves no deliverable flow for ' + name)!r})"
+                )
+                continue
+            endpoint = "from" if item.factor > 0 else "to"
+            required = self._required_name(item.flow_id, endpoint)
+            before_factor = 1.0 - float(item.loss_before)
+            self.emit(
+                f"    _source_per_anchor = {required}(state, {abs(float(item.factor)) / before_factor!r})  # {name!r}"
+            )
+            for zone_id in layout.natural_flow:
+                pair = layout.transaction_nf_coefficients.get((name, zone_id))
+                if pair is None:
+                    continue
+                positive, negative = pair
+                route = layout.nf_coefficients[source, zone_id][0]
+                self.emit(
+                    f"    _value = _source_per_anchor * state[{self.slot_names[route.index]}]"
+                )
                 self.emit(f"    state[{self.slot_names[positive.index]}] = _value")
                 self.emit(f"    state[{self.slot_names[negative.index]}] = -_value")
 

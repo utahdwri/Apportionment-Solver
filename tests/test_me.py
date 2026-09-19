@@ -54,7 +54,7 @@ class A_Simple(unittest.TestCase):
         )
 
 
-        plan = compile(input, options=CompileOptions(compile_to_formulas=False))
+        plan = compile(input, options=CompileOptions(compile_to_formulas=True))
         print(plan)
 
 

@@ -56,7 +56,16 @@ class RuntimeStateLayout:
     natural_at_zone: dict[str, Slot] = field(default_factory=dict)
     natural_flow: dict[str, Slot] = field(default_factory=dict)
     flow_coefficients: dict[tuple[str, str], tuple[Slot, Slot]] = field(default_factory=dict)
+
+    # how much NF reaches `zone` per unit of NF withdrawn at `source`
     nf_coefficients: dict[tuple[str, str], tuple[Slot, Slot]] = field(default_factory=dict)
+
+    # Amount of each stream-zone NF residual consumed by one unit of a
+    # transaction's anchor allocation.  This includes the
+    # conversion from the first path-leg gauge amount back to source-zone
+    # withdrawal across the first endpoint/path loss. (See test_source_endpoint_loss_is_charged_to_natural_flow)
+    transaction_nf_coefficients: dict[tuple[str, str], tuple[Slot, Slot]] = field(default_factory=dict)
+
     account_out_remaining: dict[tuple[str, str], Slot] = field(default_factory=dict)
     account_in_remaining: dict[tuple[str, str], Slot] = field(default_factory=dict)
     to_account_coefficients: dict[str, tuple[Slot, Slot]] = field(default_factory=dict)
@@ -571,4 +580,46 @@ def build_runtime_state_layout(
                 f"nf_coefficient[{(source, zone)!r}]",
                 constant_value=constant,
             )
+
+    def source_withdrawal_constant(transaction: PathTrxn) -> float | None:
+        """Return source-zone withdrawal per anchor unit when it is static."""
+        path = schedule.ordered_paths[transaction.id]
+        if not path:
+            return 0.0
+        item = path[0]
+        if item.loss_before >= 1.0:
+            return None
+        flow = graph.get_flow_by_id(item.flow_id)
+        endpoint_loss = (
+            flow.loss_from_zone if item.factor > 0 else flow.loss_to_zone
+        )
+        fraction = constant_fraction(endpoint_loss)
+        if fraction is None or fraction >= 1.0:
+            return None
+        delivered = (1.0 - fraction) * (1.0 - item.loss_before)
+        return abs(float(item.factor)) / delivered
+
+    # Natural-flow constraints are written in source-zone units.  The anchor
+    # allocation, however, is the amount reported on the first path leg.  Build
+    # one derived coefficient for each transaction/stream-zone pair so the first
+    # endpoint loss is charged before the ordinary downstream NF routing loss.
+    for name, transaction in layout.transactions.items():
+        if not isinstance(transaction, PathTrxn):
+            continue
+        source = schedule.get_nf_zone_id(transaction)
+        if source is None:
+            continue
+        source_constant = source_withdrawal_constant(transaction)
+        for zone in layout.natural_flow:
+            route_constant = nf_coefficient_constant(source, zone)
+            constant = (
+                None
+                if source_constant is None or route_constant is None
+                else source_constant * route_constant
+            )
+            layout.transaction_nf_coefficients[name, zone] = layout.coefficient_pair(
+                f"transaction_nf_coefficient[{(name, zone)!r}]",
+                constant_value=constant,
+            )
+
     return layout

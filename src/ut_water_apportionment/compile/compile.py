@@ -513,7 +513,7 @@ def build_block_lp(
             set_coefficient(
                 constraint_name,
                 name,
-                layout.nf_coefficients[source, zone][0],
+                layout.transaction_nf_coefficients[name, zone][0],
             )
 
     # ------------------------------------------------------------------
@@ -687,7 +687,7 @@ def build_block_lp(
             if source is not None:
                 for zone in layout.natural_flow:
                     effects[layout.natural_flow[zone]] = (
-                        layout.nf_coefficients[source, zone][1]
+                        layout.transaction_nf_coefficients[name, zone][1]
                     )
 
         updates[name] = effects
