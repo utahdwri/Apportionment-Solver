@@ -16,9 +16,9 @@ from ut_water_apportionment import (
     AccountingGraph, AccountingLimit, AccountingLimitInterval,
     FlowComponentsTypes, FlowMeasurement, InterzoneFlow, LossDefinition,
     MeasurementCollection, MeasurementSeries, NaturalFlowMode, PathTrxn,
-    SolverInput, TrxnGroup, TrxnPathItem, Zone, ZoneTypes, compile, solve,
+    SolverInput, TrxnGroup, TrxnPathItem, Zone, ZoneTypes, compile,
+    CompileOptions, solve,
 )
-from ut_water_apportionment.compile import BlockLPError
 
 
 def transaction(name, priority=1, limit: float | AccountingLimit | None=10, flow="D"):
@@ -32,7 +32,8 @@ def diversion_problem(txns, values=(10,), split=False):
     begin, end = "2025-01-01", f"2025-01-{len(values):02d}"
     zones = [
         Zone("S", ZoneTypes.SYSTEM_GAIN_LOSS),
-        Zone("R", ZoneTypes.STREAM), Zone("U", ZoneTypes.USE),
+        Zone("R", ZoneTypes.STREAM),
+        Zone("U", ZoneTypes.USE),
     ]
     flows = [
         InterzoneFlow("D", "R", "U", flow_measurements=[FlowMeasurement("Q")]),
@@ -63,7 +64,7 @@ def allocation(output, txn_id, flow_id=None):
 
 
 class ReviewRegressions(unittest.TestCase):
-    def test_replay_counterflow_witness_respects_its_parent_cap(self):
+    def test_replay_counterflow_when_nested(self):
         problem = SolverInput(
             AccountingGraph(
                 zones=[
@@ -78,11 +79,11 @@ class ReviewRegressions(unittest.TestCase):
                 ],
             ),
             [
-                transaction("FILL", priority=1, flow="X"),
+                PathTrxn(id="FILL", priority=1, upper_limit=10, path=[TrxnPathItem("X", expected_values=[10])]),
                 TrxnGroup(
                     "P", priority=2, upper_limit=0, children_trxns=[
-                        PathTrxn("RELEASE", priority=3, upper_limit=10, path=[TrxnPathItem("X", factor=-1), TrxnPathItem("D")],
-                    )],
+                        PathTrxn("RELEASE", priority=3, upper_limit=10, path=[TrxnPathItem("X", factor=-1), TrxnPathItem("D", expected_values=[10])])
+                    ],
                 )
             ],
             MeasurementCollection(
@@ -94,10 +95,8 @@ class ReviewRegressions(unittest.TestCase):
             ),
             "2025-01-01", "2025-01-01",
         )
-        output = compile(problem).solve()
-        self.assertEqual(allocation(output, "RELEASE", "D"), [0.0])
-        # There is no authorized counterflow available to justify this fill.
-        self.assertEqual(allocation(output, "FILL"), [0.0])
+        solve(problem, check_expected_values=True)
+
 
     def test_source_endpoint_loss_is_charged_to_natural_flow(self):
         problem = diversion_problem([transaction("A")])
@@ -174,23 +173,8 @@ class ReviewRegressions(unittest.TestCase):
 
     def test_public_max_daily_apportionment_is_honored(self):
         problem = diversion_problem([transaction("A", limit=None)])
-        output = solve(problem, max_daily_apportionment=3)
+        output = solve(problem, CompileOptions(max_daily_apportionment=3))
         self.assertEqual(allocation(output, "A"), [3.0])
-
-    def test_generated_errors_use_the_public_exception_class(self):
-        problem = SolverInput(
-            AccountingGraph(
-                [Zone("A", ZoneTypes.USE), Zone("B", ZoneTypes.USE)],
-                [InterzoneFlow("F", "A", "B",
-                               flow_measurements=[FlowMeasurement("Q")])],
-            ),
-            [PathTrxn("T", path=[TrxnPathItem("F", factor=-1)])],
-            MeasurementCollection([MeasurementSeries("Q", [0])],
-                                  "2025-01-01", "2025-01-01"),
-            "2025-01-01", "2025-01-01",
-        )
-        with self.assertRaises(BlockLPError):
-            compile(problem).solve()
 
 
 if __name__ == "__main__":

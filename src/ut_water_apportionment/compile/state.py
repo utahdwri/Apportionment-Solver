@@ -265,7 +265,11 @@ def _check_fractional_loss(loss):
             raise UnsupportedBlockInput("Piecewise/absolute losses need a segment kernel")
 
 
-def build_runtime_state_layout(input: SolverInput) -> RuntimeStateLayout:
+def build_runtime_state_layout(
+    input: SolverInput,
+    *,
+    max_daily_apportionment: float | None = None,
+) -> RuntimeStateLayout:
     """Freeze structure and allocate slots without reading a representative day.
 
     This first implementation supports forward allocation, nested reservations,
@@ -293,7 +297,9 @@ def build_runtime_state_layout(input: SolverInput) -> RuntimeStateLayout:
     for flow in graph.graph.interzone_flows:
         _check_fractional_loss(flow.loss_from_zone)
         _check_fractional_loss(flow.loss_to_zone)
-    schedule = TrxnSchedule(graph, problem.txns)
+    schedule = TrxnSchedule(
+        graph, problem.txns, max_daily_apportionment=max_daily_apportionment
+    )
     data = DailyDataManager(graph, problem.measurements, problem.external_natural_flows)
     layout = RuntimeStateLayout(problem, graph, schedule, data)
     layout.transactions = {

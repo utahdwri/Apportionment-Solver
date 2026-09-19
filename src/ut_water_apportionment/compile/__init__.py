@@ -6,6 +6,7 @@ from .compile import (
     build_runtime_state_layout,
     compile,
     priority_blocks,
+    CompileOptions,
 )
 from .kernel import (
     BlockLPError,
@@ -18,6 +19,7 @@ from .state import RuntimeStateLayout, UnsupportedBlockInput
 
 __all__ = [
     'compile',
+    'CompileOptions',
     'CompiledPlan',
     'PriorityBlock',
     'RuntimeStateLayout',

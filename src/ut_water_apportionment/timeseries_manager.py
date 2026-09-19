@@ -35,6 +35,8 @@ class DailyDataManager:
         self._zone_lags = {}
         self._flow_lags = {}
         self._set_lag_by_traversal()
+        # Residual dependencies are structural; do not rediscover them every day.
+        self._residual_calc_order = self._determine_residual_calc_order()
 
         self.external_natural_flows = external_natural_flows or {}
 
@@ -63,6 +65,7 @@ class DailyDataManager:
         clone.cur_storage_chg_by_id = {}
         clone._zone_lags = self._zone_lags
         clone._flow_lags = self._flow_lags
+        clone._residual_calc_order = self._residual_calc_order
         clone.external_natural_flows = (
             self.external_natural_flows
             if external_natural_flows is None
@@ -261,7 +264,11 @@ class DailyDataManager:
 
         total_flow_by_id: dict[str, float] = {}
 
-        # 1. Measurements
+        # 1. Measurements.  Apply the raw-observation policy *before* any
+        # residual flow depends on these values.  Otherwise a one-way -5 cfs
+        # observation can be used in a residual calculation and only later be
+        # exposed to allocation as 0 cfs, making the two accounting stages
+        # disagree about the same physical observation.
         for f in self.gm.graph.interzone_flows:
             lag = self._flow_lags[f.id]
             total_measured = 0
@@ -276,11 +283,19 @@ class DailyDataManager:
                             raise ValueError(f"Measurement {fm.measurement_id} undefined on {date}")
                     total_measured += val * fm.adjustment_factor
 
+                if not isfinite(total_measured):
+                    raise ValueError(f"Net flow non-finite for {f.id} on {date}")
+                if total_measured < 0 and not f.bidirectional:
+                    if COALESCE_NEGATIVE_FLOWS_TO_ZERO:
+                        total_measured = 0.0
+                    else:
+                        raise ValueError(f"Net flow negative for {f.id} on {date}")
+
             total_flow_by_id[f.id] = total_measured
 
 
         # 2. Calculate Residuals
-        for zone_id, calcs in self._determine_residual_calc_order():
+        for zone_id, calcs in self._residual_calc_order:
             # RESIDUAL = [MEASURED OUTFLOWS] - [MEASURED INFLOWS]
             # [UNMEASURED INFLOW] - [UNMEASURED OUTFLOW] - CALCULATED LOSSES = RESIDUAL
             #
@@ -332,21 +347,6 @@ class DailyDataManager:
                                 date=date,
                             )
                         )
-
-
-        # 3. Checks
-        for f in self.gm.graph.interzone_flows:
-
-            if total_flow_by_id[f.id] < 0 and not f.bidirectional:
-
-                if f.flow_type != FlowComponentsTypes.OBSERVATION:
-                    continue
-
-                if COALESCE_NEGATIVE_FLOWS_TO_ZERO:
-                    total_flow_by_id[f.id] = 0
-                else:
-                    raise ValueError(f"Net flow negative for {f.id} on {date}")
-
         return total_flow_by_id
 
     def _determine_residual_calc_order(self) -> list[tuple[str, list[InterzoneFlow]]]:

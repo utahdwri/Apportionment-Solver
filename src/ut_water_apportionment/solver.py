@@ -1,20 +1,14 @@
-from .compile.compile import compile
+from .compile.compile import compile, CompileOptions
 from .models import SolverInput, SolverOutput
 
 
 def solve(
     input: SolverInput,
+    options:CompileOptions = CompileOptions(),
     *,
     check_expected_values: bool = False,
-    max_daily_apportionment: float | None = None,
-    compilation_options=None,
 ) -> SolverOutput:
     """Compile and execute the solver."""
-
-    plan = compile(                                                                     # TODO - add compilation_options and max_daily_apportionment!
-        input,
-        #options=compilation_options,
-        #max_daily_apportionment=max_daily_apportionment,
-    )
+    plan = compile(input, options)
     return plan.solve(check_expected_values=check_expected_values)
 

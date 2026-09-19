@@ -29,6 +29,7 @@ class CompiledPlan:
     source: str = field(init=False)
     executor: Callable[..., int] = field(init=False)
 
+
     def __post_init__(self):
         # Kernel objects are compile-time IR.  Lower them once to one readable
         # Python module; this exact source is both returned by code() and exec'd.
@@ -42,14 +43,19 @@ class CompiledPlan:
         )
 
 
-    def solve(self, measurements=None, *, check_expected_values=False):
-        """Execute on the input period using a fresh runtime for each call."""
-        from .runtime import solve_plan
-        return solve_plan(self, measurements, check_expected_values=check_expected_values)
+    def __str__(self):
+        return self.source
+
 
     def code(self):
         """The actual executable daily routine, including its block definitions."""
         return self.source
+
+
+    def solve(self, measurements=None, *, check_expected_values=False):
+        """Execute on the input period using a fresh runtime for each call."""
+        from .runtime import solve_plan
+        return solve_plan(self, measurements, check_expected_values=check_expected_values)
 
 
     def _compile_generated_python(self, source, namespace=None) -> Callable[..., int]:
@@ -58,12 +64,21 @@ class CompiledPlan:
         return namespace['execute']
 
 
+@dataclass
+class CompileOptions:
+    max_daily_apportionment: float | None = None
+    compile_to_formulas: bool = True
+    max_rows: int = 5000
 
-
-def compile(input: SolverInput) -> CompiledPlan:
+def compile(
+    input: SolverInput,
+    options: CompileOptions = CompileOptions(),
+) -> CompiledPlan:
     """Take solver input and compile code that will calculate apportionments."""
 
-    state_layout = build_runtime_state_layout(input)
+    state_layout = build_runtime_state_layout(
+        input, max_daily_apportionment=options.max_daily_apportionment
+    )
     operations = []
     replay_operations = []
 
@@ -78,18 +93,24 @@ def compile(input: SolverInput) -> CompiledPlan:
 
         # Convert the LP system to direct calculation formulas, iteration, or small lp
         # executions.
-        operation = try_compile_direct_calculation(lp_model)
+        operation = None
+        if options.compile_to_formulas:
 
-        # Fall back to proportional calculation.
-        if operation is None:
-            operation = try_compile_proportional_calculation(lp_model)
+            operation = try_compile_direct_calculation(lp_model)
 
-        # General symbolic scalar formula compiler.  Projection is performed
-        # here, once, while runtime coefficients remain Slot expressions.
-        if operation is None:
-            operation = try_compile_scalar_formula(lp_model)
+            # Fall back to proportional calculation.
+            if operation is None:
+                operation = try_compile_proportional_calculation(lp_model)
 
-        # Final exact fallback.
+            # General symbolic scalar formula compiler. Projection is performed
+            # here, once, while runtime coefficients remain Slot expressions.
+            if operation is None:
+                operation = try_compile_scalar_formula(
+                    lp_model,
+                    max_rows=options.max_rows
+                )
+
+        # Final fallback - solve the lp directly
         if operation is None:
             operation = compile_lp_kernel(lp_model)
         operations.append(operation)
@@ -97,11 +118,16 @@ def compile(input: SolverInput) -> CompiledPlan:
         replay_model = build_block_lp(
             state_layout.input, block, state_layout, replay=True
         )
-        replay_operation = try_compile_direct_calculation(replay_model)
-        if replay_operation is None:
-            replay_operation = try_compile_proportional_calculation(replay_model)
-        if replay_operation is None:
-            replay_operation = try_compile_scalar_formula(replay_model)
+        replay_operation = None
+        if options.compile_to_formulas:
+            replay_operation = try_compile_direct_calculation(replay_model)
+            if replay_operation is None:
+                replay_operation = try_compile_proportional_calculation(replay_model)
+            if replay_operation is None:
+                replay_operation = try_compile_scalar_formula(
+                    replay_model,
+                    max_rows=options.max_rows
+                )
         if replay_operation is None:
             replay_operation = compile_lp_kernel(replay_model)
         replay_operations.append(replay_operation)
@@ -220,6 +246,15 @@ def build_block_lp(
     # arbitrary counterflow variables available in Pass 1.
     locked_flow_directions: dict[str, set[int]] = {}
     storage_outflow_directions: dict[str, set[int]] = {}
+
+    # When a replay target entering a non-natural zone is justified by future
+    # counterflow transactions, that witness can belong to a transaction
+    # group. The witness itself is not committed in this block, so remember
+    # the corresponding group reservation that must be carried forward when
+    # the target is committed. This keeps grouped and ungrouped counterflow
+    # witnesses equivalent during replay.
+    replay_group_credits: dict[str, dict[Slot, Slot]] = {}
+
     if replay:
         for name in ordered_targets:
             transaction = layout.transactions[name]
@@ -257,18 +292,66 @@ def build_block_lp(
         # replacement for the legacy temporary minimization of reverse/slack
         # variables: unrelated counterflow variables simply do not exist in
         # the block LP.
+        counterflow_witnesses: dict[tuple[str, int], list[tuple[str, int]]] = {}
         for flow_id, target_directions in locked_flow_directions.items():
             for name, transaction in layout.transactions.items():
                 if not isinstance(transaction, PathTrxn):
                     continue
                 if transaction.priority < block.priority_order:
                     continue
-                for item in layout.schedule.ordered_paths[name]:
+                for index, item in enumerate(layout.schedule.ordered_paths[name]):
                     if item.flow_id == flow_id:
                         direction = 1 if item.factor > 0 else -1
-                        if any(direction == -target for target in target_directions):
-                            included.add(name)
+                        for target_direction in target_directions:
+                            if direction == -target_direction:
+                                included.add(name)
+                                counterflow_witnesses.setdefault(
+                                    (flow_id, target_direction), []
+                                ).append((name, index))
                         break
+
+        # If every usable counterflow witness for a target edge is a direct
+        # child of the same group, committing the senior replay target must
+        # preserve that witness requirement as an outstanding reservation.
+        # Otherwise the later child block would see no reservation and could
+        # collapse back to zero even though the senior target was accepted
+        # using that child as its feasibility witness.
+        #
+        # Restrict this transfer to witnesses whose shared reservoir edge is
+        # their first path item. Their transaction increment is then exactly
+        # the magnitude of flow on that edge, so the senior target's runtime
+        # flow coefficient is also the correct reservation coefficient.
+        for target_name in ordered_targets:
+            target = layout.transactions[target_name]
+            if not isinstance(target, PathTrxn):
+                continue
+            to_zone = layout.schedule.get_to_zone(target)
+            path = layout.schedule.ordered_paths[target_name]
+            if (
+                to_zone is None
+                or to_zone.type in {ZoneTypes.STREAM, ZoneTypes.SYSTEM_GAIN_LOSS}
+                or not path
+            ):
+                continue
+            item = path[-1]
+            flow = layout.graph.get_flow_by_id(item.flow_id)
+            if not flow.bidirectional:
+                continue
+            target_direction = 1 if item.factor > 0 else -1
+            witnesses = counterflow_witnesses.get(
+                (item.flow_id, target_direction), []
+            )
+            if not witnesses or any(index != 0 for _, index in witnesses):
+                continue
+            parents = {layout.parents.get(name) for name, _ in witnesses}
+            if len(parents) != 1 or None in parents:
+                continue
+            parent = next(iter(parents))
+            signed, negated = layout.flow_coefficients[target_name, item.flow_id]
+            reservation_coefficient = signed if target_direction > 0 else negated
+            replay_group_credits.setdefault(target_name, {})[
+                layout.groups[parent]
+            ] = reservation_coefficient
 
     # ------------------------------------------------------------------
     # 2. Add LP variables.
@@ -550,6 +633,14 @@ def build_block_lp(
             layout.allocated[name]: 1.0,
             layout.limits[name]: -1.0,
         }
+
+        # A replay target can have been accepted only because a future
+        # counterflow child was available as a witness. Carry that obligation
+        # forward in the same reservation state used by ordinary group
+        # allocation so the later child is not lost merely because it is
+        # nested.
+        for slot, coefficient in replay_group_credits.get(name, {}).items():
+            effects[slot] = coefficient
 
         # Allocating a child discharges that much of its parent's reservation.
         if name in layout.parents:

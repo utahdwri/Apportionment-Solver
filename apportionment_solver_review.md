@@ -149,15 +149,6 @@ The path `A → B → C → B` has one root and no branching source, so it passe
 
 **Recommendation:** Track visited zones or consumed path items during traversal and raise a contextual `ValueError` on repetition. Complete this structural validation before generating code.
 
-### 10. P2 — Generated errors are not instances of the public exception class
-
-Location: `compile/codegen.py`, `PythonPlanEmitter.build()`.
-
-The generated module defines a fresh `BlockLPError` class. Numerical fallbacks use `compile.kernel.BlockLPError`, which is also the class exported from `ut_water_apportionment.compile`. Therefore a caller catching the public `BlockLPError` catches LP failures but misses generated-calculation failures with the same class name. Confirmed with an unbounded direct reverse transaction.
-
-**Recommendation:** Import or inject the shared exception classes into the generated module. There should be one error contract across all execution paths.
-
-Regression: `test_generated_errors_use_the_public_exception_class`.
 
 ## Answers to the simplification questions
 

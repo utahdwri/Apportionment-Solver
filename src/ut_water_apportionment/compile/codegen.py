@@ -298,7 +298,7 @@ class PythonPlanEmitter:
         self.emit("    if _upper != float('inf') and -TOL <= _upper < 0 and _lower == 0:")
         self.emit("        _upper = 0.0")
         self.emit("    if not isfinite(_lower) or isnan(_upper):")
-        self.emit("        raise BlockLPError('Non-finite variable bound')")
+        self.emit("        raise SolverError('Non-finite variable bound')")
 
         for row_index, constraint in enumerate(model.constraints):
             coefficient: Scalar = constraint.coefficients.get(name, 0.0)
@@ -313,7 +313,7 @@ class PythonPlanEmitter:
             if hi is not None:
                 self.emit(f"    _hi{row_index} = {self.scalar(hi)}")
             self.emit(f"    if not isfinite(_c{row_index}):")
-            self.emit(f"        raise BlockLPError({('Non-finite coefficient: ' + constraint.name)!r})")
+            self.emit(f"        raise SolverError({('Non-finite coefficient: ' + constraint.name)!r})")
             bound_vars = []
             if lo is not None:
                 bound_vars.append(f"_lo{row_index}")
@@ -322,7 +322,7 @@ class PythonPlanEmitter:
             if bound_vars:
                 cond = " or ".join(f"not isfinite({v})" for v in bound_vars)
                 self.emit(f"    if {cond}:")
-                self.emit(f"        raise BlockLPError({('Non-finite constraint bound: ' + constraint.name)!r})")
+                self.emit(f"        raise SolverError({('Non-finite constraint bound: ' + constraint.name)!r})")
 
             # A Slot sign is only a nonnegative/nonpositive guarantee; it does
             # *not* mean the runtime coefficient is strictly away from zero.
@@ -334,10 +334,10 @@ class PythonPlanEmitter:
                 self.emit(f"    if abs(_c{row_index}) <= 1e-15:")
                 if lo is not None:
                     self.emit(f"        if _lo{row_index} > TOL:")
-                    self.emit(f"            raise BlockLPError({('Block [' + repr(name) + '] failed: infeasible ' + constraint.name)!r})")
+                    self.emit(f"            raise SolverError({('Block [' + repr(name) + '] failed: infeasible ' + constraint.name)!r})")
                 if hi is not None:
                     self.emit(f"        if _hi{row_index} < -TOL:")
-                    self.emit(f"            raise BlockLPError({('Block [' + repr(name) + '] failed: infeasible ' + constraint.name)!r})")
+                    self.emit(f"            raise SolverError({('Block [' + repr(name) + '] failed: infeasible ' + constraint.name)!r})")
                 self.emit(f"    elif _c{row_index} > 0:")
                 if lo is not None:
                     self.emit(f"        _lower = max(_lower, _lo{row_index} / _c{row_index})")
@@ -353,10 +353,10 @@ class PythonPlanEmitter:
                 if abs(number) <= 1e-15:
                     if lo is not None:
                         self.emit(f"    if _lo{row_index} > TOL:")
-                        self.emit(f"        raise BlockLPError({('Block [' + repr(name) + '] failed: infeasible ' + constraint.name)!r})")
+                        self.emit(f"        raise SolverError({('Block [' + repr(name) + '] failed: infeasible ' + constraint.name)!r})")
                     if hi is not None:
                         self.emit(f"    if _hi{row_index} < -TOL:")
-                        self.emit(f"        raise BlockLPError({('Block [' + repr(name) + '] failed: infeasible ' + constraint.name)!r})")
+                        self.emit(f"        raise SolverError({('Block [' + repr(name) + '] failed: infeasible ' + constraint.name)!r})")
                 elif number > 0:
                     if lo is not None:
                         self.emit(f"    _lower = max(_lower, _lo{row_index} / _c{row_index})")
@@ -371,16 +371,16 @@ class PythonPlanEmitter:
         self.emit("")
         self.emit("    _scale = max(1.0, abs(_lower) if isfinite(_lower) else 1.0, abs(_upper) if isfinite(_upper) else 1.0)")
         self.emit("    if _upper < _lower - TOL * _scale:")
-        self.emit(f"        raise BlockLPError({('Block [' + repr(name) + '] failed: direct interval is infeasible')!r})")
+        self.emit(f"        raise SolverError({('Block [' + repr(name) + '] failed: direct interval is infeasible')!r})")
         self.emit("    if _upper < _lower:")
         self.emit("        _lower = _upper = 0.5 * (_lower + _upper)")
         objective = self.scalar(model.rule.coefficients[name])
         self.emit(f"    _objective = {objective}")
         self.emit("    if not isfinite(_objective) or abs(_objective) <= 1e-15:")
-        self.emit("        raise BlockLPError('Invalid direct objective coefficient')")
+        self.emit("        raise SolverError('Invalid direct objective coefficient')")
         self.emit(f"    {safe} = _upper if _objective > 0 else _lower")
         self.emit(f"    if not isfinite({safe}):")
-        self.emit(f"        raise BlockLPError({('Block [' + repr(name) + '] failed: unbounded direct objective')!r})")
+        self.emit(f"        raise SolverError({('Block [' + repr(name) + '] failed: unbounded direct objective')!r})")
         self.emit_commit(model, {name: safe})
         self.emit("    return 0")
         self.emit("")
@@ -426,7 +426,7 @@ class PythonPlanEmitter:
             if variable.upper is not None:
                 self.emit(f"    if {name!r} in factors:")
                 self.emit(f"        _vu = {self.scalar(variable.upper)}")
-                self.emit("        if isnan(_vu) or _vu < -TOL: raise BlockLPError('Invalid proportional variable bound')")
+                self.emit("        if isnan(_vu) or _vu < -TOL: raise SolverError('Invalid proportional variable bound')")
                 self.emit(f"        _upper = min(_upper, max(0.0, _vu) / factors[{name!r}])")
         for index, constraint in enumerate(model.constraints):
             if constraint.upper is None:
@@ -439,11 +439,11 @@ class PythonPlanEmitter:
             consumption = " + ".join(pieces) if pieces else "0.0"
             self.emit(f"    _capacity_{index} = {self.scalar(constraint.upper)}  # {constraint.name!r}")
             self.emit(f"    _use_{index} = {consumption}")
-            self.emit(f"    if _capacity_{index} < -TOL: raise BlockLPError({('Negative remaining capacity: ' + constraint.name)!r})")
+            self.emit(f"    if _capacity_{index} < -TOL: raise SolverError({('Negative remaining capacity: ' + constraint.name)!r})")
             self.emit(f"    if _use_{index} > 1e-15:")
             self.emit(f"        _upper = min(_upper, max(0.0, _capacity_{index}) / _use_{index})")
-        self.emit("    if not isfinite(_upper): raise BlockLPError('Unbounded proportional increment')")
-        self.emit("    if _upper < -TOL: raise BlockLPError('Infeasible proportional increment')")
+        self.emit("    if not isfinite(_upper): raise SolverError('Unbounded proportional increment')")
+        self.emit("    if _upper < -TOL: raise SolverError('Infeasible proportional increment')")
         self.emit("    return max(0.0, _upper)")
         self.emit("")
 
@@ -489,7 +489,7 @@ class PythonPlanEmitter:
         refs = ", ".join(f"{name!r}: {self.scalar(model.rule.reference_cfs[name])}" for name in targets)
         self.emit(f"    _references = {{{refs}}}")
         self.emit("    if any(isnan(c) or c < 0 for c in _references.values()):")
-        self.emit("        raise BlockLPError('Invalid proportional reference cfs')")
+        self.emit("        raise SolverError('Invalid proportional reference cfs')")
         self.emit("    _phases = [")
         self.emit("        {name: 1.0 for name, cfs in _references.items() if isinf(cfs) and cfs > 0},")
         self.emit("        {name: cfs for name, cfs in _references.items() if isfinite(cfs) and cfs > 0},")
@@ -510,7 +510,7 @@ class PythonPlanEmitter:
         self.emit_commit(model, {name: f"_factors.get({name!r}, 0.0) * _increment" for name in targets}, indent="            ")
         self.emit(f"            _blocked = [name for name in _active if {member_name}(state, name) <= TOL]")
         self.emit("            if not _blocked:")
-        self.emit("                raise BlockLPError('Proportional allocation made no blocking progress')")
+        self.emit("                raise SolverError('Proportional allocation made no blocking progress')")
         self.emit("            _active = {name: cfs for name, cfs in _active.items() if name not in _blocked}")
         self.emit("    for _name in _deferred:")
         self.emit(f"        _increment = {member_name}(state, _name)")
@@ -631,7 +631,7 @@ class PythonPlanEmitter:
         refs = ", ".join(f"{name!r}: {self.scalar(model.rule.reference_cfs[name])}" for name in targets)
         self.emit(f"    _references = {{{refs}}}")
         self.emit("    if any(isnan(c) or c < 0 for c in _references.values()):")
-        self.emit("        raise BlockLPError('Invalid proportional reference cfs')")
+        self.emit("        raise SolverError('Invalid proportional reference cfs')")
         self.emit("    _phases = [")
         self.emit("        {name: 1.0 for name, cfs in _references.items() if isinf(cfs) and cfs > 0},")
         self.emit("        {name: cfs for name, cfs in _references.items() if isfinite(cfs) and cfs > 0},")
@@ -665,7 +665,7 @@ class PythonPlanEmitter:
         self.emit("                    return _classify(_names[:_middle]) + _classify(_names[_middle:])")
         self.emit("                _blocked = _classify(_active)")
         self.emit("            if not _blocked:")
-        self.emit("                raise BlockLPError('Proportional allocation made no blocking progress')")
+        self.emit("                raise SolverError('Proportional allocation made no blocking progress')")
         self.emit("            _active = {name: cfs for name, cfs in _active.items() if name not in _blocked}")
         self.emit("    for _name in _deferred:")
         self.emit(f"        _increment, _extra = {scalar_name}(state, {{_name: 1.0}})")
@@ -753,7 +753,7 @@ class PythonPlanEmitter:
                 self.emit(f"def {deliver}(state, value):")
                 self.emit(f"    _factor = state[{self.slot_names[factor_slot.index]}]")
                 self.emit("    if not isfinite(_factor) or _factor < -TOL:")
-                self.emit(f"        raise BlockLPError({('Invalid delivery factor for ' + flow.id + ' ' + endpoint)!r})")
+                self.emit(f"        raise SolverError({('Invalid delivery factor for ' + flow.id + ' ' + endpoint)!r})")
                 self.emit("    if abs(value) <= NF_TOL:")
                 self.emit("        return 0.0")
                 self.emit("    return value * max(0.0, _factor)")
@@ -761,11 +761,11 @@ class PythonPlanEmitter:
                 self.emit(f"def {required}(state, remaining):")
                 self.emit(f"    _factor = state[{self.slot_names[factor_slot.index]}]")
                 self.emit("    if not isfinite(_factor) or _factor < -TOL:")
-                self.emit(f"        raise BlockLPError({('Invalid delivery factor for ' + flow.id + ' ' + endpoint)!r})")
+                self.emit(f"        raise SolverError({('Invalid delivery factor for ' + flow.id + ' ' + endpoint)!r})")
                 self.emit("    if abs(remaining) <= NF_TOL:")
                 self.emit("        return 0.0")
                 self.emit("    if _factor <= TOL:")
-                self.emit(f"        raise BlockLPError({('Cannot invert zero-delivery loss for ' + flow.id + ' ' + endpoint)!r})")
+                self.emit(f"        raise SolverError({('Cannot invert zero-delivery loss for ' + flow.id + ' ' + endpoint)!r})")
                 self.emit("    return remaining / _factor")
                 self.emit("")
 
@@ -790,7 +790,7 @@ class PythonPlanEmitter:
                 self.emit(f"    if {condition}:  # {flow.id!r}")
                 self.emit("        if _selected is not None:")
                 self.emit(
-                    f"            raise BlockLPError({('Natural flow at zone ' + zone_id + ' has multiple calculated outflows')!r})"
+                    f"            raise SolverError({('Natural flow at zone ' + zone_id + ' has multiple calculated outflows')!r})"
                 )
                 self.emit(f"        _selected = {flow.id!r}")
             self.emit("    return _selected")
@@ -807,7 +807,7 @@ class PythonPlanEmitter:
             self.emit("    if abs(delta) <= NF_TOL:")
             self.emit("        return")
             self.emit(f"    if {zone_id!r} in _visited:")
-            self.emit("        raise BlockLPError('Calculated natural-flow routes contain a cycle')")
+            self.emit("        raise SolverError('Calculated natural-flow routes contain a cycle')")
             self.emit(f"    state[{self.slot_names[natural_slot.index]}] += delta")
             candidates = candidates_by_zone.get(zone_id, [])
             if not candidates:
@@ -918,7 +918,7 @@ class PythonPlanEmitter:
             self.emit("    _visited = set()")
             self.emit("    while True:")
             self.emit("        if _zone in _visited:")
-            self.emit("            raise BlockLPError('Calculated natural-flow routes contain a cycle')")
+            self.emit("            raise SolverError('Calculated natural-flow routes contain a cycle')")
             self.emit("        _visited.add(_zone)")
             for i, zone_id in enumerate(stream_zones):
                 prefix = "if" if i == 0 else "elif"
@@ -1052,7 +1052,7 @@ class PythonPlanEmitter:
             self.emit(indent + f"_value = state[{self.slot_names[specified.index]}]")
             if not flow.bidirectional:
                 self.emit(indent + "if _value < -TOL:")
-                self.emit(indent + f"    raise BlockLPError({('Specified natural flow cannot be negative for ' + flow.id)!r})")
+                self.emit(indent + f"    raise SolverError({('Specified natural flow cannot be negative for ' + flow.id)!r})")
             self.emit(indent + f"state[{self.slot_names[layout.flow_natural[flow.id].index]}] = _value")
             self.emit(indent + f"{self._flow_effect_name(flow.id)}(state, _value)")
 
@@ -1166,7 +1166,7 @@ class PythonPlanEmitter:
         self.emit("SPILL_TOL = 1e-7")
         self.emit("")
         self.emit("# Errors raised by the compiled calculation.")
-        self.emit("class BlockLPError(RuntimeError):")
+        self.emit("class SolverError(RuntimeError):")
         self.emit("    pass")
         self.emit("class FormulaGuardFailed(RuntimeError):")
         self.emit("    pass")

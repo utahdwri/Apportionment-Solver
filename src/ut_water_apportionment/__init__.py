@@ -1,5 +1,5 @@
 
-from ut_water_apportionment.compile import compile
+from ut_water_apportionment.compile import compile, CompileOptions
 from .solver import solve
 from .models import (
     AccountingGraph,

@@ -1,0 +1,191 @@
+diff --git a/src/ut_water_apportionment/compile/codegen.py b/src/ut_water_apportionment/compile/codegen.py
+index 8dfab6b..10c5af3 100644
+--- a/src/ut_water_apportionment/compile/codegen.py
++++ b/src/ut_water_apportionment/compile/codegen.py
+@@ -18,7 +18,7 @@ from .kernel import (
+     TOL
+ )
+ from .lp import BlockLP, Maximize, Proportional, Slot, Scalar
+-from ..models import NaturalFlowMode, ZoneTypes
++from ..models import NaturalFlowMode, PathTrxn, ZoneTypes
+ 
+ 
+ _IDENTIFIER_RE = re.compile(r"[^0-9A-Za-z_]+")
+@@ -977,6 +977,9 @@ class PythonPlanEmitter:
+         for positive, negative in layout.nf_coefficients.values():
+             self.emit(f"    state[{self.slot_names[positive.index]}] = 0.0")
+             self.emit(f"    state[{self.slot_names[negative.index]}] = 0.0")
++        for positive, negative in layout.transaction_nf_coefficients.values():
++            self.emit(f"    state[{self.slot_names[positive.index]}] = 0.0")
++            self.emit(f"    state[{self.slot_names[negative.index]}] = 0.0")
+ 
+         self.emit("")
+         self.emit("    # Natural-flow routing coefficients used by transaction constraints.")
+@@ -992,6 +995,41 @@ class PythonPlanEmitter:
+                 self.emit(f"    state[{self.slot_names[positive.index]}] = _value")
+                 self.emit(f"    state[{self.slot_names[negative.index]}] = -_value")
+ 
++        self.emit("")
++        self.emit("    # Convert transaction anchor units to source-zone NF withdrawal units.")
++        for name, transaction in layout.transactions.items():
++            if not isinstance(transaction, PathTrxn):
++                continue
++            source = layout.schedule.get_nf_zone_id(transaction)
++            if source is None:
++                continue
++            path = layout.schedule.ordered_paths[name]
++            if not path:
++                continue
++            item = path[0]
++            if item.loss_before >= 1.0:
++                self.emit(
++                    f"    raise SolverError({('First path loss leaves no deliverable flow for ' + name)!r})"
++                )
++                continue
++            endpoint = "from" if item.factor > 0 else "to"
++            required = self._required_name(item.flow_id, endpoint)
++            before_factor = 1.0 - float(item.loss_before)
++            self.emit(
++                f"    _source_per_anchor = {required}(state, {abs(float(item.factor)) / before_factor!r})  # {name!r}"
++            )
++            for zone_id in layout.natural_flow:
++                pair = layout.transaction_nf_coefficients.get((name, zone_id))
++                if pair is None:
++                    continue
++                positive, negative = pair
++                route = layout.nf_coefficients[source, zone_id][0]
++                self.emit(
++                    f"    _value = _source_per_anchor * state[{self.slot_names[route.index]}]"
++                )
++                self.emit(f"    state[{self.slot_names[positive.index]}] = _value")
++                self.emit(f"    state[{self.slot_names[negative.index]}] = -_value")
++
+         self.emit("")
+         self.emit("    # Boundary flows and calculated system gains/losses.")
+         for flow in graph.graph.interzone_flows:
+diff --git a/src/ut_water_apportionment/compile/compile.py b/src/ut_water_apportionment/compile/compile.py
+index 0d40745..949fc92 100644
+--- a/src/ut_water_apportionment/compile/compile.py
++++ b/src/ut_water_apportionment/compile/compile.py
+@@ -513,7 +513,7 @@ def build_block_lp(
+             set_coefficient(
+                 constraint_name,
+                 name,
+-                layout.nf_coefficients[source, zone][0],
++                layout.transaction_nf_coefficients[name, zone][0],
+             )
+ 
+     # ------------------------------------------------------------------
+@@ -687,7 +687,7 @@ def build_block_lp(
+             if source is not None:
+                 for zone in layout.natural_flow:
+                     effects[layout.natural_flow[zone]] = (
+-                        layout.nf_coefficients[source, zone][1]
++                        layout.transaction_nf_coefficients[name, zone][1]
+                     )
+ 
+         updates[name] = effects
+diff --git a/src/ut_water_apportionment/compile/runtime.py b/src/ut_water_apportionment/compile/runtime.py
+index 6f6dfe4..1b68168 100644
+--- a/src/ut_water_apportionment/compile/runtime.py
++++ b/src/ut_water_apportionment/compile/runtime.py
+@@ -63,10 +63,32 @@ def solve_plan(plan, measurements, *, check_expected_values=False):
+                     and layout.graph.get_zone_by_id(flow.to_zone).type == ZoneTypes.STREAM)
+                 if stream_slack:
+                     nf = float(state[layout.flow_natural[flow.id].index])
+-                    output.extend([
+-                        SolverOutputApportionment(date, flow.id, txn.id + '_NF', nf * item.factor, True),
+-                        SolverOutputApportionment(date, flow.id, txn.id + '_CPI', (amount - nf) * item.factor, amount > nf, ''),
+-                    ])
++                    if flow.bidirectional:
++                        # Decompose the signed residual once, then report each
++                        # component on the slack transaction matching its sign.
++                        # This avoids duplicating the same NF on both the forward
++                        # and reverse slack transactions while still allowing a
++                        # reverse CPI component to offset larger forward NF.
++                        residual = float(state[layout.measurements[flow.id].index])
++                        cpi = residual - nf
++                        direction = 1.0 if item.factor > 0 else -1.0
++                        nf_component = nf if nf * direction > 0.0 else 0.0
++                        cpi_component = cpi if cpi * direction > 0.0 else 0.0
++                        output.extend([
++                            SolverOutputApportionment(
++                                date, flow.id, txn.id + '_NF', nf_component,
++                                item.factor > 0,
++                            ),
++                            SolverOutputApportionment(
++                                date, flow.id, txn.id + '_CPI', cpi_component,
++                                item.factor > 0, '',
++                            ),
++                        ])
++                    else:
++                        output.extend([
++                            SolverOutputApportionment(date, flow.id, txn.id + '_NF', nf * item.factor, True),
++                            SolverOutputApportionment(date, flow.id, txn.id + '_CPI', (amount - nf) * item.factor, amount > nf, ''),
++                        ])
+                 else:
+                     output.append(SolverOutputApportionment(date, flow.id, txn.id, amount * item.factor, item.factor > 0, ''))
+         schedule.commit_day(variable_values)
+diff --git a/src/ut_water_apportionment/compile/state.py b/src/ut_water_apportionment/compile/state.py
+index f828af1..189af89 100644
+--- a/src/ut_water_apportionment/compile/state.py
++++ b/src/ut_water_apportionment/compile/state.py
+@@ -57,6 +57,12 @@ class RuntimeStateLayout:
+     natural_flow: dict[str, Slot] = field(default_factory=dict)
+     flow_coefficients: dict[tuple[str, str], tuple[Slot, Slot]] = field(default_factory=dict)
+     nf_coefficients: dict[tuple[str, str], tuple[Slot, Slot]] = field(default_factory=dict)
++    # Amount of each stream-zone NF residual consumed by one unit of a
++    # transaction's anchor allocation.  Unlike nf_coefficients (which only
++    # describes routing from a source stream), this also includes the
++    # conversion from the first path-leg gauge amount back to source-zone
++    # withdrawal across the first endpoint/path loss.
++    transaction_nf_coefficients: dict[tuple[str, str], tuple[Slot, Slot]] = field(default_factory=dict)
+     account_out_remaining: dict[tuple[str, str], Slot] = field(default_factory=dict)
+     account_in_remaining: dict[tuple[str, str], Slot] = field(default_factory=dict)
+     to_account_coefficients: dict[str, tuple[Slot, Slot]] = field(default_factory=dict)
+@@ -571,4 +577,45 @@ def build_runtime_state_layout(
+                 f"nf_coefficient[{(source, zone)!r}]",
+                 constant_value=constant,
+             )
++
++    def source_withdrawal_constant(transaction: PathTrxn) -> float | None:
++        """Return source-zone withdrawal per anchor unit when it is static."""
++        path = schedule.ordered_paths[transaction.id]
++        if not path:
++            return 0.0
++        item = path[0]
++        if item.loss_before >= 1.0:
++            return None
++        flow = graph.get_flow_by_id(item.flow_id)
++        endpoint_loss = (
++            flow.loss_from_zone if item.factor > 0 else flow.loss_to_zone
++        )
++        fraction = constant_fraction(endpoint_loss)
++        if fraction is None or fraction >= 1.0:
++            return None
++        delivered = (1.0 - fraction) * (1.0 - item.loss_before)
++        return abs(float(item.factor)) / delivered
++
++    # Natural-flow constraints are written in source-zone units.  The anchor
++    # allocation, however, is the amount reported on the first path leg.  Build
++    # one derived coefficient for each transaction/stream-zone pair so the first
++    # endpoint loss is charged before the ordinary downstream NF routing loss.
++    for name, transaction in layout.transactions.items():
++        if not isinstance(transaction, PathTrxn):
++            continue
++        source = schedule.get_nf_zone_id(transaction)
++        if source is None:
++            continue
++        source_constant = source_withdrawal_constant(transaction)
++        for zone in layout.natural_flow:
++            route_constant = nf_coefficient_constant(source, zone)
++            constant = (
++                None
++                if source_constant is None or route_constant is None
++                else source_constant * route_constant
++            )
++            layout.transaction_nf_coefficients[name, zone] = layout.coefficient_pair(
++                f"transaction_nf_coefficient[{(name, zone)!r}]",
++                constant_value=constant,
++            )
+     return layout

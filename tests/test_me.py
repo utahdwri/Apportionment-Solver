@@ -1,6 +1,6 @@
 import unittest
 from ut_water_apportionment import (
-    compile,
+    compile, CompileOptions,
     solve,
     AccountingGraph,
     AccountingLimit,
@@ -54,8 +54,8 @@ class A_Simple(unittest.TestCase):
         )
 
 
-        plan = compile(input)
-        print(plan.code())
+        plan = compile(input, options=CompileOptions(compile_to_formulas=False))
+        print(plan)
 
 
         print('2)')

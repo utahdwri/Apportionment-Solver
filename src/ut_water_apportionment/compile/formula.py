@@ -35,7 +35,6 @@ from .lp import BlockLP, Slot
 
 FORMULA_ZERO = 1e-12
 FORMULA_TOL = 1e-7
-DEFAULT_MAX_ROWS = 5000
 
 NEG = -1
 ZERO = 0
@@ -657,7 +656,7 @@ def compile_scalar_program(
     model: BlockLP,
     targets: tuple[str, ...],
     *,
-    max_rows: int = DEFAULT_MAX_ROWS,
+    max_rows: int = 5000,
 ):
     """Compile a symbolic target-only scalar formula during ``compile()``."""
     guards = _collect_coefficient_guards(model)
