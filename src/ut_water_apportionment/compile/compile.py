@@ -87,54 +87,29 @@ def compile(
     # which storage deliveries/counterflows are actually needed.
     for block in priority_blocks(state_layout.input):
 
-        lp_model = build_block_lp(
-            state_layout.input, block, state_layout, replay=False
-        )
-
-        # Convert the LP system to direct calculation formulas, iteration, or small lp
-        # executions.
-        operation = None
-        if options.compile_to_formulas:
-
-            operation = try_compile_direct_calculation(lp_model)
-
-            # Fall back to proportional calculation.
-            if operation is None:
-                operation = try_compile_proportional_calculation(lp_model)
-
-            # General symbolic scalar formula compiler. Projection is performed
-            # here, once, while runtime coefficients remain Slot expressions.
-            if operation is None:
-                operation = try_compile_scalar_formula(
-                    lp_model,
-                    max_rows=options.max_rows
-                )
-
-        # Final fallback - solve the lp directly
-        if operation is None:
-            operation = compile_lp_kernel(lp_model)
-        operations.append(operation)
-
-        replay_model = build_block_lp(
-            state_layout.input, block, state_layout, replay=True
-        )
-        replay_operation = None
-        if options.compile_to_formulas:
-            replay_operation = try_compile_direct_calculation(replay_model)
-            if replay_operation is None:
-                replay_operation = try_compile_proportional_calculation(replay_model)
-            if replay_operation is None:
-                replay_operation = try_compile_scalar_formula(
-                    replay_model,
-                    max_rows=options.max_rows
-                )
-        if replay_operation is None:
-            replay_operation = compile_lp_kernel(replay_model)
-        replay_operations.append(replay_operation)
+        model = build_block_lp(state_layout.input, block, state_layout)
+        operations.append(compile_block(model, options))
+        if state_layout.spill_credits:
+            replay_model = build_block_lp(
+                state_layout.input, block, state_layout, replay=True
+            )
+            replay_operations.append(compile_block(replay_model, options))
 
     return CompiledPlan(state_layout, operations, replay_operations)
 
 
+
+def compile_block(model: BlockLP, options: CompileOptions):
+    """Choose the same analytical/formula/LP pipeline for either allocation pass."""
+    if options.compile_to_formulas:
+        for compiler in (try_compile_direct_calculation, try_compile_proportional_calculation):
+            operation = compiler(model)
+            if operation is not None:
+                return operation
+        operation = try_compile_scalar_formula(model, max_rows=options.max_rows)
+        if operation is not None:
+            return operation
+    return compile_lp_kernel(model)
 
 
 def priority_blocks(input: SolverInput) -> list[PriorityBlock]:
@@ -206,9 +181,9 @@ def build_block_lp(
     # 1. Identify the target transactions and any auxiliary witness
     #    transactions that must exist in this block LP.
     # ------------------------------------------------------------------
-    ordered_targets = [txn.id for txn in block.trxns]
-    targets = set(ordered_targets)
-    if not targets or len(targets) != len(ordered_targets):
+    target_ids = [txn.id for txn in block.trxns]
+    targets = set(target_ids)
+    if not targets or len(targets) != len(target_ids):
         raise ValueError("A priority block must contain distinct target transactions")
 
     for transaction in block.trxns:
@@ -222,7 +197,7 @@ def build_block_lp(
     # A group target needs its descendants as feasibility witnesses.  Solving
     # the group does not allocate those descendants; it only proves that the
     # amount reserved by the group can fit through their eventual constraints.
-    for name in ordered_targets:
+    for name in target_ids:
         included.update(layout.descendants(name))
 
     # Keep an outstanding root reservation's subtree in later block LPs until
@@ -256,7 +231,7 @@ def build_block_lp(
     replay_group_credits: dict[str, dict[Slot, Slot]] = {}
 
     if replay:
-        for name in ordered_targets:
+        for name in target_ids:
             transaction = layout.transactions[name]
             if not isinstance(transaction, PathTrxn):
                 continue
@@ -321,7 +296,7 @@ def build_block_lp(
         # their first path item. Their transaction increment is then exactly
         # the magnitude of flow on that edge, so the senior target's runtime
         # flow coefficient is also the correct reservation coefficient.
-        for target_name in ordered_targets:
+        for target_name in target_ids:
             target = layout.transactions[target_name]
             if not isinstance(target, PathTrxn):
                 continue
@@ -609,12 +584,12 @@ def build_block_lp(
     # ------------------------------------------------------------------
     # 7. Define the allocation rule for the target variables.
     # ------------------------------------------------------------------
-    if len(ordered_targets) == 1:
-        rule = Maximize({ordered_targets[0]: 1.0})
+    if len(target_ids) == 1:
+        rule = Maximize({target_ids[0]: 1.0})
     else:
         rule = Proportional({
             name: layout.reference_cfs[name]
-            for name in ordered_targets
+            for name in target_ids
         })
 
     # ------------------------------------------------------------------
@@ -624,7 +599,7 @@ def build_block_lp(
     #    appear here, so their temporary LP values are discarded.
     # ------------------------------------------------------------------
     updates = {}
-    for name in ordered_targets:
+    for name in target_ids:
         transaction = layout.transactions[name]
 
         # Every committed allocation increases its reported allocation and

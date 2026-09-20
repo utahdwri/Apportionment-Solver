@@ -228,11 +228,10 @@ logging.basicConfig(
 ## Compiled-equation method
 
 ```python
-from ut_water_apportionment import compile_solver_input
+from ut_water_apportionment import compile
 
-plan = compile_solver_input(solver_input)
-print(plan.formulas())       # Actual symbolic MIN/MAX expressions.
+plan = compile(solver_input)
+print(plan.code())          # The exact Python program executed each day.
 result = plan.solve()       # Complete SolverOutput; LP fallback when needed.
-print(plan.report())        # Which days used formulas or LP, and why.
-print(plan.code())          # Executable Python for cached objective programs.
+print(result.compilation_report)
 ```

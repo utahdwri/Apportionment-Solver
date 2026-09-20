@@ -47,7 +47,7 @@ class A_Simple(unittest.TestCase):
             ]),
             txns=[
                 PathTrxn(id='TRXN_1', priority=1, upper_limit= 3, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[3,0,0])]),
-                PathTrxn(id='TRXN_2', priority=2, upper_limit= 6, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[6,0,0])]),
+                PathTrxn(id='TRXN_2', priority=1, upper_limit= 6, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[6,0,0])]),
                 #PathTrxn(id='TRXN_3', priority=3, upper_limit=12, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[3,0,0])]),
                 #PathTrxn(id='TRXN_4', priority=4, upper_limit= 4, path=[TrxnPathItem(flow_id='RIVER>USER', expected_values=[0,0,0])]),
             ]

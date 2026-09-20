@@ -48,3 +48,10 @@ class RealProblems(unittest.TestCase):
         filepath = Path("tests") / "real_problem_files" / "duchesne.json"
         input = SolverInput.from_json(filepath)
         results = solve(input)
+
+    def test_green_2025(self):
+        from pathlib import Path
+
+        filepath = Path("tests") / "real_problem_files" / "green_2025.json"
+        input = SolverInput.from_json(filepath)
+        results = solve(input)

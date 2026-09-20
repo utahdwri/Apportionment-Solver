@@ -37,7 +37,8 @@ and account balances remain runtime inputs.
 
 ## Compiler pipeline
 
-Compilation proceeds in four stages for each priority block:
+`compile_block()` selects the same direct/proportional/symbolic/LP pipeline for
+each priority block in either pass:
 
 ```text
 build_block_lp()
@@ -55,7 +56,8 @@ try_compile_scalar_formula()
 LPKernel fallback
 ```
 
-The same sequence is compiled twice when reservoir replay can matter:
+Replay blocks are compiled only when the graph has spill/import candidates.
+When replay can matter, the plan contains:
 
 ```text
 PASS 1 program
@@ -150,31 +152,57 @@ next priority block executes.
 ## Direct calculations
 
 A one-target block with no required coupled optimization is compiled to a
-`DirectCalculationKernel` and then emitted as ordinary Python interval logic.
-
-The common case is conceptually:
+`DirectCalculationKernel`. When its additional allocation starts at zero, its
+objective is a positive constant, and its rows normalize to nonnegative
+consumption bounded by remaining capacity, the generated block is a MIN formula:
 
 ```python
-TRXN_1 = min(
-    remaining_limit_TRXN_1,
-    remaining_measurement / flow_coefficient,
-    remaining_nf / nf_coefficient,
-)
+def _pass1_block_0(state):
+    amount = min(
+        state[S_REMAINING_LIMIT_A],
+        state[S_REMAINING_MEASURED_FORWARD_D],
+        state[S_REMAINING_NF_R],
+    )
+    amount = checked_nonnegative_increment(amount)
+    state[S_ALLOCATED_A] += amount
+    state[S_REMAINING_LIMIT_A] -= amount
+    state[S_REMAINING_MEASURED_FORWARD_D] -= amount
+    state[S_REMAINING_NF_R] -= amount
+    return 0  # No numerical LP solve.
 ```
 
-Runtime coefficients retain an explicit zero case.  A slot whose structural sign
-is nonnegative may still evaluate to exactly zero on a particular day, so the
-generated program uses the same three-way logic as the original interval solver:
+Constants and coefficient-pair signs are folded during compilation. Bounds with
+the same expression appear only once. The block has no lower endpoint, row
+intersection loop, or separate commit function. `checked_nonnegative_increment`
+rejects non-finite amounts and amounts below `-TOL`; small negative roundoff is
+clamped to zero before any update.
 
-```text
-coefficient == 0  -> test row feasibility, do not divide
-coefficient > 0   -> ordinary lower/upper conversion
-coefficient < 0   -> reverse lower/upper conversion
-```
+`_validate_direct_inputs(state)` runs once per day, after natural-flow
+initialization and before any allocation. It checks the daily bounds and the
+finite, declared signs of coefficients used by these formulas. Coefficient
+signs are checked strictly; proven capacities allow the existing roundoff tolerance.
+Signed residuals can start the day negative and become feasible after earlier
+blocks; their nonnegativity is checked by the increment check at execution time.
+Unlimited variable bounds may be positive infinity; constraint capacities must
+be finite. Coefficients must remain unchanged throughout allocation and replay.
 
-The current generated direct code remains slightly more general than most
-apportionment blocks require; future cleanup can omit lower-bound machinery from
-blocks that are structurally upper-bound-only.
+A runtime coefficient can still be exactly zero. Its bound is emitted as
+`capacity / coefficient if coefficient > 0.0 else float('inf')`. Even a very
+small positive coefficient still limits consumption. The zero case can omit
+its feasibility check only when the capacity starts nonnegative and every
+writer preserves it. The compiler checks all Pass 1 and replay commits for a
+bound covering their total consumption. Witness coefficients must also be
+nonnegative: an uncommitted counterflow witness cannot finance consumption.
+Spill credit adds natural flow or clears a directional capacity.
+
+These checks establish the capacity invariant in exact arithmetic; execution
+retains the solver's floating-point tolerance. Signed net residuals and group
+reservations are not assumed to be nonnegative capacities. If the compiler
+cannot establish the required conditions, it reuses
+`DirectCalculationKernel._interval` through the existing kernel executor.
+General scalar models retain support for signed coefficients, genuine lower
+bounds, and negative objectives without duplicating that interval interpreter
+in the code generator.
 
 ## Analytical proportional calculations
 
@@ -220,17 +248,20 @@ The compiler performs:
 6. expression-DAG construction;
 7. lowering of that DAG to straight-line Python.
 
-Conceptually the result is:
+The projected objective only needs an upper bound. If an allocation is feasible
+for `g`, the same allocation is feasible for any smaller nonnegative `g`, since
+the added constraints are `x_i >= factor_i * g` with nonnegative factors. The
+compiler verifies that every projected coefficient has that sign. Zero rows
+still check feasibility, and unexpected runtime signs use the LP fallback.
+Original LP lower bounds and reservation equalities remain part of projection.
 
 ```python
-lower = max(lower_formula_1, lower_formula_2, ...)
 upper = min(upper_formula_1, upper_formula_2, ...)
-
-if upper < lower - tolerance:
-    ...
-
-g = upper
+g = max(0.0, upper)  # after feasibility and boundedness checks
 ```
+
+The generated `_intersect_projected_row()` helper contains those repeated checks
+once per plan. It is also used by standalone scalar programs.
 
 Loss/routing coefficients that vary by date remain runtime slot reads inside the
 already-compiled formulas.  There is **no runtime formula cache and no runtime
@@ -278,8 +309,7 @@ Python source
         |
         +--> exec(...)
                  |
-                 +--> execute_day(state)
-                 +--> execute_replay(state)
+                 +--> execute(state)
 ```
 
 There is no separate pretty-print representation.  The source shown by
@@ -289,8 +319,20 @@ Generated state indexes are given readable constants, and formulas use named
 intermediate expressions rather than reconstructing the original `BlockLP` at
 runtime.
 
+Generated proportional blocks share one `_allocate_proportionally()` loop.
+Each block supplies its maximum-increment formula, blocker check, and commit
+function. A monotone block reuses its common-increment formula with one factor
+set to 1 when checking a single member; there is no separate member formula.
+
+Identical commit functions are shared across passes. Constant coefficients are
+inlined, zero update terms are omitted, and snapshot temporaries are emitted
+only when an update also writes a coefficient that another update reads. Replay
+calls the Pass 1 function again when the kernel type, complete LP model, and
+updates are identical. It gets a separate function when its net-flow constraints
+or counterflow witnesses differ.
+
 Transaction IDs are labels, not Python local names: generated scalar allocations
-use a compiler-owned `_allocation` local. Flow and zone helper names include a
+use compiler-owned `amount` or `_allocation` locals. Flow and zone helper names include a
 unique structural index so distinct IDs such as `D-1` and `D_1` cannot collide.
 Original IDs remain unchanged in lookup keys, output, and escaped comments.
 
@@ -308,7 +350,7 @@ is now part of the generated Python.
 - transaction/group limits;
 - storage-account balances.
 
-`execute_day(state)` then performs the numerical NF calculation before Pass 1.
+`execute(state)` then performs the numerical NF calculation before Pass 1.
 The generated source contains:
 
 1. endpoint loss-transform helpers;
@@ -335,10 +377,21 @@ required_inflow(delivered)
 ```
 
 With the currently supported fractional loss these reduce to multiplication and
-division by a runtime delivery factor.
+division by a runtime delivery factor. The generated program defines just two
+shared functions, with direct calls that identify the endpoint's factor slot:
+
+```python
+_deliver(state, S_LOSS_FROM_DELIVERY_RIVER_STO, value)
+_required_inflow(state, S_LOSS_TO_DELIVERY_RIVER_USER, remaining)
+```
+
+There are no per-endpoint wrappers. Both functions read the factor from state
+on each call, preserving daily loss changes, finite/sign checks, zero-flow
+rounding, and the error for inverting a zero-delivery factor. `_LOSS_ENDPOINTS`
+maps factor-slot indexes to flow/endpoint labels and is read only on error.
 
 This boundary is intended for future piecewise-linear loss support.  A later
-compiler can replace a helper body with segment logic such as:
+compiler can select a shared helper for each loss type, with segment logic such as:
 
 ```python
 if q <= breakpoint_1:
@@ -405,8 +458,9 @@ Normal execution is now approximately:
 for each date:
     bind raw daily inputs into state
 
-    execute_day(state):
+    execute(state):
         initialize natural flow
+        validate direct-formula daily inputs
         run PASS 1 formulas/kernels
         calculate and apply spill/import NF credit
         run replay formulas/kernels when applicable
@@ -487,6 +541,8 @@ Useful focused tests include:
 ```text
 tests/test_block_compile.py
 tests/test_block_direct.py
+tests/test_direct_min_codegen.py
+tests/test_compact_codegen.py
 tests/test_block_proportional.py
 tests/test_block_symbolic_formula.py
 tests/test_block_accounts.py

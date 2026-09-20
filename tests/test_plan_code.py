@@ -65,7 +65,7 @@ class PlanCodeTests(TestCase):
         source = plan.code()
         self.assertIn('def _pass1_block_0(state):', source)
         self.assertIn("# Direct formula for 'TRXN_1'", source)
-        self.assertIn('_allocation = _upper if _objective > 0 else _lower', source)
+        self.assertIn('amount = checked_nonnegative_increment(amount)', source)
         self.assertIn('state[S_REMAINING_MEASURED_FORWARD_RIVER_USER]', source)
         self.assertIn("def execute(state):", source)
         self.assertNotIn('compile_direct_kernel(', source)

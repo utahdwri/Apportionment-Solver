@@ -28,7 +28,7 @@ guard lets the surrounding kernel use its exact LP fallback.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from .lp import BlockLP, Slot
@@ -77,7 +77,7 @@ class Constant(Expr):
 @dataclass(frozen=True)
 class SlotExpr(Expr):
     index: int
-    name: str
+    name: str = field(compare=False)  # Display labels do not change slot identity.
     sign: int = 0  # +1 => nonnegative, -1 => nonpositive, 0 => unknown
 
 
@@ -770,6 +770,30 @@ def compile_scalar_program(
 # ---------------------------------------------------------------------------
 
 
+# The same helper source is executed by standalone scalar programs and emitted
+# once in a complete plan, rather than repeating these checks for every row.
+PROJECTED_ROW_SOURCE = f"""
+def _intersect_projected_row(upper, scale, coefficient, rhs):
+    from math import isfinite, isnan
+    if not isfinite(coefficient) or isnan(rhs):
+        raise FormulaEvaluationError('invalid projected row')
+    if coefficient < -{FORMULA_ZERO!r}:
+        raise FormulaGuardFailed('negative projected coefficient')
+    if rhs == float('inf'):
+        return upper, scale
+    if rhs == float('-inf'):
+        raise FormulaEvaluationError('scalar formula is infeasible')
+    if coefficient > {FORMULA_ZERO!r}:
+        candidate = rhs / coefficient
+        upper = min(upper, candidate)
+        if isfinite(candidate):
+            scale = max(scale, abs(candidate))
+    elif rhs < -{FORMULA_TOL!r}:
+        raise FormulaEvaluationError('scalar formula is infeasible')
+    return upper, scale
+"""
+
+
 @dataclass(frozen=True)
 class ScalarFormulaProgram:
     source: str
@@ -782,7 +806,7 @@ class ScalarFormulaProgram:
             'FormulaGuardFailed': FormulaGuardFailed,
             'FormulaEvaluationError': FormulaEvaluationError,
         }
-        exec(compile(self.source, '<scalar-formula>', 'exec'), namespace)
+        exec(compile(PROJECTED_ROW_SOURCE + self.source, '<scalar-formula>', 'exec'), namespace)
         return namespace['maximum']
 
 
@@ -813,6 +837,11 @@ def _compile_python_source(rows: list[_Row], guards, positive_guards=()) -> str:
             for name, coefficient in row.factor_coefficients.items()
         ]
         coefficient = add_expr(*coefficient_terms) if coefficient_terms else ZERO_EXPR
+        # g only appears in x_i >= factor_i * g, with nonnegative factors.
+        # Eliminating x preserves this sign: every projected row caps g (or
+        # only checks feasibility). A negative/unknown sign is not supported.
+        if not possible_signs(coefficient) <= NONNEGATIVE:
+            raise FormulaUnsupported("Projected scalar coefficient is not nonnegative")
         row_expressions.append((coefficient, row.rhs))
 
     seen: set[Expr] = set()
@@ -830,7 +859,7 @@ def _compile_python_source(rows: list[_Row], guards, positive_guards=()) -> str:
 
     lines = [
         'def maximum(state, factors):',
-        '    from math import isfinite, isnan',
+        '    from math import isfinite',
     ]
     for index, expr in sorted(slots.items()):
         var = slot_vars[index]
@@ -891,39 +920,16 @@ def _compile_python_source(rows: list[_Row], guards, positive_guards=()) -> str:
         )
 
     lines.extend([
-        '    _lower = 0.0',
         "    _upper = float('inf')",
         '    _scale = 1.0',
     ])
-    for index, (coefficient_expr, rhs_expr) in enumerate(row_expressions):
+    for coefficient_expr, rhs_expr in row_expressions:
         coefficient = ref(coefficient_expr)
         rhs = ref(rhs_expr)
-        cvar = f'_c{index}'
-        rvar = f'_r{index}'
-        lines.append(f'    {cvar} = {coefficient}')
-        lines.append(f'    {rvar} = {rhs}')
-        lines.append(
-            f"    if not isfinite({cvar}) or isnan({rvar}): raise FormulaEvaluationError('invalid projected row')"
-        )
-        lines.append(f"    if {rvar} == float('inf'):")
-        lines.append('        pass')
-        lines.append(f"    elif {rvar} == float('-inf'):")
-        lines.append("        raise FormulaEvaluationError('scalar formula is infeasible')")
-        lines.append(f'    elif {cvar} > {FORMULA_ZERO!r}:')
-        lines.append(f'        _candidate = {rvar} / {cvar}')
-        lines.append('        _upper = min(_upper, _candidate)')
-        lines.append('        if isfinite(_candidate): _scale = max(_scale, abs(_candidate))')
-        lines.append(f'    elif {cvar} < -{FORMULA_ZERO!r}:')
-        lines.append(f'        _candidate = {rvar} / {cvar}')
-        lines.append('        _lower = max(_lower, _candidate)')
-        lines.append('        if isfinite(_candidate): _scale = max(_scale, abs(_candidate))')
-        lines.append(f'    elif {rvar} < -{FORMULA_TOL!r}:')
-        lines.append("        raise FormulaEvaluationError('scalar formula is infeasible')")
+        lines.append(f'    _upper, _scale = _intersect_projected_row(_upper, _scale, {coefficient}, {rhs})')
     lines.extend([
-        f'    if _upper < _lower - {FORMULA_TOL!r} * _scale:',
+        f'    if _upper < -{FORMULA_TOL!r} * _scale:',
         "        raise FormulaEvaluationError('scalar formula is infeasible')",
-        '    if _upper < _lower:',
-        '        _upper = _lower = 0.5 * (_lower + _upper)',
         "    if not isfinite(_upper): raise FormulaEvaluationError('scalar formula is unbounded')",
         '    return max(0.0, float(_upper))',
         '',

@@ -1,5 +1,5 @@
 
-from ut_water_apportionment.compile import compile, CompileOptions
+from .compile import compile, CompileOptions
 from .solver import solve
 from .models import (
     AccountingGraph,
@@ -27,8 +27,9 @@ from .loss_models import (
 )
 
 __all__ = [
-    "solve",
     "compile",
+    "CompileOptions",
+    "solve",
     "AccountingGraph",
     "AccountingLimit",
     "AccountingLimitInterval",

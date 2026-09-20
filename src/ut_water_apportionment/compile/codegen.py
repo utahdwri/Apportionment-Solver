@@ -10,6 +10,10 @@ import math
 import re
 from dataclasses import dataclass
 
+from .formula import (
+    PROJECTED_ROW_SOURCE, Constant, NONNEGATIVE, NONPOSITIVE,
+    possible_signs, scalar_expr,
+)
 from .kernel import (
     DirectCalculationKernel,
     LPKernel,
@@ -34,10 +38,110 @@ def _identifier(text: str) -> str:
     return text
 
 
+# Emitted once per plan. Keep the scheduling code as ordinary readable Python;
+# each block supplies only its formulas, blocker checks, and state updates.
+_PROPORTIONAL_SOURCE = """
+def _allocate_proportionally(state, references, maximum, commit, blockers):
+    if any(isnan(cfs) or cfs < 0 for cfs in references.values()):
+        raise SolverError('Invalid proportional reference cfs')
+    phases = [
+        {name: 1.0 for name, cfs in references.items() if isinf(cfs) and cfs > 0},
+        {name: cfs for name, cfs in references.items() if isfinite(cfs) and cfs > 0},
+    ]
+    deferred = []
+    calls = 0
+
+    def classify(names):
+        nonlocal calls
+        names = list(names)
+        if not names:
+            return []
+        witness, extra = maximum(state, {name: 1.0 for name in names})
+        calls += extra
+        if witness > TOL:
+            return []
+        if len(names) == 1:
+            return names
+        middle = len(names) // 2
+        return classify(names[:middle]) + classify(names[middle:])
+
+    for active in phases:
+        while active:
+            scale = max(active.values())
+            total = sum(value / scale for value in active.values())
+            factors = {name: (value / scale) / total for name, value in active.items()}
+            tiny = [name for name, factor in factors.items() if factor < 1e-6]
+            if tiny:
+                deferred.extend(tiny)
+                active = {name: cfs for name, cfs in active.items() if name not in tiny}
+                continue
+            increment, extra = maximum(state, factors)
+            calls += extra
+            commit(state, {name: factor * increment for name, factor in factors.items()})
+            blocked = blockers(state, active)
+            if not blocked:
+                blocked = classify(active)
+            if not blocked:
+                raise SolverError('Proportional allocation made no blocking progress')
+            active = {name: cfs for name, cfs in active.items() if name not in blocked}
+
+    for name in deferred:
+        increment, extra = maximum(state, {name: 1.0})
+        calls += extra
+        commit(state, {name: increment})
+    return calls
+"""
+
+
+_DIRECT_SOURCE = """
+def checked_nonnegative_increment(amount):
+    if not isfinite(amount) or amount < -TOL:
+        raise SolverError(f'Invalid allocation increment: {amount}')
+    return max(0.0, amount)
+"""
+
+
 @dataclass
 class GeneratedPlanSource:
     source: str
     namespace: dict[str, object]
+
+
+def _nonnegative(value):
+    expression = scalar_expr(value)
+    return (not isinstance(expression, Constant) or math.isfinite(expression.value)) and (
+        possible_signs(expression) <= NONNEGATIVE
+    )
+
+
+def _capacity_proof(model, slot):
+    """Find one bound covering the total committed consumption of a capacity.
+
+    Witness consumption must be nonnegative: a negative witness could finance
+    a target decrement without actually being committed with it. Separate bounds
+    on individual targets do not suffice when they consume the same capacity.
+    """
+    changes = {name: updates[slot] for name, updates in model.updates.items() if slot in updates}
+    lowers = [model.variables[name].lower for name in changes]
+    if not all(_nonnegative(lower) for lower in lowers):
+        return None
+    consumers = {name: change for name, change in changes.items() if not _nonnegative(change)}
+    inputs = [*changes.values(), *lowers]
+    if not consumers:
+        return inputs
+    if len(consumers) == 1:
+        name, change = next(iter(consumers.items()))
+        if model.variables[name].upper == slot and scalar_expr(change) == Constant(-1.0):
+            return inputs
+    for row in model.constraints:
+        if (row.upper == slot
+                and all(scalar_expr(row.coefficients.get(name, 0.0)) == scalar_expr(change, -1.0)
+                        for name, change in consumers.items())
+                and all(_nonnegative(c) and _nonnegative(model.variables[n].lower)
+                        for n, c in row.coefficients.items())):
+            return [*inputs, *row.coefficients.values(),
+                    *(model.variables[n].lower for n in row.coefficients)]
+    return None
 
 
 class PythonPlanEmitter:
@@ -63,6 +167,7 @@ class PythonPlanEmitter:
         self.state_layout = state_layout
         self.lines: list[str] = []
         self.namespace: dict[str, object] = {}
+        self.commit_functions: list[tuple[dict, str]] = []
         self.slot_names: dict[int, str] = {}
         used: set[str] = set()
         for slot in sorted(state_layout.slots.values(), key=lambda value: value.index):
@@ -96,13 +201,168 @@ class PythonPlanEmitter:
 
     def scalar(self, value:Scalar) -> str:
         if isinstance(value, Slot):
-            return f"state[{self.slot_names[value.index]}]"
+            if value.constant_value is None:
+                return f"state[{self.slot_names[value.index]}]"
+            value = value.constant_value
         number = float(value)
+        if number == 0.0:
+            return "0.0"
         if math.isinf(number):
             return "float('inf')" if number > 0 else "float('-inf')"
         if math.isnan(number):
             return "float('nan')"
         return repr(number)
+
+    def product(self, coefficient: Scalar, expression: str) -> str:
+        code = self.scalar(coefficient)
+        if code == "0.0":
+            return "0.0"
+        if code == "1.0":
+            return expression
+        if code == "-1.0":
+            return f"-({expression})"
+        return f"({code}) * ({expression})"
+
+    def scaled_scalar(self, value: Scalar, factor: float) -> str:
+        """Fold signs and coefficient-pair aliases in the direct formulas."""
+        if isinstance(value, Slot):
+            if value.constant_value is not None:
+                return self.scalar(factor * value.constant_value)
+            if value.source_index is not None:
+                return self.product(factor * value.source_factor,
+                                    f"state[{self.slot_names[value.source_index]}]")
+        elif factor != 1.0:
+            return self.scalar(factor * value)
+        return self.product(factor, self.scalar(value))
+
+    def prepare_direct_formulas(self, operations):
+        """Prove nonnegative capacities are preserved by *all* block commits.
+
+        Only layout capacities known to start nonnegative are candidates. Signed
+        measurement residuals and outstanding reservations are not capacities.
+        Spill credit only adds natural flow or clears a directional capacity.
+        """
+        self.written_slots = {slot.index for op in operations
+                              for updates in op.model.updates.values() for slot in updates}
+        capacities = set()
+        for family in ("limits", "natural_flow", "measurement_forward_remaining",
+                       "measurement_reverse_remaining", "account_out_remaining", "account_in_remaining"):
+            capacities.update(getattr(self.state_layout, family, {}).values())
+        self.capacity_proofs = {slot: set() for slot in capacities}
+        for op in operations:
+            written = {slot for updates in op.model.updates.values() for slot in updates}
+            for slot in written & self.capacity_proofs.keys():
+                proof = _capacity_proof(op.model, slot)
+                if proof is None or not all(self.immutable(c) for c in proof):
+                    del self.capacity_proofs[slot]
+                else:
+                    self.capacity_proofs[slot].update(proof)
+        self.direct_inputs = {}  # (Slot, required_sign) -> (allow_infinity, tolerance)
+
+    def immutable(self, value):
+        return not isinstance(value, Slot) or not (
+            {value.index, value.source_index} & self.written_slots
+        )
+
+    def require_direct_input(self, value, allow_infinity=False, sign=0, tolerance=0.0):
+        if not isinstance(value, Slot) or value.constant_value is not None:
+            return
+        key = (value, sign)
+        previous = self.direct_inputs.get(key, (True, tolerance))
+        self.direct_inputs[key] = (previous[0] and allow_infinity, min(previous[1], tolerance))
+        if value.source_index is not None:
+            source = next(slot for slot in self.state_layout.slots.values()
+                          if slot.index == value.source_index)
+            source_sign = sign * (1 if value.source_factor >= 0 else -1)
+            self.require_direct_input(source, sign=source_sign)
+
+    def direct_bounds(self, operation):
+        """Return upper-capacity formulas, or None when a proof is unavailable."""
+        model, name = operation.model, operation.name
+        variable = model.variables[name]
+        objective = scalar_expr(model.rule.coefficients[name])
+        if (scalar_expr(variable.lower) != Constant(0.0)
+                or not self.immutable(variable.lower)
+                or not self.immutable(model.rule.coefficients[name])
+                or not isinstance(objective, Constant)
+                or not math.isfinite(objective.value) or objective.value <= 0):
+            return None
+        inputs, bounds = [], []
+        if variable.upper is not None:
+            upper = scalar_expr(variable.upper)
+            if isinstance(upper, Constant) and (math.isnan(upper.value) or upper.value < 0):
+                return None
+            sign = 1 if self.immutable(variable.upper) or variable.upper in self.capacity_proofs else 0
+            inputs.append((variable.upper, True, sign, TOL))
+            bounds.append(self.scalar(variable.upper))
+        for row in model.constraints:
+            coefficient = row.coefficients.get(name, 0.0)
+            if not self.immutable(coefficient):
+                return None
+            for bound, direction in ((row.upper, 1.0), (row.lower, -1.0)):
+                if bound is None:
+                    continue
+                c = scalar_expr(coefficient, direction)
+                rhs = scalar_expr(bound, direction)
+                if (not possible_signs(c) <= NONNEGATIVE
+                        or isinstance(c, Constant) and not math.isfinite(c.value)
+                        or isinstance(rhs, Constant) and not _nonnegative(rhs.value)):
+                    return None
+                # Zero rows can be omitted only if every writer preserves their
+                # RHS. Signed net residuals and reservations need the general path.
+                can_be_zero = not isinstance(c, Constant) or c.value == 0.0
+                if can_be_zero and isinstance(bound, Slot) and bound.constant_value is None:
+                    if direction != 1.0 or bound not in self.capacity_proofs:
+                        return None
+                    inputs.extend((v, False, v.sign, 0.0) for v in self.capacity_proofs[bound]
+                                  if isinstance(v, Slot))
+                # A signed residual can become feasible only after preceding
+                # blocks. Its MIN result is checked when this block executes.
+                sign = int(direction) if self.immutable(bound) or bound in self.capacity_proofs else 0
+                inputs.append((bound, False, sign, TOL))
+                if c == Constant(0.0):
+                    continue
+                inputs.append((coefficient, False, getattr(coefficient, "sign", 0), 0.0))
+                capacity = self.scaled_scalar(bound, direction)
+                divisor = self.scaled_scalar(coefficient, direction)
+                term = capacity if c == Constant(1.0) else f"({capacity}) / ({divisor})"
+                if isinstance(rhs, Constant) and isinstance(c, Constant):
+                    term = self.scalar(rhs.value / c.value)
+                if can_be_zero:
+                    term = f"({term} if {divisor} > 0.0 else float('inf'))"
+                bounds.append(term)
+        bounded_slots = {variable.upper, *(row.upper for row in model.constraints)}
+        for slot, coefficient in model.updates.get(name, {}).items():
+            if not self.immutable(coefficient):
+                return None
+            if slot in bounded_slots and _capacity_proof(model, slot) is None:
+                return None
+            expression = scalar_expr(coefficient)
+            if (not (possible_signs(expression) <= NONNEGATIVE or possible_signs(expression) <= NONPOSITIVE)
+                    or isinstance(expression, Constant) and not math.isfinite(expression.value)):
+                return None
+            inputs.append((coefficient, False, getattr(coefficient, "sign", 0), 0.0))
+        for value, allow_infinity, sign, tolerance in inputs:
+            self.require_direct_input(value, allow_infinity, sign, tolerance)
+        return list(dict.fromkeys(bounds)) or ["float('inf')"]
+
+    def emit_direct_validation(self):
+        self.emit("def _validate_direct_inputs(state):")
+        self.emit("    # Once per day, after NF initialization and before allocation.")
+        if self.direct_inputs:
+            self.emit("    for index, allow_infinity, sign, tolerance, label in (")
+            for (slot, sign), (allow_infinity, tolerance) in sorted(
+                    self.direct_inputs.items(), key=lambda item: (item[0][0].index, item[0][1])):
+                tolerance_code = "TOL" if tolerance == TOL else repr(tolerance)
+                self.emit(f"        ({self.slot_names[slot.index]}, {allow_infinity!r}, {sign}, {tolerance_code}, {slot.name!r}),")
+            self.emit("    ):")
+            self.emit("        value = state[index]")
+            self.emit("        if isnan(value) or value == float('-inf') or (not allow_infinity and not isfinite(value)):")
+            self.emit("            raise SolverError(f'Invalid daily input {label}: {value}')")
+            self.emit("        if sign and sign * value < -tolerance:")
+            self.emit("            raise SolverError(f'Invalid daily input sign {label}: {value}')")
+        self.emit("    return None")
+        self.emit("")
 
     def slot_constant(self, slot: Slot) -> str:
         return self.slot_names[slot.index]
@@ -237,151 +497,75 @@ class PythonPlanEmitter:
     def add_external(self, name: str, value):
         self.namespace[name] = value
 
-    # ------------------------------------------------------------------
-    # State updates.  Coefficients are evaluated from one pre-write state
-    # snapshot, matching kernel._commit_updates exactly.
-    # ------------------------------------------------------------------
+    def emit_commit_function(self, model: BlockLP, function_name: str) -> str:
+        """Share identical updates between allocation passes and water-filling rounds."""
+        for updates, existing_name in self.commit_functions:
+            if updates == model.updates:
+                return existing_name
+        self.commit_functions.append((model.updates, function_name))
+        self.emit(f"def {function_name}(state, increments):")
+        self.emit_commit(model, {
+            name: f"increments.get({name!r}, 0.0)" for name in model.updates
+        })
+        self.emit("    return None")
+        self.emit("")
+        return function_name
+
     def emit_commit(self, model: BlockLP, increments: dict[str, str], indent="    "):
-        slots: dict[int, Slot] = {}
         terms: dict[int, list[str]] = {}
-        for variable_name, increment_code in increments.items():
-            for slot, coefficient in model.updates.get(variable_name, {}).items():
-                slots[slot.index] = slot
-                terms.setdefault(slot.index, []).append(
-                    f"({self.scalar(coefficient)}) * ({increment_code})"
-                )
-        if not terms:
-            return
+        reads = set()
+        for name, increment in increments.items():
+            for slot, coefficient in model.updates.get(name, {}).items():
+                term = self.product(coefficient, increment)
+                if term == "0.0":
+                    continue
+                terms.setdefault(slot.index, []).append(term)
+                if isinstance(coefficient, Slot) and coefficient.constant_value is None:
+                    reads.add(coefficient.index)
+
+        # Normal plan coefficients are immutable during allocation. Only models
+        # that also write a coefficient need the pre-write snapshot temporaries.
+        snapshot = bool(reads.intersection(terms))
         for index in sorted(terms):
-            local = f"_change_{index}"
-            self.emit(indent + local + " = " + " + ".join(terms[index]))
-        for index in sorted(terms):
-            self.emit(
-                indent
-                + f"state[{self.slot_names[index]}] += _change_{index}"
-                + f"  # {slots[index].name!r}"
-            )
+            expression = " + ".join(terms[index])
+            target = f"_change_{index} =" if snapshot else f"state[{self.slot_names[index]}] +="
+            self.emit(f"{indent}{target} {expression}")
+        if snapshot:
+            for index in sorted(terms):
+                self.emit(f"{indent}state[{self.slot_names[index]}] += _change_{index}")
 
     # ------------------------------------------------------------------
     # Direct kernel.
     # ------------------------------------------------------------------
-    def emit_direct(
-        self,
-        operation: DirectCalculationKernel,
-        function_name: str
-    ):
-        """Emit Python for an exact one-variable maximization.
-
-        The direct kernel has already reduced the block LP to one target variable.
-        Generated code intersects its runtime bounds and scalar constraints, chooses
-        the maximizing feasible endpoint, and applies the compiled state updates.
-        """
-        model = operation.model
-
-        if not isinstance(model.rule, Maximize):
-            raise TypeError(
-                "DirectCalculationKernel requires a Maximize allocation rule"
-            )
-
-        name = operation.name
-        variable = model.variables[name]
-        # Never let a transaction ID shadow state, builtins, or temporaries.
-        safe = "_allocation"
-        self.emit(f"def {function_name}(state):")
-        self.emit(f"    # Direct formula for {name!r}")
-        self.emit(f"    _lower = {self.scalar(variable.lower)}")
-        self.emit(
-            "    _upper = float('inf')"
-            if variable.upper is None
-            else f"    _upper = {self.scalar(variable.upper)}"
-        )
-        self.emit("    if _upper != float('inf') and -TOL <= _upper < 0 and _lower == 0:")
-        self.emit("        _upper = 0.0")
-        self.emit("    if not isfinite(_lower) or isnan(_upper):")
-        self.emit("        raise SolverError('Non-finite variable bound')")
-
-        for row_index, constraint in enumerate(model.constraints):
-            coefficient: Scalar = constraint.coefficients.get(name, 0.0)
-            ccode = self.scalar(coefficient)
-            lo = constraint.lower
-            hi = constraint.upper
+    def emit_direct(self, operation: DirectCalculationKernel, function_name: str, external_name: str):
+        bounds = self.direct_bounds(operation)
+        if bounds is None:
+            # Hand-built or coupled-sign scalar models retain the existing
+            # interval executor; do not duplicate that interpreter in codegen.
+            self.add_external(external_name, operation)
+            self.emit(f"# General scalar interval for {operation.name!r}; see DirectCalculationKernel._interval.")
+            self.emit(f"def {function_name}(state):")
+            self.emit(f"    return {external_name}.execute(state)")
             self.emit("")
-            self.emit(f"    # {constraint.name!r}")
-            self.emit(f"    _c{row_index} = {ccode}")
-            if lo is not None:
-                self.emit(f"    _lo{row_index} = {self.scalar(lo)}")
-            if hi is not None:
-                self.emit(f"    _hi{row_index} = {self.scalar(hi)}")
-            self.emit(f"    if not isfinite(_c{row_index}):")
-            self.emit(f"        raise SolverError({('Non-finite coefficient: ' + constraint.name)!r})")
-            bound_vars = []
-            if lo is not None:
-                bound_vars.append(f"_lo{row_index}")
-            if hi is not None:
-                bound_vars.append(f"_hi{row_index}")
-            if bound_vars:
-                cond = " or ".join(f"not isfinite({v})" for v in bound_vars)
-                self.emit(f"    if {cond}:")
-                self.emit(f"        raise SolverError({('Non-finite constraint bound: ' + constraint.name)!r})")
-
-            # A Slot sign is only a nonnegative/nonpositive guarantee; it does
-            # *not* mean the runtime coefficient is strictly away from zero.
-            # Direct execution must therefore retain the exact three-way
-            # runtime branch used by DirectCalculationKernel._interval().
-            # Otherwise a structurally nonnegative coefficient that is 0.0 on
-            # a particular day would incorrectly divide a row bound by zero.
-            if isinstance(coefficient, Slot):
-                self.emit(f"    if abs(_c{row_index}) <= 1e-15:")
-                if lo is not None:
-                    self.emit(f"        if _lo{row_index} > TOL:")
-                    self.emit(f"            raise SolverError({('Block [' + repr(name) + '] failed: infeasible ' + constraint.name)!r})")
-                if hi is not None:
-                    self.emit(f"        if _hi{row_index} < -TOL:")
-                    self.emit(f"            raise SolverError({('Block [' + repr(name) + '] failed: infeasible ' + constraint.name)!r})")
-                self.emit(f"    elif _c{row_index} > 0:")
-                if lo is not None:
-                    self.emit(f"        _lower = max(_lower, _lo{row_index} / _c{row_index})")
-                if hi is not None:
-                    self.emit(f"        _upper = min(_upper, _hi{row_index} / _c{row_index})")
-                self.emit("    else:")
-                if lo is not None:
-                    self.emit(f"        _upper = min(_upper, _lo{row_index} / _c{row_index})")
-                if hi is not None:
-                    self.emit(f"        _lower = max(_lower, _hi{row_index} / _c{row_index})")
-            else:
-                number = float(coefficient)
-                if abs(number) <= 1e-15:
-                    if lo is not None:
-                        self.emit(f"    if _lo{row_index} > TOL:")
-                        self.emit(f"        raise SolverError({('Block [' + repr(name) + '] failed: infeasible ' + constraint.name)!r})")
-                    if hi is not None:
-                        self.emit(f"    if _hi{row_index} < -TOL:")
-                        self.emit(f"        raise SolverError({('Block [' + repr(name) + '] failed: infeasible ' + constraint.name)!r})")
-                elif number > 0:
-                    if lo is not None:
-                        self.emit(f"    _lower = max(_lower, _lo{row_index} / _c{row_index})")
-                    if hi is not None:
-                        self.emit(f"    _upper = min(_upper, _hi{row_index} / _c{row_index})")
-                else:
-                    if lo is not None:
-                        self.emit(f"    _upper = min(_upper, _lo{row_index} / _c{row_index})")
-                    if hi is not None:
-                        self.emit(f"    _lower = max(_lower, _hi{row_index} / _c{row_index})")
-
-        self.emit("")
-        self.emit("    _scale = max(1.0, abs(_lower) if isfinite(_lower) else 1.0, abs(_upper) if isfinite(_upper) else 1.0)")
-        self.emit("    if _upper < _lower - TOL * _scale:")
-        self.emit(f"        raise SolverError({('Block [' + repr(name) + '] failed: direct interval is infeasible')!r})")
-        self.emit("    if _upper < _lower:")
-        self.emit("        _lower = _upper = 0.5 * (_lower + _upper)")
-        objective = self.scalar(model.rule.coefficients[name])
-        self.emit(f"    _objective = {objective}")
-        self.emit("    if not isfinite(_objective) or abs(_objective) <= 1e-15:")
-        self.emit("        raise SolverError('Invalid direct objective coefficient')")
-        self.emit(f"    {safe} = _upper if _objective > 0 else _lower")
-        self.emit(f"    if not isfinite({safe}):")
-        self.emit(f"        raise SolverError({('Block [' + repr(name) + '] failed: unbounded direct objective')!r})")
-        self.emit_commit(model, {name: safe})
+            return
+        self.emit(f"def {function_name}(state):")
+        self.emit(f"    # Direct formula for {operation.name!r}")
+        if len(bounds) == 1:
+            self.emit(f"    amount = {bounds[0]}")
+        else:
+            self.emit("    amount = min(")
+            for bound in bounds:
+                self.emit(f"        {bound},")
+            self.emit("    )")
+        self.emit("    amount = checked_nonnegative_increment(amount)")
+        for slot, coefficient in operation.model.updates.get(operation.name, {}).items():
+            expression = scalar_expr(coefficient)
+            if expression == Constant(0.0):
+                continue
+            negative = possible_signs(expression) <= NONPOSITIVE
+            magnitude = self.scaled_scalar(coefficient, -1.0 if negative else 1.0)
+            change = "amount" if magnitude == "1.0" else f"({magnitude}) * amount"
+            self.emit(f"    state[{self.slot_names[slot.index]}] {'-=' if negative else '+='} {change}")
         self.emit("    return 0")
         self.emit("")
 
@@ -411,7 +595,7 @@ class PythonPlanEmitter:
 
         if not isinstance(model.rule, Proportional):
             raise TypeError(
-                "DirectCalculationKernel requires a Proportional allocation rule"
+                "ProportionalCalculationKernel requires a Proportional allocation rule"
             )
 
         targets = tuple(operation.targets)
@@ -419,7 +603,7 @@ class PythonPlanEmitter:
 
         # Helper: common proportional MIN formula.
         common_name = function_name + "_common_increment"
-        self.emit(f"def {common_name}(state, factors):")
+        self.emit(f"def {common_name}(state, factors, allow_unbounded=False):")
         self.emit("    _upper = float('inf')")
         for name in targets:
             variable = model.variables[name]
@@ -432,44 +616,27 @@ class PythonPlanEmitter:
             if constraint.upper is None:
                 continue
             pieces = [
-                f"({self.scalar(constraint.coefficients.get(name, 0.0))}) * factors.get({name!r}, 0.0)"
+                self.product(constraint.coefficients[name], f"factors.get({name!r}, 0.0)")
                 for name in targets
                 if name in constraint.coefficients
             ]
-            consumption = " + ".join(pieces) if pieces else "0.0"
+            consumption = " + ".join(piece for piece in pieces if piece != "0.0") or "0.0"
             self.emit(f"    _capacity_{index} = {self.scalar(constraint.upper)}  # {constraint.name!r}")
-            self.emit(f"    _use_{index} = {consumption}")
             self.emit(f"    if _capacity_{index} < -TOL: raise SolverError({('Negative remaining capacity: ' + constraint.name)!r})")
-            self.emit(f"    if _use_{index} > 1e-15:")
-            self.emit(f"        _upper = min(_upper, max(0.0, _capacity_{index}) / _use_{index})")
-        self.emit("    if not isfinite(_upper): raise SolverError('Unbounded proportional increment')")
+            if consumption != "0.0":
+                self.emit(f"    _use_{index} = {consumption}")
+                self.emit(f"    if _use_{index} > 1e-15:")
+                self.emit(f"        _upper = min(_upper, max(0.0, _capacity_{index}) / _use_{index})")
+        self.emit("    if not allow_unbounded and not isfinite(_upper): raise SolverError('Unbounded proportional increment')")
         self.emit("    if _upper < -TOL: raise SolverError('Infeasible proportional increment')")
-        self.emit("    return max(0.0, _upper)")
+        self.emit("    return max(0.0, _upper), 0")
         self.emit("")
 
-        member_name = function_name + "_member_capacity"
-        self.emit(f"def {member_name}(state, name):")
-        self.emit("    _upper = float('inf')")
-        for i, name in enumerate(targets):
-            prefix = "if" if i == 0 else "elif"
-            variable = model.variables[name]
-            self.emit(f"    {prefix} name == {name!r}:")
-            if variable.upper is None:
-                self.emit("        _upper = float('inf')")
-            else:
-                self.emit(f"        _upper = max(0.0, {self.scalar(variable.upper)})")
-            for constraint in model.constraints:
-                if constraint.upper is None or name not in constraint.coefficients:
-                    continue
-                coeff = self.scalar(constraint.coefficients[name])
-                cap = self.scalar(constraint.upper)
-                self.emit(f"        _c = {coeff}  # {constraint.name!r}")
-                self.emit("        if _c > 1e-15:")
-                self.emit(f"            _upper = min(_upper, max(0.0, {cap}) / _c)")
-        self.emit("    else:")
-        self.emit("        raise KeyError(name)")
-        self.emit("    return max(0.0, _upper)")
+        blockers_name = function_name + "_blocked_members"
+        self.emit(f"def {blockers_name}(state, active):")
+        self.emit(f"    return [name for name in active if {common_name}(state, {{name: 1.0}}, allow_unbounded=True)[0] <= TOL]")
         self.emit("")
+        commit_name = self.emit_commit_function(model, function_name + "_commit")
 
         self.emit(f"def {function_name}(state):")
         self.emit(f"    # Analytical proportional water filling for {list(targets)!r}")
@@ -488,38 +655,7 @@ class PythonPlanEmitter:
 
         refs = ", ".join(f"{name!r}: {self.scalar(model.rule.reference_cfs[name])}" for name in targets)
         self.emit(f"    _references = {{{refs}}}")
-        self.emit("    if any(isnan(c) or c < 0 for c in _references.values()):")
-        self.emit("        raise SolverError('Invalid proportional reference cfs')")
-        self.emit("    _phases = [")
-        self.emit("        {name: 1.0 for name, cfs in _references.items() if isinf(cfs) and cfs > 0},")
-        self.emit("        {name: cfs for name, cfs in _references.items() if isfinite(cfs) and cfs > 0},")
-        self.emit("    ]")
-        self.emit("    _deferred = []")
-        self.emit("    for _active in _phases:")
-        self.emit("        while _active:")
-        self.emit("            _scale = max(_active.values())")
-        self.emit("            _total = sum(v / _scale for v in _active.values())")
-        self.emit("            _factors = {name: (v / _scale) / _total for name, v in _active.items()}")
-        self.emit("            _tiny = [name for name, factor in _factors.items() if factor < 1e-6]")
-        self.emit("            if _tiny:")
-        self.emit("                _deferred.extend(_tiny)")
-        self.emit("                _active = {name: cfs for name, cfs in _active.items() if name not in _tiny}")
-        self.emit("                continue")
-        self.emit(f"            _increment = {common_name}(state, _factors)")
-        # Commit factors * increment using dynamic factor mapping; emit updates per target with .get
-        self.emit_commit(model, {name: f"_factors.get({name!r}, 0.0) * _increment" for name in targets}, indent="            ")
-        self.emit(f"            _blocked = [name for name in _active if {member_name}(state, name) <= TOL]")
-        self.emit("            if not _blocked:")
-        self.emit("                raise SolverError('Proportional allocation made no blocking progress')")
-        self.emit("            _active = {name: cfs for name, cfs in _active.items() if name not in _blocked}")
-        self.emit("    for _name in _deferred:")
-        self.emit(f"        _increment = {member_name}(state, _name)")
-        # Conditional commit by name.
-        for i, name in enumerate(targets):
-            prefix = "if" if i == 0 else "elif"
-            self.emit(f"        {prefix} _name == {name!r}:")
-            self.emit_commit(model, {name: "_increment"}, indent="            ")
-        self.emit("    return 0")
+        self.emit(f"    return _allocate_proportionally(state, _references, {common_name}, {commit_name}, {blockers_name})")
         self.emit("")
 
     # ------------------------------------------------------------------
@@ -561,58 +697,59 @@ class PythonPlanEmitter:
         self.emit("    if len(factors) == 1 and next(iter(factors.values())) == 1.0:")
         self.emit("        _name = next(iter(factors))")
         self.emit(f"        _result = {external_name}._solve(state, weights={{_name: 1.0}})")
-        names = tuple(operation.names)
         self.emit(f"        _index = {dict(operation.index)!r}[_name]")
         self.emit("        return max(0.0, float(_result[_index])), 1")
         self.emit(f"    _result = {external_name}._solve(state, proportions=factors)")
         self.emit("    return max(0.0, float(_result[-1])), 1")
         self.emit("")
 
-        blockers_name = function_name + "_structural_blockers"
-        self.emit(f"def {blockers_name}(state, active):")
-        self.emit("    _blocked = []")
-        self.emit("    _blocked_set = set()")
-        for name in operation.targets:
-            variable = model.variables[name]
-            if variable.upper is not None:
-                self.emit(f"    if {name!r} in active and {self.scalar(variable.upper)} <= TOL:")
-                self.emit(f"        _blocked.append({name!r}); _blocked_set.add({name!r})")
-        for index, constraint in enumerate(model.constraints):
-            coeff_entries = ", ".join(
-                f"{name!r}: {self.scalar(coefficient)}"
-                for name, coefficient in constraint.coefficients.items()
-            )
-            self.emit(f"    _coeffs_{index} = {{{coeff_entries}}}  # {constraint.name!r}")
-            self.emit(f"    _live_{index} = {{}}")
-            for name in constraint.coefficients:
+        commit_name = self.emit_commit_function(model, function_name + "_commit")
+        if isinstance(model.rule, Proportional):
+            blockers_name = function_name + "_structural_blockers"
+            self.emit(f"def {blockers_name}(state, active):")
+            self.emit("    _blocked = []")
+            self.emit("    _blocked_set = set()")
+            for name in operation.targets:
                 variable = model.variables[name]
-                if variable.upper is None:
-                    self.emit(f"    _live_{index}[{name!r}] = _coeffs_{index}[{name!r}]")
-                else:
-                    self.emit(f"    if {self.scalar(variable.upper)} > TOL:")
-                    self.emit(f"        _live_{index}[{name!r}] = _coeffs_{index}[{name!r}]")
-            if constraint.upper is not None:
-                self.emit(f"    if {self.scalar(constraint.upper)} <= TOL and not any(c < -TOL for c in _live_{index}.values()):")
-                emitted = False
-                for name in operation.targets:
-                    if name in constraint.coefficients:
-                        emitted = True
-                        self.emit(f"        if {name!r} in active and {name!r} not in _blocked_set and _coeffs_{index}.get({name!r}, 0.0) > TOL:")
-                        self.emit(f"            _blocked.append({name!r}); _blocked_set.add({name!r})")
-                if not emitted:
-                    self.emit("        pass")
-            if constraint.lower is not None:
-                self.emit(f"    if -({self.scalar(constraint.lower)}) <= TOL and not any(c > TOL for c in _live_{index}.values()):")
-                emitted = False
-                for name in operation.targets:
-                    if name in constraint.coefficients:
-                        emitted = True
-                        self.emit(f"        if {name!r} in active and {name!r} not in _blocked_set and _coeffs_{index}.get({name!r}, 0.0) < -TOL:")
-                        self.emit(f"            _blocked.append({name!r}); _blocked_set.add({name!r})")
-                if not emitted:
-                    self.emit("        pass")
-        self.emit("    return _blocked")
-        self.emit("")
+                if variable.upper is not None:
+                    self.emit(f"    if {name!r} in active and {self.scalar(variable.upper)} <= TOL:")
+                    self.emit(f"        _blocked.append({name!r}); _blocked_set.add({name!r})")
+            for index, constraint in enumerate(model.constraints):
+                coeff_entries = ", ".join(
+                    f"{name!r}: {self.scalar(coefficient)}"
+                    for name, coefficient in constraint.coefficients.items()
+                )
+                self.emit(f"    _coeffs_{index} = {{{coeff_entries}}}  # {constraint.name!r}")
+                self.emit(f"    _live_{index} = {{}}")
+                for name in constraint.coefficients:
+                    variable = model.variables[name]
+                    if variable.upper is None:
+                        self.emit(f"    _live_{index}[{name!r}] = _coeffs_{index}[{name!r}]")
+                    else:
+                        self.emit(f"    if {self.scalar(variable.upper)} > TOL:")
+                        self.emit(f"        _live_{index}[{name!r}] = _coeffs_{index}[{name!r}]")
+                if constraint.upper is not None:
+                    self.emit(f"    if {self.scalar(constraint.upper)} <= TOL and not any(c < -TOL for c in _live_{index}.values()):")
+                    emitted = False
+                    for name in operation.targets:
+                        if name in constraint.coefficients:
+                            emitted = True
+                            self.emit(f"        if {name!r} in active and {name!r} not in _blocked_set and _coeffs_{index}.get({name!r}, 0.0) > TOL:")
+                            self.emit(f"            _blocked.append({name!r}); _blocked_set.add({name!r})")
+                    if not emitted:
+                        self.emit("        pass")
+                if constraint.lower is not None:
+                    self.emit(f"    if -({self.scalar(constraint.lower)}) <= TOL and not any(c > TOL for c in _live_{index}.values()):")
+                    emitted = False
+                    for name in operation.targets:
+                        if name in constraint.coefficients:
+                            emitted = True
+                            self.emit(f"        if {name!r} in active and {name!r} not in _blocked_set and _coeffs_{index}.get({name!r}, 0.0) < -TOL:")
+                            self.emit(f"            _blocked.append({name!r}); _blocked_set.add({name!r})")
+                    if not emitted:
+                        self.emit("        pass")
+            self.emit("    return _blocked")
+            self.emit("")
 
         self.emit(f"def {function_name}(state):")
         if isinstance(model.rule, Maximize):
@@ -622,7 +759,7 @@ class PythonPlanEmitter:
             self.emit("    if not isfinite(_objective) or _objective <= 0:")
             self.emit(f"        return {external_name}.execute(state)")
             self.emit(f"    {safe}, _calls = {scalar_name}(state, {{{name!r}: 1.0}})")
-            self.emit_commit(model, {name: safe})
+            self.emit(f"    {commit_name}(state, {{{name!r}: {safe}}})")
             self.emit("    return _calls")
             self.emit("")
             return
@@ -630,51 +767,7 @@ class PythonPlanEmitter:
         targets = tuple(operation.targets)
         refs = ", ".join(f"{name!r}: {self.scalar(model.rule.reference_cfs[name])}" for name in targets)
         self.emit(f"    _references = {{{refs}}}")
-        self.emit("    if any(isnan(c) or c < 0 for c in _references.values()):")
-        self.emit("        raise SolverError('Invalid proportional reference cfs')")
-        self.emit("    _phases = [")
-        self.emit("        {name: 1.0 for name, cfs in _references.items() if isinf(cfs) and cfs > 0},")
-        self.emit("        {name: cfs for name, cfs in _references.items() if isfinite(cfs) and cfs > 0},")
-        self.emit("    ]")
-        self.emit("    _deferred = []")
-        self.emit("    _calls = 0")
-        self.emit("    for _active in _phases:")
-        self.emit("        while _active:")
-        self.emit("            _scale = max(_active.values())")
-        self.emit("            _total = sum(v / _scale for v in _active.values())")
-        self.emit("            _factors = {name: (v / _scale) / _total for name, v in _active.items()}")
-        self.emit("            _tiny = [name for name, factor in _factors.items() if factor < 1e-6]")
-        self.emit("            if _tiny:")
-        self.emit("                _deferred.extend(_tiny)")
-        self.emit("                _active = {name: cfs for name, cfs in _active.items() if name not in _tiny}")
-        self.emit("                continue")
-        self.emit(f"            _increment, _extra = {scalar_name}(state, _factors)")
-        self.emit("            _calls += _extra")
-        self.emit_commit(model, {name: f"_factors.get({name!r}, 0.0) * _increment" for name in targets}, indent="            ")
-        self.emit(f"            _blocked = {blockers_name}(state, _active)")
-        self.emit("            if not _blocked:")
-        self.emit("                def _classify(_names):")
-        self.emit("                    nonlocal _calls")
-        self.emit("                    _names = list(_names)")
-        self.emit("                    if not _names: return []")
-        self.emit(f"                    _witness, _extra = {scalar_name}(state, {{name: 1.0 for name in _names}})")
-        self.emit("                    _calls += _extra")
-        self.emit("                    if _witness > TOL: return []")
-        self.emit("                    if len(_names) == 1: return _names")
-        self.emit("                    _middle = len(_names) // 2")
-        self.emit("                    return _classify(_names[:_middle]) + _classify(_names[_middle:])")
-        self.emit("                _blocked = _classify(_active)")
-        self.emit("            if not _blocked:")
-        self.emit("                raise SolverError('Proportional allocation made no blocking progress')")
-        self.emit("            _active = {name: cfs for name, cfs in _active.items() if name not in _blocked}")
-        self.emit("    for _name in _deferred:")
-        self.emit(f"        _increment, _extra = {scalar_name}(state, {{_name: 1.0}})")
-        self.emit("        _calls += _extra")
-        for i, name in enumerate(targets):
-            prefix = "if" if i == 0 else "elif"
-            self.emit(f"        {prefix} _name == {name!r}:")
-            self.emit_commit(model, {name: "_increment"}, indent="            ")
-        self.emit("    return _calls")
+        self.emit(f"    return _allocate_proportionally(state, _references, {scalar_name}, {commit_name}, {blockers_name})")
         self.emit("")
 
     # ------------------------------------------------------------------
@@ -697,11 +790,10 @@ class PythonPlanEmitter:
     def _zone_tag(self, zone_id: str) -> str:
         return self.zone_tags[zone_id]
 
-    def _deliver_name(self, flow_id: str, endpoint: str) -> str:
-        return f"_deliver_{self._flow_tag(flow_id)}_{endpoint}"
-
-    def _required_name(self, flow_id: str, endpoint: str) -> str:
-        return f"_required_inflow_{self._flow_tag(flow_id)}_{endpoint}"
+    def _loss_factor_slot(self, flow_id: str, endpoint: str) -> str:
+        layout = self.state_layout
+        slots = layout.loss_from_delivery if endpoint == "from" else layout.loss_to_delivery
+        return self.slot_constant(slots[flow_id])
 
     def _propagate_name(self, zone_id: str) -> str:
         return f"_nf_propagate_{self._zone_tag(zone_id)}"
@@ -736,38 +828,39 @@ class PythonPlanEmitter:
         return result
 
     def emit_loss_transform_functions(self):
-        layout = self.state_layout
+        """Emit shared fractional-loss transforms and endpoint error labels."""
         self.emit("# " + "=" * 76)
         self.emit("# ENDPOINT LOSS TRANSFORMS")
         self.emit("# " + "=" * 76)
-        self.emit("# Fractional today; these functions are the future piecewise-loss boundary.")
+        self.emit("# Fractional today; future loss types can use their own shared transforms.")
+        self.emit("_LOSS_ENDPOINTS = {")
+        for flow in self.state_layout.graph.graph.interzone_flows:
+            for endpoint in ("from", "to"):
+                slot = self._loss_factor_slot(flow.id, endpoint)
+                self.emit(f"    {slot}: {(flow.id + ' ' + endpoint)!r},")
+        self.emit("}")
         self.emit("")
-        for flow in layout.graph.graph.interzone_flows:
-            for endpoint, slot_map in (
-                ("from", layout.loss_from_delivery),
-                ("to", layout.loss_to_delivery),
-            ):
-                factor_slot = slot_map[flow.id]
-                deliver = self._deliver_name(flow.id, endpoint)
-                required = self._required_name(flow.id, endpoint)
-                self.emit(f"def {deliver}(state, value):")
-                self.emit(f"    _factor = state[{self.slot_names[factor_slot.index]}]")
-                self.emit("    if not isfinite(_factor) or _factor < -TOL:")
-                self.emit(f"        raise SolverError({('Invalid delivery factor for ' + flow.id + ' ' + endpoint)!r})")
-                self.emit("    if abs(value) <= NF_TOL:")
-                self.emit("        return 0.0")
-                self.emit("    return value * max(0.0, _factor)")
-                self.emit("")
-                self.emit(f"def {required}(state, remaining):")
-                self.emit(f"    _factor = state[{self.slot_names[factor_slot.index]}]")
-                self.emit("    if not isfinite(_factor) or _factor < -TOL:")
-                self.emit(f"        raise SolverError({('Invalid delivery factor for ' + flow.id + ' ' + endpoint)!r})")
-                self.emit("    if abs(remaining) <= NF_TOL:")
-                self.emit("        return 0.0")
-                self.emit("    if _factor <= TOL:")
-                self.emit(f"        raise SolverError({('Cannot invert zero-delivery loss for ' + flow.id + ' ' + endpoint)!r})")
-                self.emit("    return remaining / _factor")
-                self.emit("")
+        self.emit("""
+def _deliver(state, factor_slot, value):
+    factor = state[factor_slot]
+    if not isfinite(factor) or factor < -TOL:
+        raise SolverError(f'Invalid delivery factor for {_LOSS_ENDPOINTS[factor_slot]}')
+    if abs(value) <= NF_TOL:
+        return 0.0
+    return value * max(0.0, factor)
+
+
+def _required_inflow(state, factor_slot, remaining):
+    factor = state[factor_slot]
+    if not isfinite(factor) or factor < -TOL:
+        raise SolverError(f'Invalid delivery factor for {_LOSS_ENDPOINTS[factor_slot]}')
+    if abs(remaining) <= NF_TOL:
+        return 0.0
+    if factor <= TOL:
+        raise SolverError(f'Cannot invert zero-delivery loss for {_LOSS_ENDPOINTS[factor_slot]}')
+    return remaining / factor
+""".strip())
+        self.emit("")
 
     def emit_nf_route_selectors(self):
         layout = self.state_layout
@@ -821,17 +914,17 @@ class PythonPlanEmitter:
             for i, flow in enumerate(candidates):
                 prefix = "if" if i == 0 else "elif"
                 flow_natural_slot = layout.flow_natural[flow.id]
-                deliver_from = self._deliver_name(flow.id, "from")
-                deliver_to = self._deliver_name(flow.id, "to")
+                from_factor_slot = self._loss_factor_slot(flow.id, "from")
+                to_factor_slot = self._loss_factor_slot(flow.id, "to")
                 downstream = self._propagate_name(flow.to_zone)
                 self.emit(f"    {prefix} _flow == {flow.id!r}:")
                 self.emit(f"        _old = state[{self.slot_names[flow_natural_slot.index]}]")
                 self.emit(f"        _source = state[{self.slot_names[natural_slot.index]}]")
                 if not flow.bidirectional:
                     self.emit("        _source = max(0.0, _source)")
-                self.emit(f"        _new = {deliver_from}(state, _source)")
-                self.emit(f"        _old_at_destination = {deliver_to}(state, _old)")
-                self.emit(f"        _new_at_destination = {deliver_to}(state, _new)")
+                self.emit(f"        _new = _deliver(state, {from_factor_slot}, _source)")
+                self.emit(f"        _old_at_destination = _deliver(state, {to_factor_slot}, _old)")
+                self.emit(f"        _new_at_destination = _deliver(state, {to_factor_slot}, _new)")
                 self.emit(f"        state[{self.slot_names[flow_natural_slot.index]}] = _new")
                 self.emit(
                     f"        {downstream}(state, _new_at_destination - _old_at_destination, _visited)"
@@ -843,10 +936,8 @@ class PythonPlanEmitter:
         graph = layout.graph
         for flow in graph.graph.interzone_flows:
             fn = self._flow_effect_name(flow.id)
-            deliver_from = self._deliver_name(flow.id, "from")
-            deliver_to = self._deliver_name(flow.id, "to")
-            required_from = self._required_name(flow.id, "from")
-            required_to = self._required_name(flow.id, "to")
+            from_factor_slot = self._loss_factor_slot(flow.id, "from")
+            to_factor_slot = self._loss_factor_slot(flow.id, "to")
             from_stream = graph.get_zone_by_id(flow.from_zone).type == ZoneTypes.STREAM
             to_stream = graph.get_zone_by_id(flow.to_zone).type == ZoneTypes.STREAM
             self.emit(f"def {fn}(state, natural, boundary=False):")
@@ -854,20 +945,20 @@ class PythonPlanEmitter:
             self.emit("        return")
             self.emit("    if natural > 0:")
             if to_stream:
-                self.emit(f"        _destination = {deliver_to}(state, natural)")
+                self.emit(f"        _destination = _deliver(state, {to_factor_slot}, natural)")
                 self.emit(f"        {self._propagate_name(flow.to_zone)}(state, _destination)")
             if from_stream:
                 self.emit("        if not boundary:")
-                self.emit(f"            _source = {required_from}(state, natural)")
+                self.emit(f"            _source = _required_inflow(state, {from_factor_slot}, natural)")
                 self.emit(f"            {self._propagate_name(flow.from_zone)}(state, -_source)")
             self.emit("        return")
             self.emit("    _magnitude = -natural")
             if from_stream:
-                self.emit(f"    _destination = {deliver_from}(state, _magnitude)")
+                self.emit(f"    _destination = _deliver(state, {from_factor_slot}, _magnitude)")
                 self.emit(f"    {self._propagate_name(flow.from_zone)}(state, _destination)")
             if to_stream:
                 self.emit("    if not boundary:")
-                self.emit(f"        _source = {required_to}(state, _magnitude)")
+                self.emit(f"        _source = _required_inflow(state, {to_factor_slot}, _magnitude)")
                 self.emit(f"        {self._propagate_name(flow.to_zone)}(state, -_source)")
             self.emit("")
 
@@ -880,27 +971,25 @@ class PythonPlanEmitter:
             self.emit("    _total_loss = 0.0")
             for flow in graph.get_zone_inflows(zone_id):
                 measured = self.slot_names[layout.measurements[flow.id].index]
-                deliver = self._deliver_name(flow.id, "to")
-                required = self._required_name(flow.id, "to")
+                factor_slot = self._loss_factor_slot(flow.id, "to")
                 tag = self._flow_tag(flow.id)
                 self.emit(f"    _measured_{tag} = state[{measured}]")
                 self.emit(f"    if _measured_{tag} >= 0:")
-                self.emit(f"        _remaining = {deliver}(state, _measured_{tag})")
+                self.emit(f"        _remaining = _deliver(state, {factor_slot}, _measured_{tag})")
                 self.emit(f"        _total_loss += _measured_{tag} - _remaining")
                 self.emit("    else:")
-                self.emit(f"        _before = {required}(state, -_measured_{tag})")
+                self.emit(f"        _before = _required_inflow(state, {factor_slot}, -_measured_{tag})")
                 self.emit(f"        _total_loss += _before + _measured_{tag}")
             for flow in graph.get_zone_outflows(zone_id):
                 measured = self.slot_names[layout.measurements[flow.id].index]
-                deliver = self._deliver_name(flow.id, "from")
-                required = self._required_name(flow.id, "from")
+                factor_slot = self._loss_factor_slot(flow.id, "from")
                 tag = self._flow_tag(flow.id)
                 self.emit(f"    _measured_{tag} = state[{measured}]")
                 self.emit(f"    if _measured_{tag} >= 0:")
-                self.emit(f"        _before = {required}(state, _measured_{tag})")
+                self.emit(f"        _before = _required_inflow(state, {factor_slot}, _measured_{tag})")
                 self.emit(f"        _total_loss += _before - _measured_{tag}")
                 self.emit("    else:")
-                self.emit(f"        _remaining = {deliver}(state, -_measured_{tag})")
+                self.emit(f"        _remaining = _deliver(state, {factor_slot}, -_measured_{tag})")
                 self.emit(f"        _total_loss += -_measured_{tag} - _remaining")
             self.emit("    return _total_loss")
             self.emit("")
@@ -1013,10 +1102,10 @@ class PythonPlanEmitter:
                 )
                 continue
             endpoint = "from" if item.factor > 0 else "to"
-            required = self._required_name(item.flow_id, endpoint)
+            factor_slot = self._loss_factor_slot(item.flow_id, endpoint)
             before_factor = 1.0 - float(item.loss_before)
             self.emit(
-                f"    _source_per_anchor = {required}(state, {abs(float(item.factor)) / before_factor!r})  # {name!r}"
+                f"    _source_per_anchor = _required_inflow(state, {factor_slot}, {abs(float(item.factor)) / before_factor!r})  # {name!r}"
             )
             for zone_id in layout.natural_flow:
                 pair = layout.transaction_nf_coefficients.get((name, zone_id))
@@ -1113,12 +1202,18 @@ class PythonPlanEmitter:
                 f"        _already_apportioned = state[{self.slot_names[boundary.index]}] - state[{self.slot_names[measured.index]}]"
             )
             self.emit(
-                f"        _amount_at_entry = {self._deliver_name(flow_id, 'to')}(state, _already_apportioned)"
+                f"        _amount_at_entry = _deliver(state, {self._loss_factor_slot(flow_id, 'to')}, _already_apportioned)"
             )
             if graph.get_zone_by_id(flow.to_zone).type == ZoneTypes.STREAM:
                 self.emit(
                     f"        {self._adjust_remaining_name(flow.to_zone)}(state, -_amount_at_entry)"
                 )
+
+        # Prevent rem. natural flow from being negative after externals
+        for remaining_slot in layout.natural_flow.values():
+            self.emit(
+                f"    state[{self.slot_names[remaining_slot.index]}] = max(0.0, state[{self.slot_names[remaining_slot.index]}])"
+            )
         self.emit("")
 
     def emit_spill_credit_function(self):
@@ -1142,7 +1237,7 @@ class PythonPlanEmitter:
             self.emit(f"        state[{capacity}] = 0.0")
             endpoint = "to" if spill.factor > 0 else "from"
             self.emit(
-                f"        _credit = {self._deliver_name(spill.flow_id, endpoint)}(state, _residual)"
+                f"        _credit = _deliver(state, {self._loss_factor_slot(spill.flow_id, endpoint)}, _residual)"
             )
             self.emit("        if _credit > SPILL_TOL:")
             self.emit("            _total_credit += _credit")
@@ -1183,7 +1278,7 @@ class PythonPlanEmitter:
 
     def emit_operation(self, operation, function_name: str, external_name: str):
         if isinstance(operation, DirectCalculationKernel):
-            self.emit_direct(operation, function_name)
+            self.emit_direct(operation, function_name, external_name)
         elif isinstance(operation, ProportionalCalculationKernel):
             self.emit_proportional(operation, function_name, external_name)
         elif isinstance(operation, ScalarFormulaKernel):
@@ -1204,8 +1299,7 @@ class PythonPlanEmitter:
         self.emit("SPILL_TOL = 1e-7")
         self.emit("")
         self.emit("# Errors raised by the compiled calculation.")
-        self.emit("class SolverError(RuntimeError):")
-        self.emit("    pass")
+        self.emit("from ut_water_apportionment.compile.kernel import BlockLPError as SolverError")
         self.emit("class FormulaGuardFailed(RuntimeError):")
         self.emit("    pass")
         self.emit("class FormulaEvaluationError(RuntimeError):")
@@ -1215,6 +1309,22 @@ class PythonPlanEmitter:
         for slot in sorted(self.state_layout.slots.values(), key=lambda value: value.index):
             self.emit(f"{self.slot_names[slot.index]} = {slot.index}")
         self.emit("")
+
+        if any(isinstance(operation, DirectCalculationKernel) for operation in (*operations, *replay_operations)):
+            self.emit(_DIRECT_SOURCE.strip())
+            self.emit("")
+        if any(isinstance(operation, ScalarFormulaKernel) for operation in (*operations, *replay_operations)):
+            self.emit(PROJECTED_ROW_SOURCE.strip())
+            self.emit("")
+        if any(
+            isinstance(operation, (ProportionalCalculationKernel, ScalarFormulaKernel))
+            and isinstance(operation.model.rule, Proportional)
+            for operation in (*operations, *replay_operations)
+        ):
+            self.emit(_PROPORTIONAL_SOURCE.strip())
+            self.emit("")
+
+        self.prepare_direct_formulas((*operations, *replay_operations))
 
         # Natural-flow setup is part of the same generated/executed program.
         self.emit_natural_flow_program()
@@ -1231,6 +1341,12 @@ class PythonPlanEmitter:
 
         replay_names = []
         for index, operation in enumerate(replay_operations):
+            shared = next((fn for previous, fn in zip(operations, pass_names)
+                           if type(previous) is type(operation) and previous.model == operation.model), None)
+            if shared is not None:
+                self.emit(f"# REPLAY block {index} reuses {shared}: same LP and updates.")
+                replay_names.append(shared)
+                continue
             fn = f"_replay_block_{index}"
             ext = f"_REPLAY_FALLBACK_{index}"
             replay_names.append(fn)
@@ -1239,8 +1355,10 @@ class PythonPlanEmitter:
             self.emit("# " + "=" * 76)
             self.emit_operation(operation, fn, ext)
 
+        self.emit_direct_validation()
         self.emit("def execute(state):")
         self.emit("    _initialize_natural_flow(state)")
+        self.emit("    _validate_direct_inputs(state)")
         self.emit("    lp_solves = 0")
         self.emit("")
         self.emit("    # 1st pass")
