@@ -73,29 +73,6 @@ class BlockCompilerTests(TestCase):
         self.assertEqual(output['2025-01-01', 'A', 'D', True], 10)
         self.assertEqual(output['2025-01-01', 'B', 'D', True], 0)
 
-    def test_parent_reservation_survives_outside_transaction(self):
-        parent = TrxnGroup(id='P', priority=1, upper_limit=6,
-                           children_trxns=[transaction('A', 3, 4), transaction('B', 5, 4)])
-        plan, output = self.compile_and_solve(problem([parent, transaction('OUT', 2, 10)]))
-        self.assertEqual(output['2025-01-01', 'OUT', 'D', True], 4)
-        self.assertEqual(output['2025-01-01', 'A', 'D', True], 4)
-        self.assertEqual(output['2025-01-01', 'B', 'D', True], 2)
-        self.assertEqual(set(plan.operations[0].model.updates), {'P'})
-        # A parent's optimizer witnesses must not be committed by the parent block.
-        self.assertNotIn('A', plan.operations[0].model.updates)
-        self.assertNotIn('B', plan.operations[0].model.updates)
-
-    def test_nested_reservations(self):
-        group = TrxnGroup(id='G1', priority=3, upper_limit=6,
-                         children_trxns=[transaction('A', 5, 5), transaction('B', 7, 5)])
-        parent = TrxnGroup(id='P', priority=1, upper_limit=6,
-                          children_trxns=[group, transaction('C', 6, 3)])
-        _, output = self.compile_and_solve(problem([parent, transaction('OUT', 2)]))
-        self.assertEqual(output['2025-01-01', 'OUT', 'D', True], 4)
-        self.assertEqual(output['2025-01-01', 'A', 'D', True], 5)
-        self.assertEqual(output['2025-01-01', 'B', 'D', True], 1)
-        self.assertEqual(output['2025-01-01', 'C', 'D', True], 0)
-
     def test_priority_adjustment_does_not_modify_input(self):
         input = problem([TrxnGroup(id='P', priority=2, upper_limit=5,
                                   children_trxns=[transaction('A', 1)])])

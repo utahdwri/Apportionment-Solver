@@ -1550,6 +1550,19 @@ class B_Reservoirs(unittest.TestCase):
         solve(problem, check_expected_values=True)
 
 
+    def test_storage_spill_not_used_to_reduce_storage_deliveries(self):
+        """
+        If a reservoir makes a release that does not satisfy any trxn demand,
+        this spill should be made available as additional natural flow.
+
+        Does this mean a trxns set during the 1st pass could be reduced? Reducing
+        a storage delivery transactions seems problematic...
+
+        Or can we keep the existing trxns fixed as is? (This would be easier...)
+        """
+        raise NotImplementedError()
+
+
 class B_Imports(unittest.TestCase):
 
     def test_1(self):

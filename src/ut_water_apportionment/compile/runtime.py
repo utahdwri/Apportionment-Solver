@@ -21,16 +21,39 @@ def solve_plan(plan, measurements, *, check_expected_values=False):
     lp_solves = 0
     days = 0
     for date in _loop_through_date_range(problem.beg_date, problem.end_date):
-        state = layout.new_day(date, data, schedule)
+        # Parent allocations are feasibility caps, not permanently reserved
+        # physical water. If later child conditions leave part of a parent
+        # unused, tighten that parent's cap to actual use and replay the day.
+        # Caps move only downward, so this correction is monotone.
+        fixed_group_caps = {}
+        for _unwind_iteration in range(50):
+            state = layout.new_day(date, data, schedule)
+            for group_id, cap in fixed_group_caps.items():
+                slot = layout.limits[group_id]
+                state[slot.index] = min(state[slot.index], cap)
 
-        # The generated execute_day() now owns natural-flow initialization,
-        # Pass 1, spill/import NF credit, and reservoir replay.
-        lp_solves += plan.executor(state)
+            # The generated daily program owns natural-flow initialization,
+            # Pass 1, spill/import NF credit, and reservoir replay.
+            lp_solves += plan.executor(state)
+
+            changed = False
+            for group_id, remaining_slot in layout.groups.items():
+                remaining = float(state[remaining_slot.index])
+                if remaining <= 1e-7:
+                    continue
+                allocated = float(state[layout.allocated[group_id].index])
+                used = max(0.0, allocated - remaining)
+                prior = fixed_group_caps.get(group_id)
+                if prior is None or used < prior - 1e-7:
+                    fixed_group_caps[group_id] = used
+                    changed = True
+            if not changed:
+                break
+        else:
+            raise RuntimeError(f"Group unwind did not converge on {date}")
 
         days += 1
-        for group, slot in layout.groups.items():
-            if abs(state[slot.index]) > 1e-6:
-                raise RuntimeError(f"Unfulfilled reservation {group!r} on {date}: {state[slot.index]}")
+
         variable_values = {
             group_id: float(state[layout.allocated[group_id].index])
             for group_id in layout.groups

@@ -69,6 +69,7 @@ class CompileOptions:
     max_daily_apportionment: float | None = None
     compile_to_formulas: bool = True
     max_rows: int = 5000
+    max_formula_variables: int | None = 24
 
 def compile(
     input: SolverInput,
@@ -106,9 +107,14 @@ def compile_block(model: BlockLP, options: CompileOptions):
             operation = compiler(model)
             if operation is not None:
                 return operation
-        operation = try_compile_scalar_formula(model, max_rows=options.max_rows)
-        if operation is not None:
-            return operation
+        if (
+            options.max_formula_variables is None
+            or len(model.variables) <= options.max_formula_variables
+        ):
+            operation = try_compile_scalar_formula(model, max_rows=options.max_rows)
+            if operation is not None:
+                return operation
+
     return compile_lp_kernel(model)
 
 
@@ -156,11 +162,9 @@ def build_block_lp(
     Variables
     ---------
     * Current block transactions: the increments we are actually allocating.
-    * Descendants of a group target: feasibility witnesses showing that a new
-      parent reservation can eventually be delivered.
-    * Descendants of an outstanding senior root reservation: witnesses that
-      prevent an intervening transaction from consuming capacity already
-      reserved for those descendants.
+    * Descendants of a group target: temporary local feasibility witnesses
+      showing how much the parent could be consumed under current conditions.
+      They exist only in the parent's own priority block.
 
     Constraints
     -----------
@@ -168,8 +172,10 @@ def build_block_lp(
       measured interzone-flow capacity in the transaction's direction.
     * Natural-flow rows: stream-origin increments may not exceed remaining
       routed natural flow.
-    * Reservation rows: child witness increments, less any new parent-group
-      increment, must equal the group's existing remaining reservation.
+    * Parent-feasibility rows: temporary child witnesses must be able to
+      consume the parent increment under current parent-priority conditions.
+    * Parent-cap rows: real child allocations may not exceed the parent's
+      remaining allocation.
 
     Only the current block's target variables are committed to runtime state.
     The other variables are LP witnesses and disappear after the solve.
@@ -194,24 +200,14 @@ def build_block_lp(
 
     included = set(targets)
 
-    # A group target needs its descendants as feasibility witnesses.  Solving
-    # the group does not allocate those descendants; it only proves that the
-    # amount reserved by the group can fit through their eventual constraints.
+    # A group target is limited to what its descendants could consume under
+    # the conditions that exist at the parent's priority.  Descendants are
+    # temporary local feasibility witnesses only: they are discarded after
+    # this block and are NOT carried through intervening priorities.
     for name in target_ids:
-        included.update(layout.descendants(name))
-
-    # Keep an outstanding root reservation's subtree in later block LPs until
-    # its last descendant has been processed.  This is what prevents an outside
-    # transaction from using capacity that an earlier group already reserved.
-    for name, transaction in layout.transactions.items():
-        if not isinstance(transaction, TrxnGroup) or name in layout.parents:
-            continue
-        descendants = layout.descendants(name)
-        last_descendant_priority = max(
-            layout.transactions[child].priority for child in descendants
-        )
-        if transaction.priority <= block.priority_order <= last_descendant_priority:
-            included.update(descendants)
+        transaction = layout.transactions[name]
+        if isinstance(transaction, TrxnGroup):
+            included.update(layout.descendants(name))
 
     # Replay only: identify the reservoir-edge net-flow rows that need to be
     # active.  Transactions entering storage may use *real* future opposite-
@@ -547,13 +543,13 @@ def build_block_lp(
     # ------------------------------------------------------------------
     # 6. Add group-reservation equalities.
     #
-    #       sum(child increments) - group increment
-    #           = remaining_group[group]
+    #         sum(direct-child witness increments) - group increment
+    #             = existing remaining group reservation
     #
-    #    For an already-created reservation the group variable is frozen at
-    #    zero, so its children must still be able to account for the remaining
-    #    reserved amount.  When the group itself is the target, its increment
-    #    creates a new reservation that its descendant witnesses must support.
+    #     With a newly allocated group the existing reservation is normally
+    #     zero, so this says the parent increment may be no larger than what
+    #     its children could consume under CURRENT parent-priority conditions.
+    #     These witness values are not committed to runtime state.
     # ------------------------------------------------------------------
     for name in variables:
         if name not in layout.transactions:
@@ -561,7 +557,7 @@ def build_block_lp(
         transaction = layout.transactions[name]
         if not isinstance(transaction, TrxnGroup):
             continue
-        constraint_name = f"reservation[{name!r}]"
+        constraint_name = f"parent_feasibility[{name!r}]"
         add_constraint(
             constraint_name,
             lower=layout.groups[name],
@@ -570,6 +566,25 @@ def build_block_lp(
         for child in transaction.children_trxns:
             set_coefficient(constraint_name, child.id, 1.0)
         set_coefficient(constraint_name, name, -1.0)
+
+    # ------------------------------------------------------------------
+    # 6b. Add parent-cap constraints for REAL child targets.
+    #
+    #     Children may consume no more than the amount currently reserved by
+    #     their direct parent. Multiple equal-priority siblings share the cap.
+    #     Unlike the feasibility witnesses above, these are actual allocations.
+    # ------------------------------------------------------------------
+    target_children_by_parent = {}
+    for name in target_ids:
+        parent = layout.parents.get(name)
+        if parent is not None:
+            target_children_by_parent.setdefault(parent, []).append(name)
+
+    for parent, children in target_children_by_parent.items():
+        constraint_name = f"parent_cap[{parent!r}]"
+        add_constraint(constraint_name, upper=layout.groups[parent])
+        for child in children:
+            set_coefficient(constraint_name, child, 1.0)
 
     constraints = [
         Constraint(
