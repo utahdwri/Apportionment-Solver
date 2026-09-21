@@ -16,9 +16,19 @@ from ut_water_apportionment.compile.lp import (
 from tests.test_block_compile import problem, transaction
 
 
-def generated(operations, slots, replay=()):
-    layout = SimpleNamespace(slots={slot.name: slot for slot in slots})
-    program = generate_plan_source(operations, replay, layout)
+def generated(operations, slots, counterflow=()):
+    layout = SimpleNamespace(
+        slots={slot.name: slot for slot in slots},
+        spill_credits=[],
+        limits={},
+        measurement_available={},
+        measurement_forward_remaining={},
+        measurement_reverse_remaining={},
+    )
+    secondary = list(counterflow) + [None] * (len(operations) - len(counterflow))
+    program = generate_plan_source(
+        operations, secondary, [()] * len(operations), [()] * len(operations), layout
+    )
     namespace = dict(program.namespace)
     exec(program.source, namespace)
     return program.source, namespace
@@ -40,12 +50,12 @@ class CompactCodegenTests(TestCase):
                 ], Maximize({'A': objective}), {'A': {allocated: 1.0}})
                 _, ns = generated([DirectCalculationKernel(model)], [coefficient, capacity, allocated])
                 state = np.array([coefficient_value, -8.0 if coefficient_value < 0 else 8.0, 0.0])
-                ns['_pass1_block_0'](state)
+                ns['_block_0_direct'](state)
                 self.assertEqual(state[2], expected)
                 state[:] = [0.0, -8.0, 0.0]
                 if upper is capacity:
                     with self.assertRaises(ns['SolverError']):
-                        ns['_pass1_block_0'](state)
+                        ns['_block_0_direct'](state)
 
     def test_commit_preserves_snapshot_when_a_coefficient_is_updated(self):
         coefficient, allocated = Slot(0, 'coefficient'), Slot(1, 'allocated')
@@ -55,7 +65,7 @@ class CompactCodegenTests(TestCase):
         _, ns = generated([kernel], [coefficient, allocated])
         actual = np.array([3.0, 0.0])
         expected = actual.copy()
-        ns['_pass1_block_0'](actual)
+        ns['_block_0_direct'](actual)
         kernel.execute(expected)
         np.testing.assert_array_equal(actual, expected)
         np.testing.assert_array_equal(actual, [5.0, 6.0])
@@ -72,12 +82,12 @@ class CompactCodegenTests(TestCase):
                         'B': {b: -1.0, capacity: -1.0, out_b: 1.0},
                     })
                 kernel = ProportionalCalculationKernel(model)
-                source, ns = generated([kernel, kernel], slots, [kernel])
+                source, ns = generated([kernel, kernel], slots, counterflow=[kernel])
                 self.assertEqual(source.count('def _allocate_proportionally('), 1)
                 self.assertEqual(source.count('_commit(state, increments):'), 1)
                 actual = np.array([6.0, 8.0, 10.0, 0.0, 0.0])
                 expected = actual.copy()
-                ns['_pass1_block_0'](actual)
+                ns['_block_0_direct'](actual)
                 compile_lp_kernel(model).execute(expected)
                 np.testing.assert_allclose(actual, expected, atol=1e-8)
 
@@ -99,7 +109,7 @@ class CompactCodegenTests(TestCase):
         _, ns = generated([kernel], slots)
         actual = np.array([8., 8., 6., 2., 8., 0., 0.])
         expected = actual.copy()
-        ns['_pass1_block_0'](actual)
+        ns['_block_0_direct'](actual)
         compile_lp_kernel(model).execute(expected)
         np.testing.assert_allclose(actual, expected, atol=1e-8)
 
@@ -107,13 +117,6 @@ class CompactCodegenTests(TestCase):
         positive = Slot(0, 'positive coefficient', sign=1)
         negative = Slot(1, 'negative coefficient', sign=-1, source_index=0, source_factor=-1.0)
         self.assertEqual(add_expr(scalar_expr(positive), scalar_expr(negative)), ZERO_EXPR)
-
-    def test_no_replay_is_compiled_without_spill_candidates(self):
-        plan = compile(problem([transaction('A', 1, 3), transaction('B', 2, 9)]))
-        self.assertFalse(plan.state_layout.spill_credits)
-        self.assertEqual(plan.replay_operations, [])
-        self.assertNotIn('def _replay_block_', plan.code())
-        self.assertEqual([row.value for row in plan.solve().apportionments if row.txn_id in ('A', 'B')], [3., 7.])
 
     def test_generated_counterflow_formula_keeps_its_lp_guard_fallback(self):
         coefficient, allocated = Slot(0, 'counterflow', sign=-1), Slot(1, 'allocated')
@@ -127,7 +130,7 @@ class CompactCodegenTests(TestCase):
             with self.subTest(coefficient=value):
                 actual = np.array([value, 0.0])
                 expected = actual.copy()
-                calls = ns['_pass1_block_0'](actual)
+                calls = ns['_block_0_direct'](actual)
                 compile_lp_kernel(model).execute(expected)
                 np.testing.assert_allclose(actual, expected, atol=1e-8)
                 self.assertEqual(calls, 1 if value > 0 else 0)

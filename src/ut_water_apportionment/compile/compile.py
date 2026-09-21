@@ -24,7 +24,9 @@ class PriorityBlock:
 class CompiledPlan:
     state_layout: RuntimeStateLayout
     operations: list[DirectCalculationKernel | ProportionalCalculationKernel | ScalarFormulaKernel | LPKernel]
-    replay_operations: list[DirectCalculationKernel | ProportionalCalculationKernel | ScalarFormulaKernel | LPKernel]
+    counterflow_operations: list[DirectCalculationKernel | ProportionalCalculationKernel | ScalarFormulaKernel | LPKernel | None]
+    counterflow_gate_slots: list[tuple[tuple[Slot, Slot], ...]]
+    counterflow_normalize_flows: list[tuple[str, ...]]
 
     source: str = field(init=False)
     executor: Callable[..., int] = field(init=False)
@@ -35,12 +37,19 @@ class CompiledPlan:
         # Python module; this exact source is both returned by code() and exec'd.
         from .codegen import generate_plan_source
         generated = generate_plan_source(
-            self.operations, self.replay_operations, self.state_layout
+            self.operations, self.counterflow_operations, self.counterflow_gate_slots,
+            self.counterflow_normalize_flows, self.state_layout
         )
         self.source = generated.source
         self.executor = self._compile_generated_python(
             self.source, generated.namespace
         )
+
+
+    @property
+    def replay_operations(self):
+        """Compatibility alias: replay-specific compiled blocks no longer exist."""
+        return []
 
 
     def __str__(self):
@@ -69,34 +78,112 @@ class CompileOptions:
     max_daily_apportionment: float | None = None
     compile_to_formulas: bool = True
     max_rows: int = 5000
-    max_formula_variables: int | None = 24
+    max_formula_variables: int | None = 200
 
 def compile(
     input: SolverInput,
     options: CompileOptions = CompileOptions(),
 ) -> CompiledPlan:
-    """Take solver input and compile code that will calculate apportionments."""
+    """Take solver input and compile code that will calculate apportionments.
+
+    Counterflow is part of the ordinary priority-block calculation.  A block
+    first consumes directly measured directional capacity and, when that
+    capacity is exhausted, may immediately run a signed counterflow
+    completion using future opposite-direction transactions as feasibility
+    witnesses.  The same block function is used again after spill credits are
+    added; there is no separate counterflow formulation.
+    """
 
     state_layout = build_runtime_state_layout(
         input, max_daily_apportionment=options.max_daily_apportionment
     )
     operations = []
-    replay_operations = []
+    counterflow_operations = []
+    counterflow_gate_slots = []
+    counterflow_normalize_flows = []
 
-    # Loop through each priority group. Pass 1 deliberately excludes future
-    # counterflow witnesses. Replay can include them after Pass 1 has established
-    # which storage deliveries/counterflows are actually needed.
     for block in priority_blocks(state_layout.input):
-
         model = build_block_lp(state_layout.input, block, state_layout)
         operations.append(compile_block(model, options))
-        if state_layout.spill_credits:
-            replay_model = build_block_lp(
-                state_layout.input, block, state_layout, replay=True
-            )
-            replay_operations.append(compile_block(replay_model, options))
 
-    return CompiledPlan(state_layout, operations, replay_operations)
+        if _block_needs_counterflow(block, state_layout):
+            counterflow_model = build_block_lp(
+                state_layout.input, block, state_layout, counterflow=True
+            )
+            counterflow_operations.append(compile_block(counterflow_model, options))
+            gates, normalize = _counterflow_runtime_metadata(block, state_layout)
+            counterflow_gate_slots.append(gates)
+            counterflow_normalize_flows.append(normalize)
+        else:
+            counterflow_operations.append(None)
+            counterflow_gate_slots.append(())
+            counterflow_normalize_flows.append(())
+
+    return CompiledPlan(
+        state_layout, operations, counterflow_operations,
+        counterflow_gate_slots, counterflow_normalize_flows,
+    )
+
+
+def _block_needs_counterflow(block: PriorityBlock, layout: RuntimeStateLayout) -> bool:
+    """Whether a target block can require bidirectional storage counterflow."""
+    natural_types = {ZoneTypes.STREAM, ZoneTypes.SYSTEM_GAIN_LOSS}
+    for target in block.trxns:
+        if not isinstance(target, PathTrxn):
+            continue
+        path = layout.schedule.ordered_paths[target.id]
+        if not path:
+            continue
+        from_zone = layout.schedule.get_from_zone(target)
+        to_zone = layout.schedule.get_to_zone(target)
+        if to_zone is not None and to_zone.type not in natural_types:
+            if layout.graph.get_flow_by_id(path[-1].flow_id).bidirectional:
+                return True
+        if from_zone is not None and from_zone.type not in natural_types:
+            if layout.graph.get_flow_by_id(path[0].flow_id).bidirectional:
+                return True
+    return False
+
+
+def _counterflow_runtime_metadata(
+    block: PriorityBlock, layout: RuntimeStateLayout,
+) -> tuple[tuple[tuple[Slot, Slot], ...], tuple[str, ...]]:
+    """Return zero-net gate pairs and bidirectional flows to renormalize."""
+    natural_types = {ZoneTypes.STREAM, ZoneTypes.SYSTEM_GAIN_LOSS}
+    gates: list[tuple[Slot, Slot]] = []
+    normalize: list[str] = []
+
+    def add_gate(item):
+        pair = (
+            layout.measurement_forward_remaining[item.flow_id],
+            layout.measurement_reverse_remaining[item.flow_id],
+        )
+        if pair not in gates:
+            gates.append(pair)
+
+    for target in block.trxns:
+        if not isinstance(target, PathTrxn):
+            continue
+        path = layout.schedule.ordered_paths[target.id]
+        if not path:
+            continue
+        for item in path:
+            flow = layout.graph.get_flow_by_id(item.flow_id)
+            if flow.bidirectional and item.flow_id not in normalize:
+                normalize.append(item.flow_id)
+
+        from_zone = layout.schedule.get_from_zone(target)
+        to_zone = layout.schedule.get_to_zone(target)
+        if to_zone is not None and to_zone.type not in natural_types:
+            item = path[-1]
+            if layout.graph.get_flow_by_id(item.flow_id).bidirectional:
+                add_gate(item)
+        if from_zone is not None and from_zone.type not in natural_types:
+            item = path[0]
+            if layout.graph.get_flow_by_id(item.flow_id).bidirectional:
+                add_gate(item)
+
+    return tuple(gates), tuple(normalize)
 
 
 
@@ -150,7 +237,7 @@ def build_block_lp(
         block: PriorityBlock,
         state_layout: RuntimeStateLayout,
         *,
-        replay: bool = False,
+        counterflow: bool = False,
     ) -> BlockLP:
     """Build the incremental LP used to allocate one priority block.
 
@@ -209,24 +296,22 @@ def build_block_lp(
         if isinstance(transaction, TrxnGroup):
             included.update(layout.descendants(name))
 
-    # Replay only: identify the reservoir-edge net-flow rows that need to be
-    # active.  Transactions entering storage may use *real* future opposite-
-    # direction transactions as feasibility witnesses. Transactions leaving
-    # storage instead use a narrowly-scoped reporting-slack witness, described
-    # below, so replay can represent a required storage delivery without making
-    # arbitrary counterflow variables available in Pass 1.
+    # Counterflow completion: identify the reservoir-edge net-flow rows that
+    # need to be active. Transactions entering storage may use real future
+    # opposite-direction transactions as feasibility witnesses. Transactions
+    # leaving storage instead use a narrowly scoped reporting-slack witness.
     locked_flow_directions: dict[str, set[int]] = {}
     storage_outflow_directions: dict[str, set[int]] = {}
 
-    # When a replay target entering a non-natural zone is justified by future
+    # When a counterflow target entering a non-natural zone is justified by future
     # counterflow transactions, that witness can belong to a transaction
     # group. The witness itself is not committed in this block, so remember
     # the corresponding group reservation that must be carried forward when
     # the target is committed. This keeps grouped and ungrouped counterflow
-    # witnesses equivalent during replay.
-    replay_group_credits: dict[str, dict[Slot, Slot]] = {}
+    # witnesses equivalent during counterflow completion.
+    counterflow_group_credits: dict[str, dict[Slot, Slot]] = {}
 
-    if replay:
+    if counterflow:
         for name in target_ids:
             transaction = layout.transactions[name]
             if not isinstance(transaction, PathTrxn):
@@ -282,7 +367,7 @@ def build_block_lp(
                         break
 
         # If every usable counterflow witness for a target edge is a direct
-        # child of the same group, committing the senior replay target must
+        # child of the same group, committing the senior counterflow target must
         # preserve that witness requirement as an outstanding reservation.
         # Otherwise the later child block would see no reservation and could
         # collapse back to zero even though the senior target was accepted
@@ -320,7 +405,7 @@ def build_block_lp(
             parent = next(iter(parents))
             signed, negated = layout.flow_coefficients[target_name, item.flow_id]
             reservation_coefficient = signed if target_direction > 0 else negated
-            replay_group_credits.setdefault(target_name, {})[
+            counterflow_group_credits.setdefault(target_name, {})[
                 layout.groups[parent]
             ] = reservation_coefficient
 
@@ -339,24 +424,45 @@ def build_block_lp(
         upper = 0.0 if transaction.priority < block.priority_order else layout.limits[name]
         variables[name] = Variable(lower=0.0, upper=upper)
 
-    # Replay-only counterflow reporting slack for transactions *originating* in
-    # storage.  These variables are deliberately absent from Pass 1.  Their
-    # runtime upper bound is zero when the measured reservoir exchange already
-    # contains flow in the target direction, preventing replay from enlarging a
+    # Counterflow reporting slack for transactions originating in storage.
+    # These variables are absent from the direct stage. Their runtime upper
+    # bound is zero when the measured reservoir exchange already contains flow
+    # in the target direction, preventing counterflow from enlarging a
     # real release merely to consume downstream slack.  When no such measured
     # flow exists, the witness can balance a senior storage delivery (for
     # example a zero-net reservoir with a measured downstream release).
-    replay_slack_variables: dict[tuple[str, int], str] = {}
-    if replay:
+    counterflow_slack_variables: dict[tuple[str, int], str] = {}
+    counterflow_residual_variables: dict[tuple[str, int], str] = {}
+    if counterflow:
         for flow_id, directions in storage_outflow_directions.items():
             for direction in directions:
                 key = (flow_id, direction)
-                limit = layout.replay_counterflow_slack_limits.get(key)
+                limit = layout.counterflow_slack_limits.get(key)
                 if limit is None:
                     continue
                 variable_name = f"__counterflow_slack__[{flow_id!r},{direction}]"
-                replay_slack_variables[key] = variable_name
+                counterflow_slack_variables[key] = variable_name
                 variables[variable_name] = Variable(lower=0.0, upper=limit)
+
+        # Preserve any pre-existing signed reservoir residual as a fixed
+        # feasibility witness.  This makes zero *additional* allocation
+        # feasible on independent storage edges without allowing the residual
+        # to become new counterflow capacity.
+        combined_directions: dict[str, set[int]] = {}
+        for source in (locked_flow_directions, storage_outflow_directions):
+            for flow_id, directions in source.items():
+                combined_directions.setdefault(flow_id, set()).update(directions)
+        for flow_id, directions in combined_directions.items():
+            if 1 in directions:
+                name = f"__counterflow_existing_reverse__[{flow_id!r}]"
+                slot = layout.measurement_reverse_remaining[flow_id]
+                counterflow_residual_variables[(flow_id, -1)] = name
+                variables[name] = Variable(lower=slot, upper=slot)
+            if -1 in directions:
+                name = f"__counterflow_existing_forward__[{flow_id!r}]"
+                slot = layout.measurement_forward_remaining[flow_id]
+                counterflow_residual_variables[(flow_id, 1)] = name
+                variables[name] = Variable(lower=slot, upper=slot)
 
     # Build constraints incrementally, in the same style as the legacy LP
     # builder: add a named row, then attach transaction coefficients to it.
@@ -382,12 +488,12 @@ def build_block_lp(
     # ------------------------------------------------------------------
     # 3. Add interzone-flow measurement constraints.
     #
-    # Pass 1 uses nonnegative gross capacity in the currently measured
-    # direction and has no future counterflow witnesses. Replay uses signed net
-    # residuals on target endpoint flows, with real future opposite-direction
-    # transactions available as witnesses.
+    # The direct stage uses nonnegative gross capacity in the currently
+    # measured direction. Counterflow completion uses signed net residuals on
+    # target endpoint flows, with real future opposite-direction transactions
+    # available as temporary feasibility witnesses.
     # ------------------------------------------------------------------
-    if not replay:
+    if not counterflow:
         for name in variables:
             transaction = layout.transactions[name]
             if not isinstance(transaction, PathTrxn):
@@ -435,9 +541,18 @@ def build_block_lp(
                     name, item.flow_id
                 ][0]
 
+        # Add fixed witnesses for the signed residual that existed before
+        # this counterflow completion.
+        for (flow_id, direction), variable_name in counterflow_residual_variables.items():
+            directions = locked_flow_directions.get(flow_id) or storage_outflow_directions.get(flow_id) or {1}
+            row = flow_rows.setdefault(flow_id, {
+                'coefficients': {}, 'directions': directions,
+            })
+            row['coefficients'][variable_name] = float(direction)
+
         # Add the narrowly-scoped storage-source reporting slack to its own
         # reservoir-edge row.  Its sign is opposite the target direction.
-        for (flow_id, direction), variable_name in replay_slack_variables.items():
+        for (flow_id, direction), variable_name in counterflow_slack_variables.items():
             row = flow_rows.setdefault(flow_id, {
                 'coefficients': {}, 'directions': {direction},
             })
@@ -624,12 +739,12 @@ def build_block_lp(
             layout.limits[name]: -1.0,
         }
 
-        # A replay target can have been accepted only because a future
+        # A counterflow target can have been accepted only because a future
         # counterflow child was available as a witness. Carry that obligation
         # forward in the same reservation state used by ordinary group
         # allocation so the later child is not lost merely because it is
         # nested.
-        for slot, coefficient in replay_group_credits.get(name, {}).items():
+        for slot, coefficient in counterflow_group_credits.get(name, {}).items():
             effects[slot] = coefficient
 
         # Allocating a child discharges that much of its parent's reservation.
@@ -649,11 +764,15 @@ def build_block_lp(
                 effects[layout.measurements[item.flow_id]] = negated
                 effects[layout.measurement_available[item.flow_id]] = negated
 
-                # Directional Pass-1 capacity: capacity -= abs(signed_flow).
-                if item.factor > 0:
-                    effects[layout.measurement_forward_remaining[item.flow_id]] = negated
-                elif item.flow_id in layout.measurement_reverse_remaining:
-                    effects[layout.measurement_reverse_remaining[item.flow_id]] = signed
+                # Direct allocation consumes directional capacity incrementally.
+                # Counterflow completion instead freezes those capacity slots
+                # while solving and renormalizes them once from the final signed
+                # residual after the completion kernel returns.
+                if not counterflow:
+                    if item.factor > 0:
+                        effects[layout.measurement_forward_remaining[item.flow_id]] = negated
+                    elif item.flow_id in layout.measurement_reverse_remaining:
+                        effects[layout.measurement_reverse_remaining[item.flow_id]] = signed
 
             if transaction.from_account is not None:
                 from_zone = layout.schedule.get_from_zone(transaction)

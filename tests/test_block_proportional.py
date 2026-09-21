@@ -98,7 +98,7 @@ class ProportionalCalculationTests(TestCase):
             [2.0, 4.0, 3.0],
         )
 
-    def test_tiny_reference_member_uses_scalar_deferred_calculation(self):
+    def test_tiny_reference_member_remains_in_proportional_cohort(self):
         limit_a = Slot(0, 'limit_a')
         limit_b = Slot(1, 'limit_b')
         allocated_a = Slot(2, 'allocated_a')

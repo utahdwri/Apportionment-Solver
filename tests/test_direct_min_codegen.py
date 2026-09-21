@@ -15,13 +15,20 @@ from ut_water_apportionment.compile.lp import BlockLP, Constraint, Maximize, Slo
 from tests.test_block_compile import problem, transaction
 
 
-def generated(operations, slots, capacities, replay=()):
+def generated(operations, slots, capacities, counterflow=()):
     layout = SimpleNamespace(
         slots={slot.name: slot for slot in slots},
         natural_flow={slot.name: slot for slot in capacities},
-        spill_credits=list(replay),
+        spill_credits=list(counterflow),
+        limits={},
+        measurement_available={},
+        measurement_forward_remaining={},
+        measurement_reverse_remaining={},
     )
-    program = generate_plan_source(operations, replay, layout)
+    secondary = list(counterflow) + [None] * (len(operations) - len(counterflow))
+    program = generate_plan_source(
+        operations, secondary, [()] * len(operations), [()] * len(operations), layout
+    )
     namespace = dict(program.namespace)
     exec(program.source, namespace)
     return program.source, namespace
@@ -44,7 +51,7 @@ class DirectMinCodegenTests(TestCase):
     def test_real_direct_blocks_are_min_then_checked_inline_updates(self):
         plan = compile(problem([transaction('A', 1, 3), transaction('B', 2, 9)], (10, 5, 0)))
         blocks = [node for node in ast.parse(plan.code()).body
-                  if isinstance(node, ast.FunctionDef) and node.name.startswith('_pass1_block_')]
+                  if isinstance(node, ast.FunctionDef) and node.name.endswith('_direct') and node.name.startswith('_block_')]
         self.assertEqual(len(blocks), 2)
         for block in blocks:
             self.assertIsInstance(block.body[0], ast.Assign)
@@ -118,24 +125,16 @@ class DirectMinCodegenTests(TestCase):
         self.assertEqual(state[0], 5.)
         self.assertEqual(state[2], 0.)
 
-    def test_replay_reuses_only_an_identical_pass_one_model(self):
+    def test_counterflow_completion_is_part_of_the_same_block(self):
         model, slots, capacities = dynamic_model()
         kernel = DirectCalculationKernel(model)
-        source, ns = generated([kernel], slots, capacities, replay=[kernel])
-        self.assertIn('REPLAY block 0 reuses _pass1_block_0', source)
-        self.assertNotIn('def _replay_block_0(', source)
-        ns['_apply_spill_credits'] = lambda state: state.__setitem__(2, 2.)
-        state = np.array([1., -1., 4., 10., 0., 1.])
-        ns['execute'](state)
-        np.testing.assert_array_equal(state[2:5], [0., 4., 6.])
-        changed = deepcopy(model)
-        changed.constraints.append(Constraint('replay-only capacity', {'A': 1.}, upper=1.))
-        source, ns = generated([kernel], slots, capacities, replay=[DirectCalculationKernel(changed)])
-        self.assertIn('def _replay_block_0(', source)
-        ns['_apply_spill_credits'] = lambda state: state.__setitem__(2, 2.)
-        state = np.array([1., -1., 4., 10., 0., 1.])
-        ns['execute'](state)
-        np.testing.assert_array_equal(state[2:5], [1., 5., 5.])
+        source, _ = generated([kernel], slots, capacities, counterflow=[kernel])
+        self.assertIn('def _block_0(state):', source)
+        self.assertIn('def _block_0_direct(state):', source)
+        self.assertIn('def _block_0_counterflow(state):', source)
+        self.assertNotIn('def _replay_block_', source)
+        self.assertNotIn('REPLAY block', source)
+
 
     def test_signed_residual_can_become_feasible_after_earlier_blocks(self):
         residual, allocated = slots = [Slot(0, 'signed residual'), Slot(1, 'allocated')]
@@ -181,7 +180,7 @@ class DirectMinCodegenTests(TestCase):
         reader = DirectCalculationKernel(BlockLP({'C': Variable(upper=1.)}, [
             Constraint('zero row', {}, upper=capacity),
         ], Maximize({'C': 1.}), {'C': {allocated: 1.}}))
-        source, _ = generated([reader], slots, [capacity], replay=[compile_lp_kernel(writer)])
+        source, _ = generated([reader], slots, [capacity], counterflow=[compile_lp_kernel(writer)])
         self.assertIn("General scalar interval for 'C'", source)
         _, ns = generated([compile_lp_kernel(writer), reader], slots, [capacity])
         with self.assertRaises(BlockLPError):

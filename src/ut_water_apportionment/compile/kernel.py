@@ -8,6 +8,7 @@ from scipy.optimize import linprog
 from .lp import BlockLP, Maximize, Proportional, Slot
 
 TOL = 1e-7
+LP_PRIMAL_FEASIBILITY_TOL = 1e-6
 
 
 class BlockLPError(RuntimeError):
@@ -295,8 +296,6 @@ class ProportionalCalculationKernel:
             {name: cfs for name, cfs in references.items()
              if isfinite(cfs) and cfs > 0},
         ]
-        deferred = []
-
         for active in phases:
             while active:
                 # Normalize in the same overflow-safe way as LPKernel.
@@ -306,18 +305,6 @@ class ProportionalCalculationKernel:
                     name: (factor / scale) / total
                     for name, factor in active.items()
                 }
-
-                # Very small shares use the same deferred scalar-allocation
-                # convention as LPKernel to avoid numerically meaningless common
-                # increment constraints.
-                tiny = [name for name, factor in factors.items() if factor < 1e-6]
-                if tiny:
-                    deferred.extend(tiny)
-                    active = {
-                        name: cfs for name, cfs in active.items()
-                        if name not in tiny
-                    }
-                    continue
 
                 increment = self._common_increment(state, factors, rows)
                 _commit_updates(
@@ -350,19 +337,6 @@ class ProportionalCalculationKernel:
                     name: cfs for name, cfs in active.items()
                     if name not in blocked
                 }
-
-        for name in deferred:
-            rows = self._bound_rows(state)
-            if rows is None:
-                raise BlockLPError(
-                    "Proportional coefficient changed sign during analytical execution"
-                )
-            increment = self._member_capacity(name, state, rows)
-            if not isfinite(increment):
-                raise BlockLPError(
-                    f"Block {list(self.model.updates)} failed: unbounded deferred member {name}"
-                )
-            _commit_updates(self.model, state, {name: increment})
 
         # No numerical LP solve was needed.
         return 0
@@ -441,6 +415,7 @@ class LPKernel:
             A_eq=np.asarray(eq) if eq else None,
             b_eq=np.asarray(eq_rhs) if eq else None,
             bounds=bounds, method="highs-ds",
+            options={"primal_feasibility_tolerance": LP_PRIMAL_FEASIBILITY_TOL},
         )
         if not result.success:
             raise BlockLPError(
@@ -474,18 +449,12 @@ class LPKernel:
             {name: 1.0 for name, cfs in references.items() if np.isposinf(cfs)},
             {name: cfs for name, cfs in references.items() if isfinite(cfs) and cfs > 0},
         ]
-        deferred = []
         for active in phases:
             while active:
                 # Scale before summing to avoid overflow for very large caps.
                 scale = max(active.values())
                 total = sum(factor / scale for factor in active.values())
                 factors = {name: (factor / scale) / total for name, factor in active.items()}
-                tiny = [name for name, factor in factors.items() if factor < 1e-6]
-                if tiny:
-                    deferred.extend(tiny)
-                    active = {name: c for name, c in active.items() if name not in tiny}
-                    continue
                 result = self._solve(state, proportions=factors)
                 calls += 1
                 self._commit(state, {name: factor * max(0.0, result[-1]) for name, factor in factors.items()})
@@ -590,10 +559,6 @@ class LPKernel:
                 if not blocked:
                     raise BlockLPError("Proportional allocation made no blocking progress")
                 active = {name: c for name, c in active.items() if name not in blocked}
-        for name in deferred:
-            result = self._solve(state, weights={name: 1.0})
-            calls += 1
-            self._commit(state, {name: result[self.index[name]]})
         return calls
 
 
@@ -722,7 +687,6 @@ class ScalarFormulaKernel:
             {name: cfs for name, cfs in references.items()
              if isfinite(cfs) and cfs > 0},
         ]
-        deferred = []
         calls = 0
 
         for active in phases:
@@ -733,15 +697,6 @@ class ScalarFormulaKernel:
                     name: (factor / scale) / total
                     for name, factor in active.items()
                 }
-                tiny = [name for name, factor in factors.items() if factor < 1e-6]
-                if tiny:
-                    deferred.extend(tiny)
-                    active = {
-                        name: cfs for name, cfs in active.items()
-                        if name not in tiny
-                    }
-                    continue
-
                 increment, scalar_calls = self._scalar_maximum(state, factors)
                 calls += scalar_calls
                 _commit_updates(
@@ -775,10 +730,6 @@ class ScalarFormulaKernel:
                     if name not in blocked
                 }
 
-        for name in deferred:
-            increment, scalar_calls = self._scalar_maximum(state, {name: 1.0})
-            calls += scalar_calls
-            _commit_updates(self.model, state, {name: increment})
         return calls
 
 def compile_direct_kernel(lp_model: BlockLP) -> DirectCalculationKernel:

@@ -33,7 +33,8 @@ def solve_plan(plan, measurements, *, check_expected_values=False):
                 state[slot.index] = min(state[slot.index], cap)
 
             # The generated daily program owns natural-flow initialization,
-            # Pass 1, spill/import NF credit, and reservoir replay.
+            # the priority sweep (including counterflow completion), spill/import
+            # NF credit, and the optional post-spill sweep.
             lp_solves += plan.executor(state)
 
             changed = False
@@ -100,29 +101,50 @@ def solve_plan(plan, measurements, *, check_expected_values=False):
             'priority_blocks': len(plan.operations),
             'lp_kernels': sum(
                 isinstance(op, LPKernel)
-                for op in (*plan.operations, *plan.replay_operations)
+                for op in (
+                    *plan.operations,
+                    *(op for op in plan.counterflow_operations if op is not None),
+                )
             ),
             'direct_calculations': sum(
                 isinstance(op, DirectCalculationKernel)
-                for op in (*plan.operations, *plan.replay_operations)
+                for op in (
+                    *plan.operations,
+                    *(op for op in plan.counterflow_operations if op is not None),
+                )
             ),
             'proportional_calculations': sum(
                 isinstance(op, ProportionalCalculationKernel)
-                for op in (*plan.operations, *plan.replay_operations)
+                for op in (
+                    *plan.operations,
+                    *(op for op in plan.counterflow_operations if op is not None),
+                )
             ),
             'scalar_formulas': sum(
                 isinstance(op, ScalarFormulaKernel)
-                for op in (*plan.operations, *plan.replay_operations)
+                for op in (
+                    *plan.operations,
+                    *(op for op in plan.counterflow_operations if op is not None),
+                )
             ),
             'maximum_formula_rows': max((
                 op.maximum_intermediate_rows
-                for op in (*plan.operations, *plan.replay_operations)
+                for op in (
+                    *plan.operations,
+                    *(op for op in plan.counterflow_operations if op is not None),
+                )
                 if isinstance(op, ScalarFormulaKernel)
             ), default=0),
             'runtime_slots': len(layout.slots),
             'execution_days': days, 'execution_lp_solves': lp_solves,
             'spill_replay_flows': len(layout.spill_credits),
-            'maximum_kernel_variables': max((len(op.model.variables) for op in plan.operations), default=0),
+            'maximum_kernel_variables': max((
+                len(op.model.variables)
+                for op in (
+                    *plan.operations,
+                    *(op for op in plan.counterflow_operations if op is not None),
+                )
+            ), default=0),
             'runtime_compilation': False,
         },
     )

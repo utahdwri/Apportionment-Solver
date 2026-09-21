@@ -63,7 +63,8 @@ class PlanCodeTests(TestCase):
 
         plan = compile(problem)
         source = plan.code()
-        self.assertIn('def _pass1_block_0(state):', source)
+        self.assertIn('def _block_0(state):', source)
+        self.assertIn('def _block_0_direct(state):', source)
         self.assertIn("# Direct formula for 'TRXN_1'", source)
         self.assertIn('amount = checked_nonnegative_increment(amount)', source)
         self.assertIn('state[S_REMAINING_MEASURED_FORWARD_RIVER_USER]', source)
@@ -121,7 +122,7 @@ class PlanCodeTests(TestCase):
             }
         )
 
-        source = generate_plan_source([LPKernel(model)], [], layout).source
+        source = generate_plan_source([LPKernel(model)], [None], [()], [()], layout).source
 
         self.assertIn('# Numerical LP fallback', source)
         self.assertIn('# VARIABLES', source)
@@ -133,7 +134,7 @@ class PlanCodeTests(TestCase):
         self.assertIn("#         <= remaining_measured['RIVER>RES']", source)
         self.assertIn('# COMMITTED STATE UPDATES', source)
         self.assertIn("#         allocated['A'] += (1.0) * A", source)
-        self.assertIn('return _PASS1_FALLBACK_0.execute(state)', source)
+        self.assertIn('return _BLOCK_0_DIRECT_FALLBACK.execute(state)', source)
 
         # The explanatory comments are part of the same executable source.
         builtins.compile(source, '<generated plan>', 'exec')

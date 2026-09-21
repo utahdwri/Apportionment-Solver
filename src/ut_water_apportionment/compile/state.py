@@ -70,7 +70,7 @@ class RuntimeStateLayout:
     account_in_remaining: dict[tuple[str, str], Slot] = field(default_factory=dict)
     to_account_coefficients: dict[str, tuple[Slot, Slot]] = field(default_factory=dict)
     spill_credits: list[SpillCreditSpec] = field(default_factory=list)
-    replay_counterflow_slack_limits: dict[tuple[str, int], Slot] = field(default_factory=dict)
+    counterflow_slack_limits: dict[tuple[str, int], Slot] = field(default_factory=dict)
 
     def add(
         self, name: str, *, sign: int = 0,
@@ -143,16 +143,16 @@ class RuntimeStateLayout:
             if name in self.measurement_reverse_remaining:
                 values[self.measurement_reverse_remaining[name].index] = max(0.0, -measured)
 
-        # Replay can sometimes require opposite-direction reporting slack for a
+        # Counterflow completion can sometimes require opposite-direction reporting slack for a
         # transaction that originates in storage.  Do not make that slack
         # available when the measured net flow already contains physical flow
-        # in the target direction: in that case Pass 1 establishes the minimum
-        # reservoir exchange and replay may use only real counterflow created by
-        # earlier replay allocations.  If there is no measured flow in the
+        # in the target direction: in that case direct allocation establishes the minimum
+        # reservoir exchange and counterflow completion may use only real counterflow created by
+        # earlier allocations.  If there is no measured flow in the
         # target direction, allow the reporting slack so a senior storage
         # delivery can still be claimed (for example, a zero-net reservoir with
         # a measured downstream release).
-        for (flow_id, direction), slack_slot in self.replay_counterflow_slack_limits.items():
+        for (flow_id, direction), slack_slot in self.counterflow_slack_limits.items():
             measured = values[self.measurements[flow_id].index]
             target_direction_capacity = measured * direction
             values[slack_slot.index] = (
@@ -284,7 +284,7 @@ def build_runtime_state_layout(
     This first implementation supports forward allocation, nested reservations,
     daily/call/cumulative path limits, whole-day lags, fractional losses, and zone
     account balances, and signed/reverse transaction paths on bidirectional
-    flows, plus a Pass-1/spill/replay reservoir sequence. It deliberately
+    flows, plus a direct/counterflow/spill reservoir sequence. It deliberately
     rejects fractional-day lags; independent daily allocation followed by
     fractional unlagging does not preserve allocation feasibility.
     """
@@ -302,7 +302,7 @@ def build_runtime_state_layout(
     natural_types = {ZoneTypes.STREAM, ZoneTypes.SYSTEM_GAIN_LOSS}
     # Storage change is already folded into residual interzone-flow measurements
     # by DailyDataManager. Non-natural -> natural residuals are handled after
-    # Pass 1 as locked spill/import credit before the replay pass.
+    # the initial sweep as locked spill/import credit before the post-spill sweep.
     for flow in graph.graph.interzone_flows:
         _check_fractional_loss(flow.loss_from_zone)
         _check_fractional_loss(flow.loss_to_zone)
@@ -470,10 +470,10 @@ def build_runtime_state_layout(
                 f"boundary_natural_active[{flow.id!r}]", sign=1
             )
 
-    # A replayed transaction that originates in a non-natural zone can require
+    # A transaction that originates in a non-natural zone can require
     # opposite-direction reporting slack on its first bidirectional flow.  The
-    # slot is a *runtime upper bound* for that slack witness.  Keeping it out of
-    # Pass 1 replaces the legacy minimize/lock/release machinery structurally.
+    # slot is a runtime upper bound for that slack witness. Keeping it out of
+    # the direct stage preserves the minimum-reservoir-exchange convention.
     for transaction in layout.transactions.values():
         if not isinstance(transaction, PathTrxn):
             continue
@@ -487,14 +487,14 @@ def build_runtime_state_layout(
             continue
         direction = 1 if item.factor > 0 else -1
         key = (flow.id, direction)
-        if key not in layout.replay_counterflow_slack_limits:
-            layout.replay_counterflow_slack_limits[key] = layout.add(
-                f"replay_counterflow_slack_limit[{key!r}]"
+        if key not in layout.counterflow_slack_limits:
+            layout.counterflow_slack_limits[key] = layout.add(
+                f"counterflow_slack_limit[{key!r}]"
             )
 
     # A spill/import candidate is the residual direction from a non-natural
     # zone into the natural system. Slack variables are not compiled; after
-    # Pass 1 this residual is therefore the amount to lock and credit.
+    # the initial sweep this residual is therefore the amount to lock and credit.
     for flow in graph.graph.interzone_flows:
         source_type = graph.get_zone_by_id(flow.from_zone).type
         destination_type = graph.get_zone_by_id(flow.to_zone).type

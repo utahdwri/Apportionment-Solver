@@ -286,10 +286,12 @@ class LargeSystemBenchmarkTests(unittest.TestCase):
         if shared_priorities:
             self.assertGreater(report["proportional_calculations"], 0)
         else:
-            # One direct calculation for each transaction in Pass 1 and replay.
+            # No reservoir counterflow exists in this fixture, so each
+            # transaction compiles to one direct calculation reused on any
+            # post-spill sweep.
             self.assertEqual(
                 report["direct_calculations"],
-                2 * len(problem.txns),
+                len(problem.txns),
             )
             self.assertEqual(report["proportional_calculations"], 0)
 

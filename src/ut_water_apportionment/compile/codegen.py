@@ -48,7 +48,6 @@ def _allocate_proportionally(state, references, maximum, commit, blockers):
         {name: 1.0 for name, cfs in references.items() if isinf(cfs) and cfs > 0},
         {name: cfs for name, cfs in references.items() if isfinite(cfs) and cfs > 0},
     ]
-    deferred = []
     calls = 0
 
     def classify(names):
@@ -70,11 +69,6 @@ def _allocate_proportionally(state, references, maximum, commit, blockers):
             scale = max(active.values())
             total = sum(value / scale for value in active.values())
             factors = {name: (value / scale) / total for name, value in active.items()}
-            tiny = [name for name, factor in factors.items() if factor < 1e-6]
-            if tiny:
-                deferred.extend(tiny)
-                active = {name: cfs for name, cfs in active.items() if name not in tiny}
-                continue
             increment, extra = maximum(state, factors)
             calls += extra
             commit(state, {name: factor * increment for name, factor in factors.items()})
@@ -85,10 +79,6 @@ def _allocate_proportionally(state, references, maximum, commit, blockers):
                 raise SolverError('Proportional allocation made no blocking progress')
             active = {name: cfs for name, cfs in active.items() if name not in blocked}
 
-    for name in deferred:
-        increment, extra = maximum(state, {name: 1.0})
-        calls += extra
-        commit(state, {name: increment})
     return calls
 """
 
@@ -153,8 +143,10 @@ class PythonPlanEmitter:
     there is a single authoritative representation of the compiled plan.
 
     The generated program includes runtime state-slot aliases, natural-flow
-    initialization and routing, Pass 1 allocation blocks, spill-credit handling,
-    replay blocks, and a single ``execute(state)`` entry point. Individual compiler
+    initialization and routing, one phase-independent function per priority
+    block, spill-credit handling, and a single ``execute(state)`` entry point.
+    Counterflow completion is part of the priority block itself; a post-spill
+    sweep simply calls the same block functions again. Individual compiler
     kernels are emitted as direct calculations, proportional water-filling
     calculations, scalar formulas, or explicit numerical LP fallbacks.
 
@@ -1288,8 +1280,15 @@ def _required_inflow(state, factor_slot, remaining):
         else:
             raise TypeError(f"Unknown compiled operation: {operation!r}")
 
-    def build(self, operations, replay_operations) -> GeneratedPlanSource:
+    def build(
+        self, operations, counterflow_operations, counterflow_gate_slots,
+        counterflow_normalize_flows,
+    ) -> GeneratedPlanSource:
         """Generate the python code that will execute the calculations."""
+
+        all_operations = tuple(operations) + tuple(
+            op for op in counterflow_operations if op is not None
+        )
 
         self.emit("from math import isfinite, isinf, isnan")
         self.emit("")
@@ -1310,50 +1309,92 @@ def _required_inflow(state, factor_slot, remaining):
             self.emit(f"{self.slot_names[slot.index]} = {slot.index}")
         self.emit("")
 
-        if any(isinstance(operation, DirectCalculationKernel) for operation in (*operations, *replay_operations)):
+        if any(isinstance(operation, DirectCalculationKernel) for operation in all_operations):
             self.emit(_DIRECT_SOURCE.strip())
             self.emit("")
-        if any(isinstance(operation, ScalarFormulaKernel) for operation in (*operations, *replay_operations)):
+        if any(isinstance(operation, ScalarFormulaKernel) for operation in all_operations):
             self.emit(PROJECTED_ROW_SOURCE.strip())
             self.emit("")
         if any(
             isinstance(operation, (ProportionalCalculationKernel, ScalarFormulaKernel))
             and isinstance(operation.model.rule, Proportional)
-            for operation in (*operations, *replay_operations)
+            for operation in all_operations
         ):
             self.emit(_PROPORTIONAL_SOURCE.strip())
             self.emit("")
 
-        self.prepare_direct_formulas((*operations, *replay_operations))
+        self.prepare_direct_formulas(all_operations)
 
         # Natural-flow setup is part of the same generated/executed program.
         self.emit_natural_flow_program()
 
-        pass_names = []
-        for index, operation in enumerate(operations):
-            fn = f"_pass1_block_{index}"
-            ext = f"_PASS1_FALLBACK_{index}"
-            pass_names.append(fn)
+        block_names = []
+        for index, (operation, counterflow_operation, gates, normalize_flows) in enumerate(zip(
+            operations, counterflow_operations, counterflow_gate_slots,
+            counterflow_normalize_flows,
+        )):
+            primary_fn = f"_block_{index}_direct"
+            primary_ext = f"_BLOCK_{index}_DIRECT_FALLBACK"
             self.emit("# " + "=" * 76)
-            self.emit(f"# PASS 1 block {index}: {list(operation.model.updates)!r} ({type(operation).__name__})")
+            self.emit(
+                f"# BLOCK {index} direct stage: {list(operation.model.updates)!r} "
+                f"({type(operation).__name__})"
+            )
             self.emit("# " + "=" * 76)
-            self.emit_operation(operation, fn, ext)
+            self.emit_operation(operation, primary_fn, primary_ext)
 
-        replay_names = []
-        for index, operation in enumerate(replay_operations):
-            shared = next((fn for previous, fn in zip(operations, pass_names)
-                           if type(previous) is type(operation) and previous.model == operation.model), None)
-            if shared is not None:
-                self.emit(f"# REPLAY block {index} reuses {shared}: same LP and updates.")
-                replay_names.append(shared)
-                continue
-            fn = f"_replay_block_{index}"
-            ext = f"_REPLAY_FALLBACK_{index}"
-            replay_names.append(fn)
-            self.emit("# " + "=" * 76)
-            self.emit(f"# REPLAY block {index}: {list(operation.model.updates)!r} ({type(operation).__name__})")
-            self.emit("# " + "=" * 76)
-            self.emit_operation(operation, fn, ext)
+            counterflow_fn = None
+            if counterflow_operation is not None:
+                counterflow_fn = f"_block_{index}_counterflow"
+                counterflow_ext = f"_BLOCK_{index}_COUNTERFLOW_FALLBACK"
+                self.emit("# " + "=" * 76)
+                self.emit(
+                    f"# BLOCK {index} counterflow completion: "
+                    f"{list(counterflow_operation.model.updates)!r} "
+                    f"({type(counterflow_operation).__name__})"
+                )
+                self.emit("# " + "=" * 76)
+                self.emit_operation(
+                    counterflow_operation, counterflow_fn, counterflow_ext
+                )
+
+            block_fn = f"_block_{index}"
+            block_names.append(block_fn)
+            self.emit(f"def {block_fn}(state):")
+            self.emit(f"    lp_solves = {primary_fn}(state)")
+            if counterflow_fn is not None:
+                gate_expr = " or ".join(
+                    "("
+                    f"state[{self.slot_names[forward.index]}] <= TOL and "
+                    f"state[{self.slot_names[reverse.index]}] <= TOL"
+                    ")"
+                    for forward, reverse in gates
+                ) or "True"
+                target_limit_expr = " or ".join(
+                    f"state[{self.slot_names[self.state_layout.limits[name].index]}] > TOL"
+                    for name in operation.model.updates
+                    if name in self.state_layout.limits
+                ) or "False"
+                self.emit(f"    if ({gate_expr}) and ({target_limit_expr}):")
+                self.emit(f"        lp_solves += {counterflow_fn}(state)")
+                for flow_id in normalize_flows:
+                    available = self.slot_names[
+                        self.state_layout.measurement_available[flow_id].index
+                    ]
+                    forward = self.slot_names[
+                        self.state_layout.measurement_forward_remaining[flow_id].index
+                    ]
+                    reverse_slot = self.state_layout.measurement_reverse_remaining.get(flow_id)
+                    self.emit(
+                        f"        state[{forward}] = max(0.0, state[{available}])"
+                    )
+                    if reverse_slot is not None:
+                        reverse = self.slot_names[reverse_slot.index]
+                        self.emit(
+                            f"        state[{reverse}] = max(0.0, -state[{available}])"
+                        )
+            self.emit("    return lp_solves")
+            self.emit("")
 
         self.emit_direct_validation()
         self.emit("def execute(state):")
@@ -1361,16 +1402,16 @@ def _required_inflow(state, factor_slot, remaining):
         self.emit("    _validate_direct_inputs(state)")
         self.emit("    lp_solves = 0")
         self.emit("")
-        self.emit("    # 1st pass")
-        for fn in pass_names:
+        self.emit("    # Initial priority sweep. Counterflow is handled inside each block.")
+        for fn in block_names:
             self.emit(f"    lp_solves += {fn}(state)")
         self.emit("")
-        self.emit("    # Apply spill/import natural-flow credits after 1st pass")
+        self.emit("    # Apply spill/import natural-flow credits after the initial sweep.")
         self.emit("    _apply_spill_credits(state)")
         if getattr(self.state_layout, "spill_credits", None):
             self.emit("")
-            self.emit("    # Replay the priority program using the updated NF state.")
-            for fn in replay_names:
+            self.emit("    # Offer newly credited NF using the exact same priority blocks.")
+            for fn in block_names:
                 self.emit(f"    lp_solves += {fn}(state)")
         self.emit("")
         self.emit("    return lp_solves")
@@ -1379,5 +1420,11 @@ def _required_inflow(state, factor_slot, remaining):
         return GeneratedPlanSource("\n".join(self.lines), dict(self.namespace))
 
 
-def generate_plan_source(operations, replay_operations, state_layout) -> GeneratedPlanSource:
-    return PythonPlanEmitter(state_layout).build(operations, replay_operations)
+def generate_plan_source(
+    operations, counterflow_operations, counterflow_gate_slots,
+    counterflow_normalize_flows, state_layout,
+) -> GeneratedPlanSource:
+    return PythonPlanEmitter(state_layout).build(
+        operations, counterflow_operations, counterflow_gate_slots,
+        counterflow_normalize_flows,
+    )
