@@ -1,6 +1,6 @@
 """Generate the human-readable Python program that is also executed by CompiledPlan.
 
-The block kernels are compile-time IR.  This module lowers them to one ordinary
+Compiled operations are compile-time IR.  This module lowers them to one ordinary
 Python module containing the exact ``execute`` function used at runtime.
 ``CompiledPlan.code()`` returns this same source.
 """
@@ -1280,14 +1280,13 @@ def _required_inflow(state, factor_slot, remaining):
         else:
             raise TypeError(f"Unknown compiled operation: {operation!r}")
 
-    def build(
-        self, operations, counterflow_operations, counterflow_gate_slots,
-        counterflow_normalize_flows,
-    ) -> GeneratedPlanSource:
+    def build(self, operations) -> GeneratedPlanSource:
         """Generate the python code that will execute the calculations."""
 
-        all_operations = tuple(operations) + tuple(
-            op for op in counterflow_operations if op is not None
+        all_operations = tuple(
+            kernel
+            for operation in operations
+            for kernel in operation.kernels()
         )
 
         self.emit("from math import isfinite, isinf, isnan")
@@ -1329,10 +1328,9 @@ def _required_inflow(state, factor_slot, remaining):
         self.emit_natural_flow_program()
 
         block_names = []
-        for index, (operation, counterflow_operation, gates, normalize_flows) in enumerate(zip(
-            operations, counterflow_operations, counterflow_gate_slots,
-            counterflow_normalize_flows,
-        )):
+        for index, compiled_operation in enumerate(operations):
+            operation = compiled_operation.primary
+            completion = compiled_operation.counterflow
             primary_fn = f"_block_{index}_direct"
             primary_ext = f"_BLOCK_{index}_DIRECT_FALLBACK"
             self.emit("# " + "=" * 76)
@@ -1344,7 +1342,8 @@ def _required_inflow(state, factor_slot, remaining):
             self.emit_operation(operation, primary_fn, primary_ext)
 
             counterflow_fn = None
-            if counterflow_operation is not None:
+            if completion is not None:
+                counterflow_operation = completion.operation
                 counterflow_fn = f"_block_{index}_counterflow"
                 counterflow_ext = f"_BLOCK_{index}_COUNTERFLOW_FALLBACK"
                 self.emit("# " + "=" * 76)
@@ -1368,7 +1367,7 @@ def _required_inflow(state, factor_slot, remaining):
                     f"state[{self.slot_names[forward.index]}] <= TOL and "
                     f"state[{self.slot_names[reverse.index]}] <= TOL"
                     ")"
-                    for forward, reverse in gates
+                    for forward, reverse in completion.gate_slots
                 ) or "True"
                 target_limit_expr = " or ".join(
                     f"state[{self.slot_names[self.state_layout.limits[name].index]}] > TOL"
@@ -1377,7 +1376,7 @@ def _required_inflow(state, factor_slot, remaining):
                 ) or "False"
                 self.emit(f"    if ({gate_expr}) and ({target_limit_expr}):")
                 self.emit(f"        lp_solves += {counterflow_fn}(state)")
-                for flow_id in normalize_flows:
+                for flow_id in completion.normalize_flows:
                     available = self.slot_names[
                         self.state_layout.measurement_available[flow_id].index
                     ]
@@ -1420,11 +1419,5 @@ def _required_inflow(state, factor_slot, remaining):
         return GeneratedPlanSource("\n".join(self.lines), dict(self.namespace))
 
 
-def generate_plan_source(
-    operations, counterflow_operations, counterflow_gate_slots,
-    counterflow_normalize_flows, state_layout,
-) -> GeneratedPlanSource:
-    return PythonPlanEmitter(state_layout).build(
-        operations, counterflow_operations, counterflow_gate_slots,
-        counterflow_normalize_flows,
-    )
+def generate_plan_source(operations, state_layout) -> GeneratedPlanSource:
+    return PythonPlanEmitter(state_layout).build(operations)

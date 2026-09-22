@@ -94,56 +94,32 @@ def solve_plan(plan, measurements, *, check_expected_values=False):
                 else:
                     output.append(SolverOutputApportionment(date, flow.id, txn.id, amount * item.factor, item.factor > 0, ''))
         schedule.commit_day(variable_values)
+    kernels = plan.kernels()
     result = SolverOutput(
         apportionments=unlag_apportionments(output, data.flow_lags),
         solver_backend='scipy-highs-block-kernels', solve_method='block_lp',
         compilation_report={
             'priority_blocks': len(plan.operations),
-            'lp_kernels': sum(
-                isinstance(op, LPKernel)
-                for op in (
-                    *plan.operations,
-                    *(op for op in plan.counterflow_operations if op is not None),
-                )
-            ),
+            'lp_kernels': sum(isinstance(op, LPKernel) for op in kernels),
             'direct_calculations': sum(
-                isinstance(op, DirectCalculationKernel)
-                for op in (
-                    *plan.operations,
-                    *(op for op in plan.counterflow_operations if op is not None),
-                )
+                isinstance(op, DirectCalculationKernel) for op in kernels
             ),
             'proportional_calculations': sum(
-                isinstance(op, ProportionalCalculationKernel)
-                for op in (
-                    *plan.operations,
-                    *(op for op in plan.counterflow_operations if op is not None),
-                )
+                isinstance(op, ProportionalCalculationKernel) for op in kernels
             ),
             'scalar_formulas': sum(
-                isinstance(op, ScalarFormulaKernel)
-                for op in (
-                    *plan.operations,
-                    *(op for op in plan.counterflow_operations if op is not None),
-                )
+                isinstance(op, ScalarFormulaKernel) for op in kernels
             ),
             'maximum_formula_rows': max((
                 op.maximum_intermediate_rows
-                for op in (
-                    *plan.operations,
-                    *(op for op in plan.counterflow_operations if op is not None),
-                )
+                for op in kernels
                 if isinstance(op, ScalarFormulaKernel)
             ), default=0),
             'runtime_slots': len(layout.slots),
             'execution_days': days, 'execution_lp_solves': lp_solves,
             'spill_replay_flows': len(layout.spill_credits),
             'maximum_kernel_variables': max((
-                len(op.model.variables)
-                for op in (
-                    *plan.operations,
-                    *(op for op in plan.counterflow_operations if op is not None),
-                )
+                len(op.model.variables) for op in kernels
             ), default=0),
             'runtime_compilation': False,
         },

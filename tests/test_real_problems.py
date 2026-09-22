@@ -20,6 +20,11 @@ def solve(input: SolverInput, *, check_expected_values: bool = False) -> SolverO
     print(f'Compile Time: {perf_counter() - t0}')
     t0 = perf_counter()
 
+    with open("output.txt", "w", encoding="utf-8") as file:
+        file.write(str(compiled_system))
+
+    return
+
     results = compiled_system.solve(
         check_expected_values=check_expected_values
     )

@@ -2,7 +2,7 @@ import builtins
 from copy import deepcopy
 from dataclasses import dataclass, field
 from math import isfinite
-from typing import Callable
+from typing import Callable, TypeAlias
 
 from ..models import PathTrxn, SolverInput, TrxnGroup, ZoneTypes
 from .kernel import (
@@ -20,36 +20,82 @@ class PriorityBlock:
     priority_order: float
 
 
+CompiledKernel: TypeAlias = (
+    DirectCalculationKernel
+    | ProportionalCalculationKernel
+    | ScalarFormulaKernel
+    | LPKernel
+)
+
+
+@dataclass(frozen=True)
+class CounterflowCompletion:
+    """Optional second stage of one compiled priority-block operation.
+
+    ``operation`` proves and commits any additional allocation supported by
+    simultaneous opposite-direction flow. ``gate_slots`` identifies the
+    directional residuals that must be exhausted before that completion is
+    useful, and ``normalize_flows`` identifies cached directional residuals
+    that must be rebuilt from their signed residual after it executes.
+    """
+
+    operation: CompiledKernel
+    gate_slots: tuple[tuple[Slot, Slot], ...] = ()
+    normalize_flows: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CompiledOperation:
+    """One complete priority-block calculation.
+
+    A block always has one primary kernel and may have a counterflow
+    completion.  Keeping both stages and their runtime metadata together
+    prevents phase-specific bookkeeping from leaking onto ``CompiledPlan``.
+    """
+
+    primary: CompiledKernel
+    counterflow: CounterflowCompletion | None = None
+
+    @property
+    def model(self) -> BlockLP:
+        """Primary LP model, retained for inspection/backward compatibility."""
+        return self.primary.model
+
+    def kernels(self) -> tuple[CompiledKernel, ...]:
+        """Return every compiled kernel owned by this operation."""
+        if self.counterflow is None:
+            return (self.primary,)
+        return (self.primary, self.counterflow.operation)
+
+
 @dataclass
 class CompiledPlan:
     state_layout: RuntimeStateLayout
-    operations: list[DirectCalculationKernel | ProportionalCalculationKernel | ScalarFormulaKernel | LPKernel]
-    counterflow_operations: list[DirectCalculationKernel | ProportionalCalculationKernel | ScalarFormulaKernel | LPKernel | None]
-    counterflow_gate_slots: list[tuple[tuple[Slot, Slot], ...]]
-    counterflow_normalize_flows: list[tuple[str, ...]]
+    operations: list[CompiledOperation]
 
     source: str = field(init=False)
     executor: Callable[..., int] = field(init=False)
 
 
     def __post_init__(self):
-        # Kernel objects are compile-time IR.  Lower them once to one readable
-        # Python module; this exact source is both returned by code() and exec'd.
+        # CompiledOperation objects are compile-time IR. Lower them once to one
+        # readable Python module; this exact source is both returned by code()
+        # and exec'd.
         from .codegen import generate_plan_source
-        generated = generate_plan_source(
-            self.operations, self.counterflow_operations, self.counterflow_gate_slots,
-            self.counterflow_normalize_flows, self.state_layout
-        )
+        generated = generate_plan_source(self.operations, self.state_layout)
         self.source = generated.source
         self.executor = self._compile_generated_python(
             self.source, generated.namespace
         )
 
 
-    @property
-    def replay_operations(self):
-        """Compatibility alias: replay-specific compiled blocks no longer exist."""
-        return []
+    def kernels(self) -> tuple[CompiledKernel, ...]:
+        """Flatten the kernels owned by all priority-block operations."""
+        return tuple(
+            kernel
+            for operation in self.operations
+            for kernel in operation.kernels()
+        )
 
 
     def __str__(self):
@@ -98,31 +144,26 @@ def compile(
         input, max_daily_apportionment=options.max_daily_apportionment
     )
     operations = []
-    counterflow_operations = []
-    counterflow_gate_slots = []
-    counterflow_normalize_flows = []
 
     for block in priority_blocks(state_layout.input):
         model = build_block_lp(state_layout.input, block, state_layout)
-        operations.append(compile_block(model, options))
+        primary = compile_block(model, options)
+        counterflow = None
 
         if _block_needs_counterflow(block, state_layout):
             counterflow_model = build_block_lp(
                 state_layout.input, block, state_layout, counterflow=True
             )
-            counterflow_operations.append(compile_block(counterflow_model, options))
             gates, normalize = _counterflow_runtime_metadata(block, state_layout)
-            counterflow_gate_slots.append(gates)
-            counterflow_normalize_flows.append(normalize)
-        else:
-            counterflow_operations.append(None)
-            counterflow_gate_slots.append(())
-            counterflow_normalize_flows.append(())
+            counterflow = CounterflowCompletion(
+                operation=compile_block(counterflow_model, options),
+                gate_slots=gates,
+                normalize_flows=normalize,
+            )
 
-    return CompiledPlan(
-        state_layout, operations, counterflow_operations,
-        counterflow_gate_slots, counterflow_normalize_flows,
-    )
+        operations.append(CompiledOperation(primary, counterflow))
+
+    return CompiledPlan(state_layout, operations)
 
 
 def _block_needs_counterflow(block: PriorityBlock, layout: RuntimeStateLayout) -> bool:

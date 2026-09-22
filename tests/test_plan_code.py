@@ -3,7 +3,7 @@ import builtins
 from types import SimpleNamespace
 from unittest import TestCase
 
-from ut_water_apportionment.compile import compile
+from ut_water_apportionment.compile import CompiledOperation, compile
 from ut_water_apportionment.compile.codegen import generate_plan_source
 from ut_water_apportionment.compile.kernel import LPKernel
 from ut_water_apportionment.compile.lp import BlockLP, Constraint, Proportional, Slot, Variable
@@ -122,7 +122,7 @@ class PlanCodeTests(TestCase):
             }
         )
 
-        source = generate_plan_source([LPKernel(model)], [None], [()], [()], layout).source
+        source = generate_plan_source([CompiledOperation(LPKernel(model))], layout).source
 
         self.assertIn('# Numerical LP fallback', source)
         self.assertIn('# VARIABLES', source)

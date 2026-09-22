@@ -7,7 +7,9 @@ from unittest import TestCase
 import numpy as np
 
 from ut_water_apportionment.compile.codegen import generate_plan_source
-from ut_water_apportionment.compile.compile import compile
+from ut_water_apportionment.compile.compile import (
+    CompiledOperation, CounterflowCompletion, compile,
+)
 from ut_water_apportionment.compile.kernel import (
     BlockLPError, DirectCalculationKernel, compile_lp_kernel,
 )
@@ -26,9 +28,14 @@ def generated(operations, slots, capacities, counterflow=()):
         measurement_reverse_remaining={},
     )
     secondary = list(counterflow) + [None] * (len(operations) - len(counterflow))
-    program = generate_plan_source(
-        operations, secondary, [()] * len(operations), [()] * len(operations), layout
-    )
+    compiled = [
+        CompiledOperation(
+            operation,
+            None if secondary[index] is None else CounterflowCompletion(secondary[index]),
+        )
+        for index, operation in enumerate(operations)
+    ]
+    program = generate_plan_source(compiled, layout)
     namespace = dict(program.namespace)
     exec(program.source, namespace)
     return program.source, namespace
