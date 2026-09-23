@@ -534,19 +534,114 @@ def _initial_system(
     equalities: list[_Row] = []
     easy_targets = _easy_floor_targets(model, targets)
 
+    # Targets with identical structural columns are interchangeable for the
+    # scalar feasibility question.  Replace them by one aggregate decision
+    # variable before projection.  Individual proportional floors and upper
+    # bounds are retained, so this changes only the symbolic representation,
+    # not the feasible target allocations.
+    #
+    # If x_i all have the same LP column, every non-bound constraint depends
+    # on them only through X = sum(x_i).  The individual target bounds imply
+    #
+    #     sum(f_i * g) <= X <= sum(U_i)
+    #     f_i * g <= U_i   for every i,
+    #
+    # which is an exact projection of the original x_i variables.
+    hard_targets = set(targets) - easy_targets
+    signatures: dict[tuple, list[str]] = {}
+    for name in hard_targets:
+        variable = model.variables[name]
+        if not _literal_zero_scalar(variable.lower):
+            continue
+        signature = []
+        for index, constraint in enumerate(model.constraints):
+            scalar = constraint.coefficients.get(name)
+            if scalar is None:
+                continue
+            expression = _coefficient_expr(scalar)
+            if is_symbolic_zero(expression):
+                continue
+            signature.append((index, expression))
+        signatures.setdefault(tuple(signature), []).append(name)
+
+    aggregate_for: dict[str, str] = {}
+    aggregate_members: dict[str, tuple[str, ...]] = {}
+    for aggregate_index, members in enumerate(
+        members for members in signatures.values() if len(members) >= 2
+    ):
+        members = tuple(sorted(members))
+        aggregate = f'__formula_aggregate_{aggregate_index}'
+        aggregate_members[aggregate] = members
+        for name in members:
+            aggregate_for[name] = aggregate
+
     for name, variable in model.variables.items():
-        if name in easy_targets:
-            if variable.upper is not None:
+        if name in easy_targets or name in aggregate_for:
+            if name in easy_targets and variable.upper is not None:
                 rows.append(_Row({}, {name: ONE_EXPR}, scalar_expr(variable.upper)))
             continue
         if variable.upper is not None:
             rows.append(_Row({name: ONE_EXPR}, {}, scalar_expr(variable.upper)))
         rows.append(_Row({name: NEG_ONE_EXPR}, {}, scalar_expr(variable.lower, -1.0)))
 
+    for aggregate, members in aggregate_members.items():
+        rows.append(_Row({aggregate: NEG_ONE_EXPR}, {}, ZERO_EXPR))
+
+        uppers = []
+        all_bounded = True
+        for name in members:
+            variable = model.variables[name]
+            if variable.upper is None:
+                all_bounded = False
+                continue
+            upper = scalar_expr(variable.upper)
+            uppers.append(upper)
+            # Preserve the member's own proportional upper bound.
+            rows.append(_Row({}, {name: ONE_EXPR}, upper))
+
+        if all_bounded:
+            rows.append(_Row({aggregate: ONE_EXPR}, {}, add_expr(*uppers)))
+
+        # X >= sum(f_i * g).
+        rows.append(_Row(
+            {aggregate: NEG_ONE_EXPR},
+            {name: ONE_EXPR for name in members},
+            ZERO_EXPR,
+        ))
+
     for constraint in model.constraints:
-        decision, factors = _split_coefficients(
-            constraint.coefficients, easy_targets
-        )
+        decision: dict[str, Expr] = {}
+        factors: dict[str, Expr] = {}
+        aggregate_coefficients: dict[str, Expr] = {}
+        for name, scalar in constraint.coefficients.items():
+            expression = _coefficient_expr(scalar)
+            if is_symbolic_zero(expression):
+                continue
+            if name in easy_targets:
+                factors[name] = add_expr(factors.get(name, ZERO_EXPR), expression)
+                continue
+
+            aggregate = aggregate_for.get(name)
+            if aggregate is not None:
+                previous = aggregate_coefficients.get(aggregate)
+                if previous is None:
+                    aggregate_coefficients[aggregate] = expression
+                elif previous != expression:
+                    # This should be impossible because aggregate membership is
+                    # defined by the complete constraint column, but keep the
+                    # invariant explicit rather than silently mis-projecting.
+                    raise FormulaUnsupported(
+                        f"Aggregated targets have different coefficients in {constraint.name!r}"
+                    )
+                continue
+
+            decision[name] = add_expr(decision.get(name, ZERO_EXPR), expression)
+
+        for aggregate, expression in aggregate_coefficients.items():
+            decision[aggregate] = add_expr(
+                decision.get(aggregate, ZERO_EXPR), expression
+            )
+
         is_equality = (
             constraint.lower is not None
             and constraint.upper is not None
@@ -569,12 +664,15 @@ def _initial_system(
             ))
 
     for name in targets:
-        if name not in easy_targets:
+        if name not in easy_targets and name not in aggregate_for:
             if name not in model.variables:
                 raise FormulaUnsupported(f"Unknown formula target: {name}")
             rows.append(_Row({name: NEG_ONE_EXPR}, {name: ONE_EXPR}, ZERO_EXPR))
 
-    remaining = set(model.variables) - easy_targets
+    remaining = (
+        (set(model.variables) - easy_targets - set(aggregate_for))
+        | set(aggregate_members)
+    )
     return _merge_rows(rows, context), equalities, remaining
 
 
@@ -657,11 +755,22 @@ def compile_scalar_program(
     targets: tuple[str, ...],
     *,
     max_rows: int = 5000,
+    max_variables: int | None = None,
 ):
     """Compile a symbolic target-only scalar formula during ``compile()``."""
     guards = _collect_coefficient_guards(model)
     context = _ProjectionContext(set())
     rows, equalities, remaining = _initial_system(model, targets, context)
+
+    # Apply the variable budget *after* cheap symbolic preprocessing.  Large
+    # raw models can collapse dramatically (for example hundreds of identical
+    # counterflow targets), while genuinely difficult models still fail fast.
+    if max_variables is not None and len(remaining) > max_variables:
+        raise FormulaTooLarge(
+            f"Formula projection has {len(remaining)} unresolved variables "
+            f"after preprocessing (budget {max_variables})"
+        )
+
     maximum_rows = len(rows) + len(equalities)
 
     while remaining:

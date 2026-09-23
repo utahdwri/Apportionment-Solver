@@ -10,8 +10,8 @@ from ut_water_apportionment.loss_models import LossDefinition
 def solve(input: SolverInput, *, check_expected_values: bool = False) -> SolverOutput:
     from time import perf_counter
 
-    #input.beg_date = input.beg_date[:-5] + '01-01'
-    #input.end_date = input.end_date[:-5] + '12-31'
+    input.beg_date = input.beg_date[:-5] + '01-01'
+    input.end_date = input.end_date[:-5] + '12-31'
 
     t0 = perf_counter()
 
@@ -20,10 +20,10 @@ def solve(input: SolverInput, *, check_expected_values: bool = False) -> SolverO
     print(f'Compile Time: {perf_counter() - t0}')
     t0 = perf_counter()
 
-    with open("output.txt", "w", encoding="utf-8") as file:
-        file.write(str(compiled_system))
+    #with open("output.txt", "w", encoding="utf-8") as file:
+    #    file.write(str(compiled_system))
 
-    return
+    #return
 
     results = compiled_system.solve(
         check_expected_values=check_expected_values

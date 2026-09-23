@@ -156,6 +156,64 @@ class BlockCompilerTests(TestCase):
         self.assertEqual(output['2025-01-01', 'A', 'D', True], 2)
         self.assertEqual(output['2025-01-01', 'B', 'D2', True], 8)
 
+    def test_counterflow_keeps_one_way_path_capacity_directional(self):
+        """Counterflow must not freeze ordinary one-way path capacity."""
+        input = SolverInput(
+            AccountingGraph(
+                zones=[
+                    Zone('S', ZoneTypes.SYSTEM_GAIN_LOSS),
+                    Zone('A', ZoneTypes.STREAM),
+                    Zone('B', ZoneTypes.STREAM),
+                    Zone('RES', ZoneTypes.STORAGE),
+                    Zone('U', ZoneTypes.USE),
+                ],
+                interzone_flows=[
+                    InterzoneFlow('W', 'A', 'B', flow_measurements=[FlowMeasurement('W')]),
+                    InterzoneFlow('X', 'B', 'RES', bidirectional=True,
+                                  flow_measurements=[FlowMeasurement('X')]),
+                    InterzoneFlow('D', 'B', 'U', flow_measurements=[FlowMeasurement('D')]),
+                    InterzoneFlow('G', 'S', 'A', bidirectional=True),
+                ],
+            ),
+            [
+                PathTrxn('FILL', priority=1, upper_limit=20,
+                         path=[TrxnPathItem('W'), TrxnPathItem('X')]),
+                PathTrxn('RELEASE', priority=2, upper_limit=20,
+                         path=[TrxnPathItem('X', factor=-1), TrxnPathItem('D')]),
+            ],
+            MeasurementCollection(
+                [
+                    MeasurementSeries('W', [10]),
+                    MeasurementSeries('X', [0]),
+                    MeasurementSeries('D', [20]),
+                ],
+                '2025-01-01', '2025-01-01',
+            ),
+            '2025-01-01', '2025-01-01',
+        )
+
+        plan = compile(input)
+        completion = plan.operations[0].counterflow
+        self.assertIsNotNone(completion)
+        assert completion is not None
+        model = completion.operation.model
+        layout = plan.state_layout
+
+        one_way_row = next(
+            row for row in model.constraints
+            if row.name == "measurement_forward['W']"
+        )
+        self.assertEqual(
+            one_way_row.upper, layout.measurement_forward_remaining['W']
+        )
+        self.assertFalse(any(
+            row.name == "measurement_net['W']" for row in model.constraints
+        ))
+        self.assertIn(
+            layout.measurement_forward_remaining['W'],
+            model.updates['FILL'],
+        )
+
     def test_compilation_does_not_read_a_representative_day(self):
         input = problem([transaction('A')])
         with patch('ut_water_apportionment.timeseries_manager.DailyDataManager.set_day',

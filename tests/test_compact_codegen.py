@@ -92,6 +92,9 @@ class CompactCodegenTests(TestCase):
                 source, ns = generated([kernel, kernel], slots, counterflow=[kernel])
                 self.assertEqual(source.count('def _allocate_proportionally('), 1)
                 self.assertEqual(source.count('_commit(state, increments):'), 1)
+                blocker_source = source.split('def _block_0_direct_blocked_members', 1)[1].split('def _block_0_direct_commit', 1)[0]
+                self.assertNotIn('_common_increment(', blocker_source)
+                self.assertIn('_coefficient', blocker_source)
                 actual = np.array([6.0, 8.0, 10.0, 0.0, 0.0])
                 expected = actual.copy()
                 ns['_block_0_direct'](actual)

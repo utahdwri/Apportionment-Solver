@@ -626,7 +626,27 @@ class PythonPlanEmitter:
 
         blockers_name = function_name + "_blocked_members"
         self.emit(f"def {blockers_name}(state, active):")
-        self.emit(f"    return [name for name in active if {common_name}(state, {{name: 1.0}}, allow_unbounded=True)[0] <= TOL]")
+        self.emit("    _blocked = []")
+        for name in targets:
+            variable = model.variables[name]
+            self.emit(f"    if {name!r} in active:")
+            if variable.upper is None:
+                self.emit("        _upper = float('inf')")
+            else:
+                self.emit(f"        _upper = {self.scalar(variable.upper)}")
+                self.emit("        if isnan(_upper) or _upper < -TOL: raise SolverError('Invalid proportional variable bound')")
+                self.emit("        _upper = max(0.0, _upper)")
+            for constraint in model.constraints:
+                if constraint.upper is None or name not in constraint.coefficients:
+                    continue
+                self.emit(f"        _coefficient = {self.scalar(constraint.coefficients[name])}")
+                self.emit("        if _coefficient > 1e-15:")
+                self.emit(f"            _capacity = {self.scalar(constraint.upper)}")
+                self.emit(f"            if _capacity < -TOL: raise SolverError({('Negative remaining capacity: ' + constraint.name)!r})")
+                self.emit("            _upper = min(_upper, max(0.0, _capacity) / _coefficient)")
+            self.emit("        if _upper <= TOL:")
+            self.emit(f"            _blocked.append({name!r})")
+        self.emit("    return _blocked")
         self.emit("")
         commit_name = self.emit_commit_function(model, function_name + "_commit")
 
@@ -1360,7 +1380,19 @@ def _required_inflow(state, factor_slot, remaining):
             block_fn = f"_block_{index}"
             block_names.append(block_fn)
             self.emit(f"def {block_fn}(state):")
+            group_slots = compiled_operation.parent_feasibility_slots
+            for group_index, slot in enumerate(group_slots):
+                slot_name = self.slot_names[slot.index]
+                self.emit(
+                    f"    _prior_group_{group_index} = state[{slot_name}]"
+                )
+                self.emit(f"    state[{slot_name}] = 0.0")
             self.emit(f"    lp_solves = {primary_fn}(state)")
+            for group_index, slot in enumerate(group_slots):
+                slot_name = self.slot_names[slot.index]
+                self.emit(
+                    f"    state[{slot_name}] += _prior_group_{group_index}"
+                )
             if counterflow_fn is not None:
                 gate_expr = " or ".join(
                     "("
@@ -1375,7 +1407,18 @@ def _required_inflow(state, factor_slot, remaining):
                     if name in self.state_layout.limits
                 ) or "False"
                 self.emit(f"    if ({gate_expr}) and ({target_limit_expr}):")
+                for group_index, slot in enumerate(group_slots):
+                    slot_name = self.slot_names[slot.index]
+                    self.emit(
+                        f"        _prior_group_{group_index} = state[{slot_name}]"
+                    )
+                    self.emit(f"        state[{slot_name}] = 0.0")
                 self.emit(f"        lp_solves += {counterflow_fn}(state)")
+                for group_index, slot in enumerate(group_slots):
+                    slot_name = self.slot_names[slot.index]
+                    self.emit(
+                        f"        state[{slot_name}] += _prior_group_{group_index}"
+                    )
                 for flow_id in completion.normalize_flows:
                     available = self.slot_names[
                         self.state_layout.measurement_available[flow_id].index

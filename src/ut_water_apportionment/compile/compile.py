@@ -55,6 +55,7 @@ class CompiledOperation:
 
     primary: CompiledKernel
     counterflow: CounterflowCompletion | None = None
+    parent_feasibility_slots: tuple[Slot, ...] = ()
 
     @property
     def model(self) -> BlockLP:
@@ -161,7 +162,14 @@ def compile(
                 normalize_flows=normalize,
             )
 
-        operations.append(CompiledOperation(primary, counterflow))
+        parent_feasibility_slots = tuple(
+            state_layout.groups[transaction.id]
+            for transaction in block.trxns
+            if isinstance(transaction, TrxnGroup)
+        )
+        operations.append(CompiledOperation(
+            primary, counterflow, parent_feasibility_slots
+        ))
 
     return CompiledPlan(state_layout, operations)
 
@@ -229,21 +237,61 @@ def _counterflow_runtime_metadata(
 
 
 def compile_block(model: BlockLP, options: CompileOptions):
-    """Choose the same analytical/formula/LP pipeline for either allocation pass."""
+    """"""
+
     if options.compile_to_formulas:
         for compiler in (try_compile_direct_calculation, try_compile_proportional_calculation):
             operation = compiler(model)
             if operation is not None:
                 return operation
-        if (
-            options.max_formula_variables is None
-            or len(model.variables) <= options.max_formula_variables
-        ):
-            operation = try_compile_scalar_formula(model, max_rows=options.max_rows)
-            if operation is not None:
-                return operation
+
+        # Parent-priority group feasibility has a compact exact projection when
+        # each parent chooses between two shared routes.  Compile that pattern
+        # directly instead of asking generic Fourier-Motzkin elimination to
+        # enumerate every possible child split.
+        operation = try_compile_parent_group_formula(model)
+        if operation is not None:
+            return operation
+
+        operation = try_compile_scalar_formula(
+            model,
+            max_rows=options.max_rows,
+            max_variables=options.max_formula_variables,
+        )
+        if operation is not None:
+            return operation
 
     return compile_lp_kernel(model)
+
+
+def try_compile_parent_group_formula(lp_model):
+    """Compile recognized two-route parent feasibility to a scalar formula."""
+    from .formula import FormulaUnsupported
+    from .group_formula import compile_parent_group_program
+
+    targets = set(lp_model.updates)
+    if not targets:
+        return None
+    if isinstance(lp_model.rule, Proportional):
+        if set(lp_model.rule.reference_cfs) != targets:
+            return None
+    elif isinstance(lp_model.rule, Maximize):
+        if set(lp_model.rule.coefficients) != targets:
+            return None
+    else:
+        return None
+
+    try:
+        program = compile_parent_group_program(lp_model)
+    except (FormulaUnsupported, ValueError, ArithmeticError, OverflowError):
+        return None
+
+    return compile_scalar_formula_kernel(
+        lp_model,
+        program.source,
+        maximum_intermediate_rows=program.maximum_intermediate_rows,
+        final_formula_rows=program.final_rows,
+    )
 
 
 def priority_blocks(input: SolverInput) -> list[PriorityBlock]:
@@ -558,6 +606,11 @@ def build_block_lp(
                     constraint_name, name, signed if item.factor > 0 else negated
                 )
     else:
+        # Counterflow is special only on relevant bidirectional reservoir
+        # edges. Ordinary one-way reaches still consume their usual forward
+        # gross capacity. This is important because a counterflow-supported
+        # target can traverse one-way reaches too; freezing those capacities
+        # would let a later sweep consume the same physical capacity again.
         flow_rows = {}
         for name in variables:
             if name not in layout.transactions:
@@ -567,14 +620,26 @@ def build_block_lp(
                 continue
             for item in layout.schedule.ordered_paths[name]:
                 flow = layout.graph.get_flow_by_id(item.flow_id)
-                if flow.bidirectional:
-                    inflow_directions = locked_flow_directions.get(item.flow_id)
-                    outflow_directions = storage_outflow_directions.get(item.flow_id)
-                    directions = inflow_directions or outflow_directions
-                    if not directions:
+                if not flow.bidirectional:
+                    if item.factor < 0:
+                        # As in the direct stage, a negative accounting
+                        # component on a one-way physical reach does not
+                        # consume a separate reverse gross-flow capacity.
                         continue
-                else:
-                    directions = {1}
+                    constraint_name = f"measurement_forward[{item.flow_id!r}]"
+                    add_constraint(
+                        constraint_name,
+                        upper=layout.measurement_forward_remaining[item.flow_id],
+                    )
+                    signed, _ = layout.flow_coefficients[name, item.flow_id]
+                    set_coefficient(constraint_name, name, signed)
+                    continue
+
+                inflow_directions = locked_flow_directions.get(item.flow_id)
+                outflow_directions = storage_outflow_directions.get(item.flow_id)
+                directions = inflow_directions or outflow_directions
+                if not directions:
+                    continue
                 row = flow_rows.setdefault(item.flow_id, {
                     'coefficients': {}, 'directions': directions,
                 })
@@ -700,12 +765,14 @@ def build_block_lp(
     # 6. Add group-reservation equalities.
     #
     #         sum(direct-child witness increments) - group increment
-    #             = existing remaining group reservation
+    #             = reservation created during this block invocation
     #
-    #     With a newly allocated group the existing reservation is normally
-    #     zero, so this says the parent increment may be no larger than what
-    #     its children could consume under CURRENT parent-priority conditions.
-    #     These witness values are not committed to runtime state.
+    #     The generated block wrapper temporarily removes any reservation that
+    #     existed before this invocation.  ``remaining_group`` therefore tracks
+    #     only parent allocation created by earlier proportional increments in
+    #     this same call, preventing those increments from reusing child
+    #     capacity while avoiding re-proving an old reservation after spill.
+    #     Witness values are not committed to runtime state.
     # ------------------------------------------------------------------
     for name in variables:
         if name not in layout.transactions:
@@ -805,11 +872,13 @@ def build_block_lp(
                 effects[layout.measurements[item.flow_id]] = negated
                 effects[layout.measurement_available[item.flow_id]] = negated
 
-                # Direct allocation consumes directional capacity incrementally.
-                # Counterflow completion instead freezes those capacity slots
-                # while solving and renormalizes them once from the final signed
-                # residual after the completion kernel returns.
-                if not counterflow:
+                # Bidirectional counterflow edges freeze their directional
+                # capacity views while solving and are renormalized once from
+                # the final signed residual after the completion kernel returns.
+                # Ordinary one-way reaches are not counterflow edges, so they
+                # continue to consume forward capacity incrementally.
+                flow = layout.graph.get_flow_by_id(item.flow_id)
+                if not counterflow or not flow.bidirectional:
                     if item.factor > 0:
                         effects[layout.measurement_forward_remaining[item.flow_id]] = negated
                     elif item.flow_id in layout.measurement_reverse_remaining:
@@ -962,7 +1031,7 @@ def try_compile_proportional_calculation(lp_model):
 
     return compile_proportional_kernel(lp_model)
 
-def try_compile_scalar_formula(lp_model, *, max_rows=5000):
+def try_compile_scalar_formula(lp_model, *, max_rows=5000, max_variables=None):
     """Compile a remaining scalar LP objective to static symbolic Python.
 
     This stage permits reservation/counterflow witnesses, equalities, lower
@@ -1001,7 +1070,10 @@ def try_compile_scalar_formula(lp_model, *, max_rows=5000):
 
     try:
         program = compile_scalar_program(
-            lp_model, ordered_targets, max_rows=max_rows
+            lp_model,
+            ordered_targets,
+            max_rows=max_rows,
+            max_variables=max_variables,
         )
     except (FormulaTooLarge, FormulaUnsupported, ValueError, ArithmeticError, OverflowError):
         return None
