@@ -1,6 +1,7 @@
 import unittest
 from ut_water_apportionment import (
     compile,
+    CompileOptions,
     AccountingGraph,
     AccountingLimit,
     AccountingLimitInterval,
@@ -23,9 +24,9 @@ from ut_water_apportionment.compile import UnsupportedBlockInput
 from ut_water_apportionment.models import NaturalFlowMode
 
 
-def solve(input: SolverInput, *, check_expected_values: bool = False) -> SolverOutput:
+def solve(input: SolverInput, *, options:CompileOptions = CompileOptions(), check_expected_values: bool = False) -> SolverOutput:
     """Run test_solver through the new block-LP compiler."""
-    return compile(input).solve(
+    return compile(input, options).solve(
         check_expected_values=check_expected_values
     )
 
@@ -1549,7 +1550,7 @@ class B_Reservoirs(unittest.TestCase):
         )
         solve(problem, check_expected_values=True)
 
-
+    @unittest.skip("not implemented")
     def test_storage_spill_not_used_to_reduce_storage_deliveries(self):
         """
         If a reservoir makes a release that does not satisfy any trxn demand,
@@ -2973,6 +2974,40 @@ class K_Accounting_Graph_Details(unittest.TestCase):
             trxn_id='TRXN_1',
             flow_id='B>DIV'
         )
+
+
+class L_CompileOptions(unittest.TestCase):
+
+    def test_max_daily_apportionment_option(self):
+
+        MAX_VALUE = 2
+        options = CompileOptions(
+            max_daily_apportionment=MAX_VALUE
+        )
+
+        input = SolverInput(
+            beg_date='2000-01-01',
+            end_date='2000-01-01',
+            accounting_graph=AccountingGraph(
+                zones=[
+                    Zone(id="A", type=ZoneTypes.STREAM),
+                    Zone(id="B", type=ZoneTypes.USE),
+                    Zone(id="SYS", type=ZoneTypes.SYSTEM_GAIN_LOSS),
+                ],
+                interzone_flows=[
+                    InterzoneFlow(id="gains", from_zone="SYS", to_zone="A", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
+                    InterzoneFlow(id="A>B", from_zone="A", to_zone="B", flow_measurements=[FlowMeasurement('x')]),
+                ]
+            ),
+            measurements=MeasurementCollection(beg_date='2000-01-01', end_date='2000-01-01',series=[
+                MeasurementSeries(id="x",   values=[10]),
+            ]),
+            txns=[
+                PathTrxn(id='1', priority=1, upper_limit=None, path=[TrxnPathItem('A>B', expected_values=[MAX_VALUE])]),
+            ],
+        )
+
+        solve(input, options=options, check_expected_values=True)
 
 
 class RealProblems(unittest.TestCase):

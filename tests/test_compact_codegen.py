@@ -61,7 +61,7 @@ class CompactCodegenTests(TestCase):
                 self.assertEqual(state[2], expected)
                 state[:] = [0.0, -8.0, 0.0]
                 if upper is capacity:
-                    with self.assertRaises(ns['SolverError']):
+                    with self.assertRaises(RuntimeError):
                         ns['_block_0_direct'](state)
 
     def test_commit_preserves_snapshot_when_a_coefficient_is_updated(self):

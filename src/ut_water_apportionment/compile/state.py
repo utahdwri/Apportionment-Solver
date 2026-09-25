@@ -71,6 +71,7 @@ class RuntimeStateLayout:
     to_account_coefficients: dict[str, tuple[Slot, Slot]] = field(default_factory=dict)
     spill_credits: list[SpillCreditSpec] = field(default_factory=list)
     counterflow_slack_limits: dict[tuple[str, int], Slot] = field(default_factory=dict)
+    max_daily_apportionment: float = field(default=inf)
 
     def add(
         self, name: str, *, sign: int = 0,
@@ -210,7 +211,7 @@ class RuntimeStateLayout:
 
         for name, transaction in self.transactions.items():
             cap = schedule.get_transaction_upper_limit(transaction, date)
-            cap = inf if cap is None else float(cap)
+            cap = self.max_daily_apportionment if cap is None else float(cap)
             if ((transaction.beg_date and date < transaction.beg_date)
                     or (transaction.end_date and date > transaction.end_date)):
                 cap = 0.0
@@ -306,11 +307,11 @@ def build_runtime_state_layout(
     for flow in graph.graph.interzone_flows:
         _check_fractional_loss(flow.loss_from_zone)
         _check_fractional_loss(flow.loss_to_zone)
-    schedule = TrxnSchedule(
-        graph, problem.txns, max_daily_apportionment=max_daily_apportionment
-    )
+    schedule = TrxnSchedule(graph, problem.txns)
     data = DailyDataManager(graph, problem.measurements, problem.external_natural_flows)
     layout = RuntimeStateLayout(problem, graph, schedule, data)
+    if max_daily_apportionment is not None:
+        layout.max_daily_apportionment = max_daily_apportionment
     layout.transactions = {
         txn.id: txn for txn in schedule.all_trxns
         if not (isinstance(txn, PathTrxn) and txn.is_slack)

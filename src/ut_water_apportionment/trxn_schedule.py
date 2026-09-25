@@ -16,14 +16,13 @@ logger = logging.getLogger(__name__)
 class TrxnSchedule:
     """Manage a collection of transactions."""
 
-    def __init__(self, gm: GraphManager, txns:list[PathTrxn | TrxnGroup], max_daily_apportionment:float|None=None):
+    def __init__(self, gm: GraphManager, txns:list[PathTrxn | TrxnGroup]):
 
         self._validate(txns, gm)
 
         self.gm = gm
         p_trxns = self._init_process_input_trxns(txns)
         self.all_trxns = list(self.traverse_vars(p_trxns))
-        self._max_daily_apportionment = max_daily_apportionment
 
         self.ordered_paths = self._init_build_ordered_paths()
         self._validate_account_references()
@@ -76,7 +75,6 @@ class TrxnSchedule:
         clone = object.__new__(type(self))
         clone.gm = self.gm if gm is None else gm
         clone.all_trxns = self.all_trxns
-        clone._max_daily_apportionment = self._max_daily_apportionment
         clone.ordered_paths = self.ordered_paths
         clone._natural_flow_trxns = self._natural_flow_trxns
         clone._nf_zone_by_trxn_id = self._nf_zone_by_trxn_id
@@ -498,7 +496,7 @@ class TrxnSchedule:
             return float(limit)
 
         if limit is None:
-            return self._max_daily_apportionment if use_default_when_none else None
+            return None
 
         raise ValueError(
             'limit must be an AccountingLimit, int, float, or None!'

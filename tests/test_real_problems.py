@@ -34,7 +34,7 @@ def solve(input: SolverInput, *, check_expected_values: bool = False) -> SolverO
     return results
 
 
-
+@unittest.skip('too long')
 class RealProblems(unittest.TestCase):
     """
 

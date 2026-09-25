@@ -23,6 +23,64 @@ from ut_water_apportionment.models import (
 
 
 class PlanCodeTests(TestCase):
+    def test_natural_flow_is_propagated_inline_in_topological_order(self):
+        problem = SolverInput(
+            beg_date='2000-01-01', end_date='2000-01-01',
+            accounting_graph=AccountingGraph(
+                zones=[Zone('C', ZoneTypes.STREAM), Zone('B', ZoneTypes.STREAM),
+                       Zone('A', ZoneTypes.STREAM)],
+                interzone_flows=[
+                    InterzoneFlow('B>C', 'B', 'C',
+                                  flow_measurements=[FlowMeasurement('BC')]),
+                    InterzoneFlow('A>B', 'A', 'B',
+                                  flow_measurements=[FlowMeasurement('AB')]),
+                ],
+            ),
+            measurements=MeasurementCollection(
+                beg_date='2000-01-01', end_date='2000-01-01',
+                series=[MeasurementSeries('AB', [10]), MeasurementSeries('BC', [10])],
+            ),
+            txns=[],
+            external_natural_flows={'A>B': {'2000-01-01': 10}},
+        )
+        plan = compile(problem)
+        source = plan.code()
+        self.assertNotIn('def _nf_propagate_', source)
+        self.assertNotIn('def _nf_apply_flow_', source)
+        self.assertIn("# 'B'", source[source.index('    # Propagate calculated flows once'):])
+        layout = plan.state_layout
+        state = layout.new_day('2000-01-01', layout.data.clone_runtime(),
+                               layout.schedule.clone_runtime())
+        plan.executor(state)
+        self.assertAlmostEqual(state[layout.flow_natural['B>C'].index], 10)
+        self.assertAlmostEqual(state[layout.natural_at_zone['C'].index], 10)
+
+    def test_external_boundary_can_cut_a_structural_cycle(self):
+        problem = SolverInput(
+            beg_date='2000-01-01', end_date='2000-01-01',
+            accounting_graph=AccountingGraph(
+                zones=[Zone('A', ZoneTypes.STREAM), Zone('B', ZoneTypes.STREAM)],
+                interzone_flows=[
+                    InterzoneFlow('AB', 'A', 'B',
+                                  flow_measurements=[FlowMeasurement('q1')]),
+                    InterzoneFlow('BA', 'B', 'A',
+                                  flow_measurements=[FlowMeasurement('q2')]),
+                ],
+            ),
+            measurements=MeasurementCollection(
+                beg_date='2000-01-01', end_date='2000-01-01',
+                series=[MeasurementSeries('q1', [3]), MeasurementSeries('q2', [0])],
+            ),
+            txns=[], external_natural_flows={'AB': {'2000-01-01': 3}},
+        )
+        plan = compile(problem)
+        self.assertNotIn('def _nf_propagate_', plan.code())
+        layout = plan.state_layout
+        state = layout.new_day('2000-01-01', layout.data.clone_runtime(),
+                               layout.schedule.clone_runtime())
+        plan.executor(state)
+        self.assertEqual(state[layout.flow_natural['BA'].index], 3)
+
     def test_code_is_human_readable_executable_formula_program(self):
         problem = SolverInput(
             beg_date='2000-01-01',

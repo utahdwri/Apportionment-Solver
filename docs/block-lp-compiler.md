@@ -387,8 +387,7 @@ _required_inflow(state, S_LOSS_TO_DELIVERY_RIVER_USER, remaining)
 
 There are no per-endpoint wrappers. Both functions read the factor from state
 on each call, preserving daily loss changes, finite/sign checks, zero-flow
-rounding, and the error for inverting a zero-delivery factor. `_LOSS_ENDPOINTS`
-maps factor-slot indexes to flow/endpoint labels and is read only on error.
+rounding, and the error for inverting a zero-delivery factor.
 
 This boundary is intended for future piecewise-linear loss support.  A later
 compiler can select a shared helper for each loss type, with segment logic such as:

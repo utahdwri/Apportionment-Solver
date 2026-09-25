@@ -111,7 +111,7 @@ class DirectMinCodegenTests(TestCase):
                 state = np.array([2., -2., 8., 10., 0., 1.])
                 state[index] = value
                 original = state.copy()
-                with self.assertRaises(BlockLPError):
+                with self.assertRaises((ns['SolverError'], BlockLPError)):
                     ns['execute'](state)
                 np.testing.assert_array_equal(state, original)
         state = np.array([2., -2., 8., np.inf, 0., 1.])
@@ -127,7 +127,7 @@ class DirectMinCodegenTests(TestCase):
         )) for capacity in (first, second)]
         _, ns = generated(operations, slots, [first, second])
         state = np.array([5., np.nan, 0.])
-        with self.assertRaises(BlockLPError):
+        with self.assertRaises((ns['SolverError'], BlockLPError)):
             ns['execute'](state)
         self.assertEqual(state[0], 5.)
         self.assertEqual(state[2], 0.)
@@ -158,7 +158,7 @@ class DirectMinCodegenTests(TestCase):
         # A preceding credit that does not restore feasibility still fails at
         # the debit, before it commits any invalid allocation.
         state = np.array([-8., 0.])
-        with self.assertRaises(BlockLPError):
+        with self.assertRaises((ns['SolverError'], BlockLPError)):
             ns['execute'](state)
         self.assertEqual(state[1], 0.)
 
@@ -224,7 +224,7 @@ class DirectMinCodegenTests(TestCase):
         check = ns['checked_nonnegative_increment']
         self.assertEqual(check(-1e-10), 0.)
         for value in (-1e-3, np.nan, np.inf, -np.inf):
-            with self.subTest(value=value), self.assertRaises(BlockLPError):
+            with self.subTest(value=value), self.assertRaises(ns['SolverError']):
                 check(value)
-        with self.assertRaises(BlockLPError):
+        with self.assertRaises(ns['SolverError']):
             ns['execute'](np.zeros(1))

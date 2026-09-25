@@ -52,14 +52,14 @@ class BlockCompilerTests(TestCase):
     def test_sequential_blocks_use_only_target_and_preserve_residuals(self):
         input = problem([transaction('A', 1, 3), transaction('B', 2, 9)])
         plan, output = self.compile_and_solve(input)
-        self.assertEqual([list(op.model.variables) for op in plan.operations], [['A'], ['B']])
+        self.assertEqual([list(op.primary.model.variables) for op in plan.operations], [['A'], ['B']])
         self.assertEqual(output['2025-01-01', 'A', 'D', True], 3)
         self.assertEqual(output['2025-01-01', 'B', 'D', True], 7)
         self.assertEqual(plan.solve().compilation_report['execution_lp_solves'], 0)
 
     def test_equal_priority_uses_effective_reference_cfs(self):
         plan, output = self.compile_and_solve(problem([transaction('A', limit=3), transaction('B', limit=7)], (5,)))
-        self.assertIsInstance(plan.operations[0].model.rule, Proportional)
+        self.assertIsInstance(plan.operations[0].primary.model.rule, Proportional)
         self.assertAlmostEqual(output['2025-01-01', 'A', 'D', True], 1.5)
         self.assertAlmostEqual(output['2025-01-01', 'B', 'D', True], 3.5)
 
@@ -121,7 +121,7 @@ class BlockCompilerTests(TestCase):
         plan, output = self.compile_and_solve(input)
         self.assertEqual(output['2025-01-01', 'A', 'LAST', True], 8)
         self.assertEqual(output['2025-01-02', 'A', 'LAST', True], 5)
-        self.assertTrue(any(isinstance(c, Slot) for row in plan.operations[0].model.constraints for c in row.coefficients.values()))
+        self.assertTrue(any(isinstance(c, Slot) for row in plan.operations[0].primary.model.constraints for c in row.coefficients.values()))
 
     def test_equal_priority_reference_cfs_refresh_each_day(self):
         cap = AccountingLimit([

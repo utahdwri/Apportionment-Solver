@@ -113,3 +113,46 @@ class A_Simple(unittest.TestCase):
 
         #print('1)')
         #results = solve(input, check_expected_values=True)
+
+
+    def test_counterflow(self):
+
+        input = SolverInput(
+            beg_date='2000-01-01',
+            end_date='2000-01-01',
+            accounting_graph=AccountingGraph(
+                zones=[
+                    Zone(id="RIVER", type=ZoneTypes.STREAM),
+                    Zone(id="STO", type=ZoneTypes.STORAGE, storage_meas_ids=['STO']),
+                    Zone(id="SYS", type=ZoneTypes.SYSTEM_GAIN_LOSS),
+                    Zone(id="USER", type=ZoneTypes.USE),
+                ],
+                interzone_flows=[
+                    InterzoneFlow(id="RIVER>STO", from_zone="RIVER", to_zone="STO", bidirectional=True, flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE),
+                    InterzoneFlow(id="RIVER>USER", from_zone="RIVER", to_zone="USER", flow_measurements=[FlowMeasurement(measurement_id="div")]),
+                    InterzoneFlow(id="SYS>RIVER", from_zone="SYS", to_zone="RIVER", flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE, bidirectional=True),
+                ]
+            ),
+            measurements=MeasurementCollection(beg_date='1999-12-31', end_date='2000-01-01',series=[
+                MeasurementSeries(id='div', values=[12, 12]),
+                MeasurementSeries(id='STO', values=[1200, 1200])
+            ]),
+            txns=[
+                PathTrxn(id='TRXN_1', priority=1, upper_limit= 3, path=[TrxnPathItem(flow_id='RIVER>USER')]),
+                PathTrxn(id='TRXN_2', priority=2, upper_limit= 6, path=[TrxnPathItem(flow_id='RIVER>STO', factor=-1),
+                                                                        TrxnPathItem(flow_id='RIVER>USER')]),
+            ]
+        )
+
+
+        plan = compile(input)
+        print(plan.code())       # Actual symbolic MIN/MAX expressions.
+
+
+        print('2)')
+        result = plan.solve()
+
+        print('DONE')
+
+        #print('1)')
+        #results = solve(input, check_expected_values=True)

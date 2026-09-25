@@ -94,10 +94,16 @@ def solve_plan(plan, measurements, *, check_expected_values=False):
                 else:
                     output.append(SolverOutputApportionment(date, flow.id, txn.id, amount * item.factor, item.factor > 0, ''))
         schedule.commit_day(variable_values)
-    kernels = plan.kernels()
+    kernels = (
+        kernel
+        for operation in plan.operations
+        for kernel in operation.kernels()
+    )
+
     result = SolverOutput(
         apportionments=unlag_apportionments(output, data.flow_lags),
-        solver_backend='scipy-highs-block-kernels', solve_method='block_lp',
+        solver_backend='scipy-highs-block-kernels',
+        solve_method='block_lp',
         compilation_report={
             'priority_blocks': len(plan.operations),
             'lp_kernels': sum(isinstance(op, LPKernel) for op in kernels),

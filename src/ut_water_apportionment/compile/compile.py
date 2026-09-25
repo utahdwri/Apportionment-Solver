@@ -33,9 +33,12 @@ class CounterflowCompletion:
     """Optional second stage of one compiled priority-block operation.
 
     ``operation`` proves and commits any additional allocation supported by
-    simultaneous opposite-direction flow. ``gate_slots`` identifies the
-    directional residuals that must be exhausted before that completion is
-    useful, and ``normalize_flows`` identifies cached directional residuals
+    simultaneous opposite-direction flow.
+
+    ``gate_slots`` identifies the directional residuals that must be exhausted
+    before that completion is useful, and
+
+    ``normalize_flows`` identifies cached directional residuals
     that must be rebuilt from their signed residual after it executes.
     """
 
@@ -49,18 +52,13 @@ class CompiledOperation:
     """One complete priority-block calculation.
 
     A block always has one primary kernel and may have a counterflow
-    completion.  Keeping both stages and their runtime metadata together
-    prevents phase-specific bookkeeping from leaking onto ``CompiledPlan``.
+    completion.  Counterflow is seperated out and used only as needed
+    for faster performance.
     """
 
     primary: CompiledKernel
     counterflow: CounterflowCompletion | None = None
     parent_feasibility_slots: tuple[Slot, ...] = ()
-
-    @property
-    def model(self) -> BlockLP:
-        """Primary LP model, retained for inspection/backward compatibility."""
-        return self.primary.model
 
     def kernels(self) -> tuple[CompiledKernel, ...]:
         """Return every compiled kernel owned by this operation."""
@@ -90,15 +88,6 @@ class CompiledPlan:
         )
 
 
-    def kernels(self) -> tuple[CompiledKernel, ...]:
-        """Flatten the kernels owned by all priority-block operations."""
-        return tuple(
-            kernel
-            for operation in self.operations
-            for kernel in operation.kernels()
-        )
-
-
     def __str__(self):
         return self.source
 
@@ -115,8 +104,10 @@ class CompiledPlan:
 
 
     def _compile_generated_python(self, source, namespace=None) -> Callable[..., int]:
+        """Return a function that accepts arbitrary arguments and returns an integer."""
         namespace = {} if namespace is None else dict(namespace)
-        exec(builtins.compile(source, '<compiled-apportionment-plan>', 'exec'), namespace)
+        bytecode = builtins.compile(source, '<compiled-apportionment-plan>', 'exec')
+        exec(bytecode, namespace)
         return namespace['execute']
 
 
@@ -126,6 +117,7 @@ class CompileOptions:
     compile_to_formulas: bool = True
     max_rows: int = 5000
     max_formula_variables: int | None = 200
+
 
 def compile(
     input: SolverInput,
@@ -178,7 +170,7 @@ def _block_needs_counterflow(block: PriorityBlock, layout: RuntimeStateLayout) -
     """Whether a target block can require bidirectional storage counterflow."""
     natural_types = {ZoneTypes.STREAM, ZoneTypes.SYSTEM_GAIN_LOSS}
     for target in block.trxns:
-        if not isinstance(target, PathTrxn):
+        if isinstance(target, TrxnGroup):
             continue
         path = layout.schedule.ordered_paths[target.id]
         if not path:
@@ -495,7 +487,7 @@ def build_block_lp(
             signed, negated = layout.flow_coefficients[target_name, item.flow_id]
             reservation_coefficient = signed if target_direction > 0 else negated
             counterflow_group_credits.setdefault(target_name, {})[
-                layout.groups[parent]
+                layout.groups[parent] # type: ignore
             ] = reservation_coefficient
 
     # ------------------------------------------------------------------
@@ -1030,6 +1022,7 @@ def try_compile_proportional_calculation(lp_model):
         return None
 
     return compile_proportional_kernel(lp_model)
+
 
 def try_compile_scalar_formula(lp_model, *, max_rows=5000, max_variables=None):
     """Compile a remaining scalar LP objective to static symbolic Python.

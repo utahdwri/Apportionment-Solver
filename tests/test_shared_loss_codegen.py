@@ -53,9 +53,9 @@ class SharedLossCodegenTests(TestCase):
                 amount = 2 * nf_tol
                 self.assertEqual(deliver(self.state, index, amount), amount * max(0., factor))
                 if factor <= tol:
-                    with self.assertRaises(BlockLPError) as error:
+                    with self.assertRaises(RuntimeError) as error:
                         required(self.state, index, amount)
-                    self.assertEqual(str(error.exception), f'Cannot invert zero-delivery loss for {label}')
+                    self.assertEqual(str(error.exception), f'Cannot invert zero-delivery loss for slot {index}')
                 else:
                     self.assertEqual(required(self.state, index, amount), amount / factor)
 
@@ -66,6 +66,6 @@ class SharedLossCodegenTests(TestCase):
                 for function in ('_deliver', '_required_inflow'):
                     with self.subTest(endpoint=label, factor=factor, function=function):
                         for amount in (0., 10.):
-                            with self.assertRaises(BlockLPError) as error:
+                            with self.assertRaises(RuntimeError) as error:
                                 self.namespace[function](self.state, index, amount)
-                            self.assertEqual(str(error.exception), f'Invalid delivery factor for {label}')
+                            self.assertEqual(str(error.exception), f'Invalid delivery factor for slot {index}')
