@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from copy import deepcopy
 from datetime import date as Date
 from .models import (
+    DEFAULT_TRXN_PRIORITY,
     AccountingLimit, TrxnBaseClass, PathTrxn, TrxnGroup, TrxnPathItem, Zone, ZoneTypes
 )
 from .graph_manager import GraphManager
@@ -11,6 +12,41 @@ from .graph_manager import GraphManager
 import logging
 logger = logging.getLogger(__name__)
 
+
+def prepare_transaction_priorities(txns: list[PathTrxn | TrxnGroup]):
+    """Copy transactions and assign their effective solver priorities.
+
+    Default-priority transactions follow input order, visiting nested groups
+    parent first. Their internal priorities start at DEFAULT_TRXN_PRIORITY
+    and increase by one. Explicit priorities keep their existing sharing and
+    parent-before-child rules. Reporting slacks do not participate.
+    """
+    transactions = deepcopy(txns)
+    next_default_priority = DEFAULT_TRXN_PRIORITY
+
+    def visit(items, parent_priority=None):
+        nonlocal next_default_priority
+        for transaction in items:
+            if isinstance(transaction, PathTrxn) and transaction.is_slack:
+                continue
+            if transaction.priority == DEFAULT_TRXN_PRIORITY:
+                transaction.priority = next_default_priority
+                if parent_priority is not None:
+                    transaction.priority = max(transaction.priority, parent_priority + 1)
+                next_default_priority = transaction.priority + 1
+            elif parent_priority is not None and transaction.priority <= parent_priority:
+                new_priority = parent_priority + 1e-5
+                logger.warning(
+                    f"WARNING: Child transaction '{transaction.id}' priority ({transaction.priority}) "
+                    f"equals or precedes parent priority ({parent_priority}). "
+                    f"Adjusting '{transaction.id}' priority to {new_priority}."
+                )
+                transaction.priority = new_priority
+            if isinstance(transaction, TrxnGroup):
+                visit(transaction.children_trxns, transaction.priority)
+
+    visit(transactions)
+    return transactions
 
 
 class TrxnSchedule:
@@ -90,10 +126,7 @@ class TrxnSchedule:
         modifications. Returns a seperate list, not modifying the origional
         list."""
 
-        trxns = deepcopy(input_txns)
-
-        self._ensure_children_after_parent(trxns)
-
+        trxns = prepare_transaction_priorities(input_txns)
         self._ensure_slack_trxns_exist(trxns)
 
         return trxns
@@ -129,22 +162,6 @@ class TrxnSchedule:
                 )
                 txns.append(slackvar2)
 
-
-    def _ensure_children_after_parent(self, txns: list['PathTrxn | TrxnGroup'], parent_priority: float | None = None):
-        """Recursively shifts child priorities to ensure they solve immediately after their parent."""
-        for t in txns:
-            # Shift the child priority if it is less than or equal to the parent's priority
-            if parent_priority is not None and t.priority is not None and t.priority <= parent_priority:
-                new_priority = parent_priority + 1e-5
-                logger.warning(f"WARNING: Child transaction '{t.id}' priority ({t.priority}) "
-                        f"equals or precedes parent priority ({parent_priority}). "
-                        f"Adjusting '{t.id}' priority to {new_priority}.")
-                t.priority = new_priority
-
-
-            # Recurse for nested groups using the established priority
-            if type(t) == TrxnGroup:
-                self._ensure_children_after_parent(t.children_trxns, t.priority)
 
 
     def _init_build_ordered_paths(self) -> dict[str, list[TrxnPathItem]]:

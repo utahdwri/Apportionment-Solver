@@ -1,7 +1,7 @@
 """Numerical execution only. Formula compilation is deliberately deferred."""
 from dataclasses import dataclass
 from math import isfinite
-
+from typing import TypeAlias
 import numpy as np
 from scipy.optimize import linprog
 
@@ -754,3 +754,11 @@ def compile_scalar_formula_kernel(
 
 def compile_lp_kernel(lp_model: BlockLP) -> LPKernel:
     return LPKernel(lp_model)
+
+
+CompiledKernel: TypeAlias = (
+    DirectCalculationKernel
+    | ProportionalCalculationKernel
+    | ScalarFormulaKernel
+    | LPKernel
+)

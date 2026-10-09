@@ -1563,6 +1563,123 @@ class B_Reservoirs(unittest.TestCase):
         """
         raise NotImplementedError()
 
+    def test_chain_of_reservoirs(self):
+        """
+        Added 10/9/2026
+        The new formula solver is not considering every possible dependency recursively.
+        When there is an opposite signed variable, it only considers the limitations of
+        that 'witness' variable in a shallow way.
+
+        """
+        DAY = '2025-01-01'
+        release_limit = 2
+
+        problem = SolverInput(
+            accounting_graph=AccountingGraph(
+                zones=[
+                    Zone('S', ZoneTypes.SYSTEM_GAIN_LOSS),
+                    Zone('R', ZoneTypes.STREAM),
+                    Zone('RES1', ZoneTypes.STORAGE),
+                    Zone('RES2', ZoneTypes.STORAGE),
+                    Zone('U', ZoneTypes.USE),
+                ],
+                interzone_flows=[
+                    InterzoneFlow('X', 'R', 'RES1', bidirectional=True,
+                                flow_measurements=[FlowMeasurement('X')]),
+                    InterzoneFlow('Y', 'R', 'RES2', bidirectional=True,
+                                flow_measurements=[FlowMeasurement('Y')]),
+                    InterzoneFlow('D', 'R', 'U',
+                                flow_measurements=[FlowMeasurement('D')]),
+                    InterzoneFlow('G', 'S', 'R', bidirectional=True,
+                        flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE,
+                    ),
+                ],
+            ),
+            txns=[
+                PathTrxn('x1', priority=1, upper_limit=10,
+                        path=[TrxnPathItem('X', expected_values=[release_limit])]),
+                PathTrxn('x2', priority=2, upper_limit=10,
+                        path=[TrxnPathItem('X', factor=-1), TrxnPathItem('Y', expected_values=[release_limit])]),
+                PathTrxn('x3', priority=3, upper_limit=release_limit,
+                        path=[TrxnPathItem('Y', factor=-1), TrxnPathItem('D', expected_values=[release_limit])]),
+            ],
+            measurements=MeasurementCollection(
+                series=[
+                    MeasurementSeries('X', [0]),
+                    MeasurementSeries('Y', [0]),
+                    MeasurementSeries('D', [10]),
+                ],
+                beg_date=DAY,
+                end_date=DAY,
+            ),
+            beg_date=DAY,
+            end_date=DAY,
+        )
+        solve(problem, check_expected_values=True)
+
+
+    def test_future_counterflow_witness_survives_intervening_priority(self):
+        """
+        Added 10/9/2026.
+
+        FILL can receive 10 only if WITNESS can later release the same 10.
+        COMPETITOR releases from another reservoir and shares diversion D
+        with WITNESS. It must not consume the capacity needed to balance the
+        already committed, senior FILL.
+
+        Expected: FILL=10, COMPETITOR=0, WITNESS=10.
+        Compiled solver currently gives: FILL=10, COMPETITOR=10, WITNESS=0.
+        """
+        DAY = '2025-01-01'
+        flow_limit = 10
+
+        problem = SolverInput(
+            accounting_graph=AccountingGraph(
+                zones=[
+                    Zone('S', ZoneTypes.SYSTEM_GAIN_LOSS),
+                    Zone('R', ZoneTypes.STREAM),
+                    Zone('RES0', ZoneTypes.STORAGE),
+                    Zone('RES1', ZoneTypes.STORAGE),
+                    Zone('U', ZoneTypes.USE),
+                ],
+                interzone_flows=[
+                    InterzoneFlow('X0', 'R', 'RES0', bidirectional=True,
+                        flow_measurements=[FlowMeasurement('X0')]),
+                    InterzoneFlow('X1', 'R', 'RES1', bidirectional=True,
+                        flow_measurements=[FlowMeasurement('X1')]),
+                    InterzoneFlow('D', 'R', 'U',
+                        flow_measurements=[FlowMeasurement('D')]),
+                    InterzoneFlow('G', 'S', 'R', bidirectional=True,
+                        flow_type=FlowComponentsTypes.FLOW_BALANCE_OF_DESTINATION_ZONE),
+                ],
+            ),
+            txns=[
+                PathTrxn('x1', priority=1, upper_limit=flow_limit,
+                    path=[TrxnPathItem('X0', expected_values=[flow_limit])]),
+                PathTrxn('x2', priority=2, upper_limit=flow_limit,
+                    path=[
+                        TrxnPathItem('X1', factor=-1),
+                        TrxnPathItem('D', expected_values=[0]),
+                    ]),
+                PathTrxn('x3', priority=3, upper_limit=flow_limit,
+                    path=[
+                        TrxnPathItem('X0', factor=-1),
+                        TrxnPathItem('D', expected_values=[flow_limit]),
+                    ]),
+            ],
+            measurements=MeasurementCollection(
+                series=[
+                    MeasurementSeries('X0', [0]),
+                    MeasurementSeries('X1', [0]),
+                    MeasurementSeries('D', [flow_limit]),
+                ],
+                beg_date=DAY,
+                end_date=DAY,
+            ),
+            beg_date=DAY,
+            end_date=DAY,
+        )
+        solve(problem, check_expected_values=True)
 
 class B_Imports(unittest.TestCase):
 

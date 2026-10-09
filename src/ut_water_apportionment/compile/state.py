@@ -70,7 +70,6 @@ class RuntimeStateLayout:
     account_in_remaining: dict[tuple[str, str], Slot] = field(default_factory=dict)
     to_account_coefficients: dict[str, tuple[Slot, Slot]] = field(default_factory=dict)
     spill_credits: list[SpillCreditSpec] = field(default_factory=list)
-    counterflow_slack_limits: dict[tuple[str, int], Slot] = field(default_factory=dict)
     max_daily_apportionment: float = field(default=inf)
 
     def add(
@@ -143,22 +142,6 @@ class RuntimeStateLayout:
             values[self.measurement_forward_remaining[name].index] = max(0.0, measured)
             if name in self.measurement_reverse_remaining:
                 values[self.measurement_reverse_remaining[name].index] = max(0.0, -measured)
-
-        # Counterflow completion can sometimes require opposite-direction reporting slack for a
-        # transaction that originates in storage.  Do not make that slack
-        # available when the measured net flow already contains physical flow
-        # in the target direction: in that case direct allocation establishes the minimum
-        # reservoir exchange and counterflow completion may use only real counterflow created by
-        # earlier allocations.  If there is no measured flow in the
-        # target direction, allow the reporting slack so a senior storage
-        # delivery can still be claimed (for example, a zero-net reservoir with
-        # a measured downstream release).
-        for (flow_id, direction), slack_slot in self.counterflow_slack_limits.items():
-            measured = values[self.measurements[flow_id].index]
-            target_direction_capacity = measured * direction
-            values[slack_slot.index] = (
-                0.0 if target_direction_capacity > 1e-10 else inf
-            )
 
         # Bind endpoint delivery factors.  These are raw inputs to generated
         # loss-transform functions.  Today each endpoint is a single fractional
@@ -469,28 +452,6 @@ def build_runtime_state_layout(
             )
             layout.boundary_natural_active[flow.id] = layout.add(
                 f"boundary_natural_active[{flow.id!r}]", sign=1
-            )
-
-    # A transaction that originates in a non-natural zone can require
-    # opposite-direction reporting slack on its first bidirectional flow.  The
-    # slot is a runtime upper bound for that slack witness. Keeping it out of
-    # the direct stage preserves the minimum-reservoir-exchange convention.
-    for transaction in layout.transactions.values():
-        if not isinstance(transaction, PathTrxn):
-            continue
-        from_zone = schedule.get_from_zone(transaction)
-        path = schedule.ordered_paths[transaction.id]
-        if from_zone is None or not path or from_zone.type in natural_types:
-            continue
-        item = path[0]
-        flow = graph.get_flow_by_id(item.flow_id)
-        if not flow.bidirectional:
-            continue
-        direction = 1 if item.factor > 0 else -1
-        key = (flow.id, direction)
-        if key not in layout.counterflow_slack_limits:
-            layout.counterflow_slack_limits[key] = layout.add(
-                f"counterflow_slack_limit[{key!r}]"
             )
 
     # A spill/import candidate is the residual direction from a non-natural

@@ -1,13 +1,12 @@
 import builtins
-from copy import deepcopy
 from dataclasses import dataclass, field
 from math import isfinite
-from typing import Callable, TypeAlias
+from typing import Callable
 
 from ..models import PathTrxn, SolverInput, TrxnGroup, ZoneTypes
+from ..trxn_schedule import prepare_transaction_priorities
 from .kernel import (
-    DirectCalculationKernel, LPKernel, ProportionalCalculationKernel,
-    ScalarFormulaKernel, compile_direct_kernel, compile_lp_kernel,
+    CompiledKernel, compile_direct_kernel, compile_lp_kernel,
     compile_proportional_kernel, compile_scalar_formula_kernel,
 )
 from .lp import BlockLP, Constraint, Maximize, Proportional, Slot, Variable
@@ -18,14 +17,6 @@ from .state import RuntimeStateLayout, build_runtime_state_layout
 class PriorityBlock:
     trxns: list[TrxnGroup | PathTrxn]
     priority_order: float
-
-
-CompiledKernel: TypeAlias = (
-    DirectCalculationKernel
-    | ProportionalCalculationKernel
-    | ScalarFormulaKernel
-    | LPKernel
-)
 
 
 @dataclass(frozen=True)
@@ -123,15 +114,7 @@ def compile(
     input: SolverInput,
     options: CompileOptions = CompileOptions(),
 ) -> CompiledPlan:
-    """Take solver input and compile code that will calculate apportionments.
-
-    Counterflow is part of the ordinary priority-block calculation.  A block
-    first consumes directly measured directional capacity and, when that
-    capacity is exhausted, may immediately run a signed counterflow
-    completion using future opposite-direction transactions as feasibility
-    witnesses.  The same block function is used again after spill credits are
-    added; there is no separate counterflow formulation.
-    """
+    """Take solver input and compile code that will calculate apportionments."""
 
     state_layout = build_runtime_state_layout(
         input, max_daily_apportionment=options.max_daily_apportionment
@@ -143,6 +126,12 @@ def compile(
         primary = compile_block(model, options)
         counterflow = None
 
+        '''Counterflow is part of the ordinary priority-block calculation.  A block
+        first consumes directly measured directional capacity and, when that
+        capacity is exhausted, may immediately run a signed counterflow
+        completion using future opposite-direction transactions as feasibility
+        witnesses.  The same block function is used again after spill credits are
+        added; there is no separate counterflow formulation.'''
         if _block_needs_counterflow(block, state_layout):
             counterflow_model = build_block_lp(
                 state_layout.input, block, state_layout, counterflow=True
@@ -289,27 +278,26 @@ def try_compile_parent_group_formula(lp_model):
 def priority_blocks(input: SolverInput) -> list[PriorityBlock]:
     """Stable priority groups; reference cfs are bound daily, never frozen here.
 
-    Copy the transactions and preserve the existing rule that children with an
-    equal/earlier priority follow their parent. Do not filter an inactive first
-    day's transactions: later dates can activate them without recompilation.
+    Prepare the same effective priorities as TrxnSchedule: defaults run in
+    input order, explicit equal priorities share a block, and children follow
+    their parent. Do not filter an inactive first day's transactions: later
+    dates can activate them without recompilation.
     """
     groups = {}
     seen = set()
 
-    def visit(transactions, parent_priority=None):
+    def visit(transactions):
         for transaction in transactions:
             if transaction.id in seen:
                 raise ValueError(f"Duplicate transaction ID: {transaction.id!r}")
             seen.add(transaction.id)
             if isinstance(transaction, PathTrxn) and transaction.is_slack:
                 continue
-            if parent_priority is not None and transaction.priority <= parent_priority:
-                transaction.priority = parent_priority + 1e-5
             groups.setdefault(transaction.priority, []).append(transaction)
             if isinstance(transaction, TrxnGroup):
-                visit(transaction.children_trxns, transaction.priority)
+                visit(transaction.children_trxns)
 
-    visit(deepcopy(input.txns))
+    visit(prepare_transaction_priorities(input.txns))
     return [PriorityBlock(groups[priority], priority) for priority in sorted(groups)]
 
 
@@ -333,6 +321,8 @@ def build_block_lp(
     * Descendants of a group target: temporary local feasibility witnesses
       showing how much the parent could be consumed under current conditions.
       They exist only in the parent's own priority block.
+    * Counterflow witnesses: future opposite-direction transactions, including
+      dependencies at their other storage sources and destinations recursively.
 
     Constraints
     -----------
@@ -378,9 +368,8 @@ def build_block_lp(
             included.update(layout.descendants(name))
 
     # Counterflow completion: identify the reservoir-edge net-flow rows that
-    # need to be active. Transactions entering storage may use real future
-    # opposite-direction transactions as feasibility witnesses. Transactions
-    # leaving storage instead use a narrowly scoped reporting-slack witness.
+    # need to be active. Both storage fills and releases may use real future
+    # opposite-direction transactions as feasibility witnesses.
     locked_flow_directions: dict[str, set[int]] = {}
     storage_outflow_directions: dict[str, set[int]] = {}
 
@@ -424,28 +413,52 @@ def build_block_lp(
                         1 if item.factor > 0 else -1
                     )
 
-        # For an inflow target, only real accounting transactions in the
-        # opposite direction are useful witnesses.  This is the structural
-        # replacement for the legacy temporary minimization of reverse/slack
-        # variables: unrelated counterflow variables simply do not exist in
-        # the block LP.
+        # A witness can originate in or deliver to another storage zone. Follow
+        # both endpoint dependencies until every required edge has been visited.
+        # Only real same/later-priority transactions enter this closure, and
+        # unrelated counterflow stays outside the block.
         counterflow_witnesses: dict[tuple[str, int], list[tuple[str, int]]] = {}
-        for flow_id, target_directions in locked_flow_directions.items():
-            for name, transaction in layout.transactions.items():
-                if not isinstance(transaction, PathTrxn):
+        pending = [
+            (flow_id, direction)
+            for source in (locked_flow_directions, storage_outflow_directions)
+            for flow_id, directions in source.items()
+            for direction in sorted(directions)
+        ]
+        visited = set()
+        while pending:
+            flow_id, target_direction = pending.pop()
+            key = (flow_id, target_direction)
+            if key in visited:
+                continue
+            visited.add(key)
+            witnesses = counterflow_witnesses.setdefault(key, [])
+            for transaction, item in layout.schedule.lookup_flow_trxns[flow_id]:
+                name = transaction.id
+                if (name not in layout.transactions
+                        or transaction.priority < block.priority_order
+                        or (1 if item.factor > 0 else -1) != -target_direction):
                     continue
-                if transaction.priority < block.priority_order:
-                    continue
-                for index, item in enumerate(layout.schedule.ordered_paths[name]):
-                    if item.flow_id == flow_id:
-                        direction = 1 if item.factor > 0 else -1
-                        for target_direction in target_directions:
-                            if direction == -target_direction:
-                                included.add(name)
-                                counterflow_witnesses.setdefault(
-                                    (flow_id, target_direction), []
-                                ).append((name, index))
-                        break
+                included.add(name)
+                path = layout.schedule.ordered_paths[name]
+                index = next(i for i, leg in enumerate(path) if leg.flow_id == flow_id)
+                witnesses.append((name, index))
+                endpoints = (
+                    (layout.schedule.get_from_zone(transaction), path[0],
+                     storage_outflow_directions),
+                    (layout.schedule.get_to_zone(transaction), path[-1],
+                     locked_flow_directions),
+                )
+                for zone, endpoint, endpoint_directions in endpoints:
+                    # The shared edge already has the required net-flow row.
+                    # Recurse through any other storage source or destination.
+                    if (zone is None
+                            or zone.type in {ZoneTypes.STREAM, ZoneTypes.SYSTEM_GAIN_LOSS}
+                            or endpoint.flow_id == flow_id
+                            or not layout.graph.get_flow_by_id(endpoint.flow_id).bidirectional):
+                        continue
+                    direction = 1 if endpoint.factor > 0 else -1
+                    endpoint_directions.setdefault(endpoint.flow_id, set()).add(direction)
+                    pending.append((endpoint.flow_id, direction))
 
         # If every usable counterflow witness for a target edge is a direct
         # child of the same group, committing the senior counterflow target must
@@ -505,26 +518,8 @@ def build_block_lp(
         upper = 0.0 if transaction.priority < block.priority_order else layout.limits[name]
         variables[name] = Variable(lower=0.0, upper=upper)
 
-    # Counterflow reporting slack for transactions originating in storage.
-    # These variables are absent from the direct stage. Their runtime upper
-    # bound is zero when the measured reservoir exchange already contains flow
-    # in the target direction, preventing counterflow from enlarging a
-    # real release merely to consume downstream slack.  When no such measured
-    # flow exists, the witness can balance a senior storage delivery (for
-    # example a zero-net reservoir with a measured downstream release).
-    counterflow_slack_variables: dict[tuple[str, int], str] = {}
     counterflow_residual_variables: dict[tuple[str, int], str] = {}
     if counterflow:
-        for flow_id, directions in storage_outflow_directions.items():
-            for direction in directions:
-                key = (flow_id, direction)
-                limit = layout.counterflow_slack_limits.get(key)
-                if limit is None:
-                    continue
-                variable_name = f"__counterflow_slack__[{flow_id!r},{direction}]"
-                counterflow_slack_variables[key] = variable_name
-                variables[variable_name] = Variable(lower=0.0, upper=limit)
-
         # Preserve any pre-existing signed reservoir residual as a fixed
         # feasibility witness.  This makes zero *additional* allocation
         # feasible on independent storage edges without allowing the residual
@@ -629,8 +624,22 @@ def build_block_lp(
 
                 inflow_directions = locked_flow_directions.get(item.flow_id)
                 outflow_directions = storage_outflow_directions.get(item.flow_id)
-                directions = inflow_directions or outflow_directions
+                directions = (inflow_directions or set()) | (outflow_directions or set())
                 if not directions:
+                    # A bidirectional witness leg outside the counterflow
+                    # closure still has its ordinary directional capacity.
+                    # Dropping it would make the witness artificially feasible.
+                    direction = "forward" if item.factor > 0 else "reverse"
+                    remaining = (
+                        layout.measurement_forward_remaining if item.factor > 0
+                        else layout.measurement_reverse_remaining
+                    )
+                    constraint_name = f"measurement_{direction}[{item.flow_id!r}]"
+                    add_constraint(constraint_name, upper=remaining[item.flow_id])
+                    signed, negated = layout.flow_coefficients[name, item.flow_id]
+                    set_coefficient(
+                        constraint_name, name, signed if item.factor > 0 else negated
+                    )
                     continue
                 row = flow_rows.setdefault(item.flow_id, {
                     'coefficients': {}, 'directions': directions,
@@ -642,19 +651,12 @@ def build_block_lp(
         # Add fixed witnesses for the signed residual that existed before
         # this counterflow completion.
         for (flow_id, direction), variable_name in counterflow_residual_variables.items():
-            directions = locked_flow_directions.get(flow_id) or storage_outflow_directions.get(flow_id) or {1}
+            directions = (locked_flow_directions.get(flow_id, set())
+                          | storage_outflow_directions.get(flow_id, set()))
             row = flow_rows.setdefault(flow_id, {
                 'coefficients': {}, 'directions': directions,
             })
             row['coefficients'][variable_name] = float(direction)
-
-        # Add the narrowly-scoped storage-source reporting slack to its own
-        # reservoir-edge row.  Its sign is opposite the target direction.
-        for (flow_id, direction), variable_name in counterflow_slack_variables.items():
-            row = flow_rows.setdefault(flow_id, {
-                'coefficients': {}, 'directions': {direction},
-            })
-            row['coefficients'][variable_name] = float(-direction)
 
         for flow_id, row in flow_rows.items():
             directions = row['directions']
